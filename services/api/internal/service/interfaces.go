@@ -212,3 +212,137 @@ type CreateDriftReportParams struct {
 	CompliantAssets int
 	CoveragePct     float64
 }
+
+// SiteRepository defines the interface for site data access.
+type SiteRepository interface {
+	GetSite(ctx context.Context, id uuid.UUID) (*Site, error)
+	ListSites(ctx context.Context, params ListSitesParams) ([]Site, error)
+	CountSitesByOrg(ctx context.Context, orgID uuid.UUID) (int64, error)
+	GetSiteWithAssetStats(ctx context.Context, id uuid.UUID, orgID uuid.UUID) (*SiteWithStats, error)
+	ListSitesWithStats(ctx context.Context, orgID uuid.UUID) ([]SiteWithStats, error)
+}
+
+// Site represents a site/location in the infrastructure.
+type Site struct {
+	ID             uuid.UUID  `json:"id"`
+	OrgID          uuid.UUID  `json:"orgId"`
+	Name           string     `json:"name"`
+	Region         string     `json:"region"`
+	Platform       string     `json:"platform"`
+	Environment    string     `json:"environment"`
+	DRPairedSiteID *uuid.UUID `json:"drPairedSiteId,omitempty"`
+	LastSyncAt     *time.Time `json:"lastSyncAt,omitempty"`
+	Metadata       []byte     `json:"metadata,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+}
+
+// SiteWithStats represents a site with computed asset statistics.
+type SiteWithStats struct {
+	Site
+	AssetCount         int     `json:"assetCount"`
+	CompliantCount     int     `json:"compliantCount"`
+	DriftedCount       int     `json:"driftedCount"`
+	CoveragePercentage float64 `json:"coveragePercentage"`
+	Status             string  `json:"status"` // healthy, warning, critical
+	DRPaired           bool    `json:"drPaired"`
+}
+
+// ListSitesParams contains parameters for listing sites.
+type ListSitesParams struct {
+	OrgID    uuid.UUID
+	Platform *string
+	Region   *string
+	Limit    int32
+	Offset   int32
+}
+
+// AlertRepository defines the interface for alert data access.
+type AlertRepository interface {
+	GetAlert(ctx context.Context, id uuid.UUID) (*Alert, error)
+	ListAlerts(ctx context.Context, params ListAlertsParams) ([]Alert, error)
+	CountAlertsByOrg(ctx context.Context, orgID uuid.UUID) (int64, error)
+	CountAlertsBySeverity(ctx context.Context, orgID uuid.UUID) ([]AlertCount, error)
+	UpdateAlertStatus(ctx context.Context, id uuid.UUID, status string, userID *uuid.UUID) error
+	CreateAlert(ctx context.Context, params CreateAlertParams) (*Alert, error)
+}
+
+// Alert represents a system alert.
+type Alert struct {
+	ID             uuid.UUID  `json:"id"`
+	OrgID          uuid.UUID  `json:"orgId"`
+	Severity       string     `json:"severity"` // critical, warning, info
+	Title          string     `json:"title"`
+	Description    string     `json:"description"`
+	Source         string     `json:"source"` // drift, compliance, connector, system
+	SiteID         *uuid.UUID `json:"siteId,omitempty"`
+	AssetID        *uuid.UUID `json:"assetId,omitempty"`
+	ImageID        *uuid.UUID `json:"imageId,omitempty"`
+	Status         string     `json:"status"` // open, acknowledged, resolved
+	CreatedAt      time.Time  `json:"createdAt"`
+	AcknowledgedAt *time.Time `json:"acknowledgedAt,omitempty"`
+	AcknowledgedBy *uuid.UUID `json:"acknowledgedBy,omitempty"`
+	ResolvedAt     *time.Time `json:"resolvedAt,omitempty"`
+	ResolvedBy     *uuid.UUID `json:"resolvedBy,omitempty"`
+}
+
+// AlertCount represents count of alerts by severity.
+type AlertCount struct {
+	Severity string `json:"severity"`
+	Count    int    `json:"count"`
+}
+
+// ListAlertsParams contains parameters for listing alerts.
+type ListAlertsParams struct {
+	OrgID    uuid.UUID
+	Severity *string
+	Status   *string
+	Source   *string
+	SiteID   *uuid.UUID
+	Limit    int32
+	Offset   int32
+}
+
+// CreateAlertParams contains parameters for creating an alert.
+type CreateAlertParams struct {
+	OrgID       uuid.UUID
+	Severity    string
+	Title       string
+	Description string
+	Source      string
+	SiteID      *uuid.UUID
+	AssetID     *uuid.UUID
+	ImageID     *uuid.UUID
+}
+
+// ActivityRepository defines the interface for activity data access.
+type ActivityRepository interface {
+	ListRecentActivities(ctx context.Context, orgID uuid.UUID, limit int) ([]Activity, error)
+	CreateActivity(ctx context.Context, params CreateActivityParams) (*Activity, error)
+}
+
+// Activity represents a recent activity/event in the system.
+type Activity struct {
+	ID        uuid.UUID  `json:"id"`
+	OrgID     uuid.UUID  `json:"orgId"`
+	Type      string     `json:"type"`   // info, warning, success, critical
+	Action    string     `json:"action"`
+	Detail    string     `json:"detail,omitempty"`
+	UserID    *uuid.UUID `json:"userId,omitempty"`
+	SiteID    *uuid.UUID `json:"siteId,omitempty"`
+	AssetID   *uuid.UUID `json:"assetId,omitempty"`
+	ImageID   *uuid.UUID `json:"imageId,omitempty"`
+	Timestamp time.Time  `json:"timestamp"`
+}
+
+// CreateActivityParams contains parameters for creating an activity.
+type CreateActivityParams struct {
+	OrgID   uuid.UUID
+	Type    string
+	Action  string
+	Detail  string
+	UserID  *uuid.UUID
+	SiteID  *uuid.UUID
+	AssetID *uuid.UUID
+	ImageID *uuid.UUID
+}

@@ -349,6 +349,75 @@ func (a *DriftRepositoryAdapter) GetDriftTrend(ctx context.Context, orgID uuid.U
 	return result, nil
 }
 
+// SiteRepositoryAdapter adapts Repository to implement service.SiteRepository.
+type SiteRepositoryAdapter struct {
+	repo *Repository
+}
+
+// NewSiteRepositoryAdapter creates a new SiteRepositoryAdapter.
+func NewSiteRepositoryAdapter(pool *pgxpool.Pool) *SiteRepositoryAdapter {
+	return &SiteRepositoryAdapter{repo: New(pool)}
+}
+
+// GetSite returns a site by ID.
+func (a *SiteRepositoryAdapter) GetSite(ctx context.Context, id uuid.UUID) (*service.Site, error) {
+	site, err := a.repo.GetSite(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return repoSiteToService(site), nil
+}
+
+// ListSites returns a list of sites.
+func (a *SiteRepositoryAdapter) ListSites(ctx context.Context, params service.ListSitesParams) ([]service.Site, error) {
+	repoParams := ListSitesParams{
+		OrgID:    params.OrgID,
+		Platform: params.Platform,
+		Region:   params.Region,
+		Limit:    params.Limit,
+		Offset:   params.Offset,
+	}
+
+	sites, err := a.repo.ListSites(ctx, repoParams)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]service.Site, 0, len(sites))
+	for _, site := range sites {
+		result = append(result, *repoSiteToService(&site))
+	}
+	return result, nil
+}
+
+// CountSitesByOrg counts sites for an organization.
+func (a *SiteRepositoryAdapter) CountSitesByOrg(ctx context.Context, orgID uuid.UUID) (int64, error) {
+	return a.repo.CountSitesByOrg(ctx, orgID)
+}
+
+// GetSiteWithAssetStats retrieves a site with computed asset statistics.
+func (a *SiteRepositoryAdapter) GetSiteWithAssetStats(ctx context.Context, id uuid.UUID, orgID uuid.UUID) (*service.SiteWithStats, error) {
+	site, err := a.repo.GetSiteWithAssetStats(ctx, id, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return repoSiteWithStatsToService(site), nil
+}
+
+// ListSitesWithStats retrieves all sites with asset statistics.
+func (a *SiteRepositoryAdapter) ListSitesWithStats(ctx context.Context, orgID uuid.UUID) ([]service.SiteWithStats, error) {
+	sites, err := a.repo.ListSitesWithStats(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]service.SiteWithStats, 0, len(sites))
+	for _, site := range sites {
+		result = append(result, *repoSiteWithStatsToService(&site))
+	}
+	return result, nil
+}
+
 // Helper functions to convert between repository and service types
 func repoImageToService(img *Image) *service.Image {
 	return &service.Image{
@@ -410,5 +479,214 @@ func repoDriftReportToService(report *DriftReport) *service.DriftReport {
 		CoveragePct:     report.CoveragePct,
 		Status:          report.Status,
 		CalculatedAt:    report.CalculatedAt,
+	}
+}
+
+func repoSiteToService(site *Site) *service.Site {
+	return &service.Site{
+		ID:             site.ID,
+		OrgID:          site.OrgID,
+		Name:           site.Name,
+		Region:         site.Region,
+		Platform:       site.Platform,
+		Environment:    site.Environment,
+		DRPairedSiteID: site.DRPairedSiteID,
+		LastSyncAt:     site.LastSyncAt,
+		Metadata:       site.Metadata,
+		CreatedAt:      site.CreatedAt,
+		UpdatedAt:      site.UpdatedAt,
+	}
+}
+
+func repoSiteWithStatsToService(site *SiteWithStats) *service.SiteWithStats {
+	return &service.SiteWithStats{
+		Site: service.Site{
+			ID:             site.ID,
+			OrgID:          site.OrgID,
+			Name:           site.Name,
+			Region:         site.Region,
+			Platform:       site.Platform,
+			Environment:    site.Environment,
+			DRPairedSiteID: site.DRPairedSiteID,
+			LastSyncAt:     site.LastSyncAt,
+			Metadata:       site.Metadata,
+			CreatedAt:      site.CreatedAt,
+			UpdatedAt:      site.UpdatedAt,
+		},
+		AssetCount:         site.AssetCount,
+		CompliantCount:     site.CompliantCount,
+		DriftedCount:       site.DriftedCount,
+		CoveragePercentage: site.CoveragePercentage,
+		Status:             site.Status,
+		DRPaired:           site.DRPaired,
+	}
+}
+
+// AlertRepositoryAdapter adapts Repository to implement service.AlertRepository.
+type AlertRepositoryAdapter struct {
+	repo *Repository
+}
+
+// NewAlertRepositoryAdapter creates a new AlertRepositoryAdapter.
+func NewAlertRepositoryAdapter(pool *pgxpool.Pool) *AlertRepositoryAdapter {
+	return &AlertRepositoryAdapter{repo: New(pool)}
+}
+
+// GetAlert returns an alert by ID.
+func (a *AlertRepositoryAdapter) GetAlert(ctx context.Context, id uuid.UUID) (*service.Alert, error) {
+	alert, err := a.repo.GetAlert(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return repoAlertToService(alert), nil
+}
+
+// ListAlerts returns a list of alerts.
+func (a *AlertRepositoryAdapter) ListAlerts(ctx context.Context, params service.ListAlertsParams) ([]service.Alert, error) {
+	repoParams := ListAlertsParams{
+		OrgID:    params.OrgID,
+		Severity: params.Severity,
+		Status:   params.Status,
+		Source:   params.Source,
+		SiteID:   params.SiteID,
+		Limit:    params.Limit,
+		Offset:   params.Offset,
+	}
+
+	alerts, err := a.repo.ListAlerts(ctx, repoParams)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]service.Alert, 0, len(alerts))
+	for _, alert := range alerts {
+		result = append(result, *repoAlertToService(&alert))
+	}
+	return result, nil
+}
+
+// CountAlertsByOrg counts alerts for an organization.
+func (a *AlertRepositoryAdapter) CountAlertsByOrg(ctx context.Context, orgID uuid.UUID) (int64, error) {
+	return a.repo.CountAlertsByOrg(ctx, orgID)
+}
+
+// CountAlertsBySeverity counts alerts grouped by severity.
+func (a *AlertRepositoryAdapter) CountAlertsBySeverity(ctx context.Context, orgID uuid.UUID) ([]service.AlertCount, error) {
+	counts, err := a.repo.CountAlertsBySeverity(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]service.AlertCount, 0, len(counts))
+	for _, c := range counts {
+		result = append(result, service.AlertCount{
+			Severity: c.Severity,
+			Count:    c.Count,
+		})
+	}
+	return result, nil
+}
+
+// UpdateAlertStatus updates an alert's status.
+func (a *AlertRepositoryAdapter) UpdateAlertStatus(ctx context.Context, id uuid.UUID, status string, userID *uuid.UUID) error {
+	return a.repo.UpdateAlertStatus(ctx, id, status, userID)
+}
+
+// CreateAlert creates a new alert.
+func (a *AlertRepositoryAdapter) CreateAlert(ctx context.Context, params service.CreateAlertParams) (*service.Alert, error) {
+	repoParams := CreateAlertParams{
+		OrgID:       params.OrgID,
+		Severity:    params.Severity,
+		Title:       params.Title,
+		Description: params.Description,
+		Source:      params.Source,
+		SiteID:      params.SiteID,
+		AssetID:     params.AssetID,
+		ImageID:     params.ImageID,
+	}
+
+	alert, err := a.repo.CreateAlert(ctx, repoParams)
+	if err != nil {
+		return nil, err
+	}
+	return repoAlertToService(alert), nil
+}
+
+func repoAlertToService(alert *Alert) *service.Alert {
+	return &service.Alert{
+		ID:             alert.ID,
+		OrgID:          alert.OrgID,
+		Severity:       alert.Severity,
+		Title:          alert.Title,
+		Description:    alert.Description,
+		Source:         alert.Source,
+		SiteID:         alert.SiteID,
+		AssetID:        alert.AssetID,
+		ImageID:        alert.ImageID,
+		Status:         alert.Status,
+		CreatedAt:      alert.CreatedAt,
+		AcknowledgedAt: alert.AcknowledgedAt,
+		AcknowledgedBy: alert.AcknowledgedBy,
+		ResolvedAt:     alert.ResolvedAt,
+		ResolvedBy:     alert.ResolvedBy,
+	}
+}
+
+// ActivityRepositoryAdapter adapts Repository to implement service.ActivityRepository.
+type ActivityRepositoryAdapter struct {
+	repo *Repository
+}
+
+// NewActivityRepositoryAdapter creates a new ActivityRepositoryAdapter.
+func NewActivityRepositoryAdapter(pool *pgxpool.Pool) *ActivityRepositoryAdapter {
+	return &ActivityRepositoryAdapter{repo: New(pool)}
+}
+
+// ListRecentActivities retrieves recent activities.
+func (a *ActivityRepositoryAdapter) ListRecentActivities(ctx context.Context, orgID uuid.UUID, limit int) ([]service.Activity, error) {
+	activities, err := a.repo.ListRecentActivities(ctx, orgID, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]service.Activity, 0, len(activities))
+	for _, act := range activities {
+		result = append(result, *repoActivityToService(&act))
+	}
+	return result, nil
+}
+
+// CreateActivity creates a new activity.
+func (a *ActivityRepositoryAdapter) CreateActivity(ctx context.Context, params service.CreateActivityParams) (*service.Activity, error) {
+	repoParams := CreateActivityParams{
+		OrgID:   params.OrgID,
+		Type:    params.Type,
+		Action:  params.Action,
+		Detail:  params.Detail,
+		UserID:  params.UserID,
+		SiteID:  params.SiteID,
+		AssetID: params.AssetID,
+		ImageID: params.ImageID,
+	}
+
+	activity, err := a.repo.CreateActivity(ctx, repoParams)
+	if err != nil {
+		return nil, err
+	}
+	return repoActivityToService(activity), nil
+}
+
+func repoActivityToService(activity *Activity) *service.Activity {
+	return &service.Activity{
+		ID:        activity.ID,
+		OrgID:     activity.OrgID,
+		Type:      activity.Type,
+		Action:    activity.Action,
+		Detail:    activity.Detail,
+		UserID:    activity.UserID,
+		SiteID:    activity.SiteID,
+		AssetID:   activity.AssetID,
+		ImageID:   activity.ImageID,
+		Timestamp: activity.Timestamp,
 	}
 }

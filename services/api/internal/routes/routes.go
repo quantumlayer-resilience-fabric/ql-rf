@@ -57,17 +57,30 @@ func New(cfg Config) http.Handler {
 	imageRepo := repository.NewImageRepositoryAdapter(cfg.DB.Pool)
 	assetRepo := repository.NewAssetRepositoryAdapter(cfg.DB.Pool)
 	driftRepo := repository.NewDriftRepositoryAdapter(cfg.DB.Pool)
+	siteRepo := repository.NewSiteRepositoryAdapter(cfg.DB.Pool)
+	alertRepo := repository.NewAlertRepositoryAdapter(cfg.DB.Pool)
+	activityRepo := repository.NewActivityRepositoryAdapter(cfg.DB.Pool)
 
 	// Initialize service layer
 	imageSvc := service.NewImageService(imageRepo)
 	assetSvc := service.NewAssetService(assetRepo)
 	driftSvc := service.NewDriftService(driftRepo, assetRepo, imageRepo)
+	siteSvc := service.NewSiteService(siteRepo)
+	alertSvc := service.NewAlertService(alertRepo)
+	overviewSvc := service.NewOverviewService(assetRepo, driftRepo, siteRepo, alertRepo, activityRepo)
+	complianceSvc := service.NewComplianceService()
+	resilienceSvc := service.NewResilienceService(siteRepo)
 
 	// Initialize handlers
 	healthHandler := handlers.NewHealthHandler(cfg.DB, cfg.BuildInfo.Version, cfg.BuildInfo.GitCommit)
 	imageHandler := handlers.NewImageHandler(imageSvc, cfg.Logger)
 	assetHandler := handlers.NewAssetHandler(assetSvc, cfg.Logger)
 	driftHandler := handlers.NewDriftHandler(driftSvc, cfg.Logger)
+	siteHandler := handlers.NewSiteHandler(siteSvc, cfg.Logger)
+	alertHandler := handlers.NewAlertHandler(alertSvc, cfg.Logger)
+	overviewHandler := handlers.NewOverviewHandler(overviewSvc, cfg.Logger)
+	complianceHandler := handlers.NewComplianceHandler(complianceSvc, cfg.Logger)
+	resilienceHandler := handlers.NewResilienceHandler(resilienceSvc, cfg.Logger)
 
 	// Health endpoints (no auth required)
 	r.Get("/healthz", healthHandler.Liveness)
@@ -111,6 +124,45 @@ func New(cfg Config) http.Handler {
 			r.Get("/trends", driftHandler.Trends)
 			r.Get("/reports", driftHandler.ListReports)
 			r.Get("/reports/{id}", driftHandler.GetReport)
+		})
+
+		// Sites
+		r.Route("/sites", func(r chi.Router) {
+			r.Get("/", siteHandler.List)
+			r.Get("/summary", siteHandler.Summary)
+			r.Get("/{id}", siteHandler.Get)
+		})
+
+		// Alerts
+		r.Route("/alerts", func(r chi.Router) {
+			r.Get("/", alertHandler.List)
+			r.Get("/summary", alertHandler.Summary)
+			r.Get("/{id}", alertHandler.Get)
+			r.Post("/{id}/acknowledge", alertHandler.Acknowledge)
+			r.Post("/{id}/resolve", alertHandler.Resolve)
+		})
+
+		// Overview
+		r.Route("/overview", func(r chi.Router) {
+			r.Get("/metrics", overviewHandler.GetMetrics)
+		})
+
+		// Compliance
+		r.Route("/compliance", func(r chi.Router) {
+			r.Get("/summary", complianceHandler.Summary)
+			r.Get("/frameworks", complianceHandler.ListFrameworks)
+			r.Get("/controls/failing", complianceHandler.FailingControls)
+			r.Get("/images", complianceHandler.ImageCompliance)
+			r.Post("/audit", complianceHandler.TriggerAudit)
+		})
+
+		// Resilience / DR
+		r.Route("/resilience", func(r chi.Router) {
+			r.Get("/summary", resilienceHandler.Summary)
+			r.Get("/dr-pairs", resilienceHandler.ListDRPairs)
+			r.Get("/dr-pairs/{id}", resilienceHandler.GetDRPair)
+			r.Post("/dr-pairs/{id}/test", resilienceHandler.TriggerFailoverTest)
+			r.Post("/dr-pairs/{id}/sync", resilienceHandler.TriggerSync)
 		})
 
 		// Organizations (admin only)

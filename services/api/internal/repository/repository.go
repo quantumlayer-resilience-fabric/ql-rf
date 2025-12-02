@@ -731,6 +731,469 @@ func (r *Repository) GetDriftTrend(ctx context.Context, orgID uuid.UUID, days in
 }
 
 // =============================================================================
+// Site Models and Methods
+// =============================================================================
+
+// Site represents a site/location in the infrastructure.
+type Site struct {
+	ID             uuid.UUID  `json:"id"`
+	OrgID          uuid.UUID  `json:"org_id"`
+	Name           string     `json:"name"`
+	Region         string     `json:"region"`
+	Platform       string     `json:"platform"`
+	Environment    string     `json:"environment"`
+	DRPairedSiteID *uuid.UUID `json:"dr_paired_site_id,omitempty"`
+	LastSyncAt     *time.Time `json:"last_sync_at,omitempty"`
+	Metadata       []byte     `json:"metadata,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+// SiteWithStats represents a site with computed asset statistics.
+type SiteWithStats struct {
+	Site
+	AssetCount         int     `json:"asset_count"`
+	CompliantCount     int     `json:"compliant_count"`
+	DriftedCount       int     `json:"drifted_count"`
+	CoveragePercentage float64 `json:"coverage_percentage"`
+	Status             string  `json:"status"`
+	DRPaired           bool    `json:"dr_paired"`
+}
+
+// ListSitesParams contains parameters for listing sites.
+type ListSitesParams struct {
+	OrgID    uuid.UUID
+	Platform *string
+	Region   *string
+	Limit    int32
+	Offset   int32
+}
+
+// GetSite retrieves a site by ID.
+func (r *Repository) GetSite(ctx context.Context, id uuid.UUID) (*Site, error) {
+	var s Site
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, org_id, name, region, platform, environment,
+		       dr_paired_site_id, last_sync_at, metadata, created_at, updated_at
+		FROM sites WHERE id = $1
+	`, id).Scan(
+		&s.ID, &s.OrgID, &s.Name, &s.Region, &s.Platform, &s.Environment,
+		&s.DRPairedSiteID, &s.LastSyncAt, &s.Metadata, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// ListSites retrieves sites for an organization.
+func (r *Repository) ListSites(ctx context.Context, params ListSitesParams) ([]Site, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, org_id, name, region, platform, environment,
+		       dr_paired_site_id, last_sync_at, metadata, created_at, updated_at
+		FROM sites
+		WHERE org_id = $1
+		ORDER BY name
+		LIMIT $2 OFFSET $3
+	`, params.OrgID, params.Limit, params.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sites []Site
+	for rows.Next() {
+		var s Site
+		if err := rows.Scan(
+			&s.ID, &s.OrgID, &s.Name, &s.Region, &s.Platform, &s.Environment,
+			&s.DRPairedSiteID, &s.LastSyncAt, &s.Metadata, &s.CreatedAt, &s.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		sites = append(sites, s)
+	}
+	return sites, rows.Err()
+}
+
+// CountSitesByOrg counts sites for an organization.
+func (r *Repository) CountSitesByOrg(ctx context.Context, orgID uuid.UUID) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM sites WHERE org_id = $1`, orgID).Scan(&count)
+	return count, err
+}
+
+// GetSiteWithAssetStats retrieves a site with computed asset statistics.
+func (r *Repository) GetSiteWithAssetStats(ctx context.Context, id uuid.UUID, orgID uuid.UUID) (*SiteWithStats, error) {
+	var s SiteWithStats
+	err := r.pool.QueryRow(ctx, `
+		SELECT
+			s.id, s.org_id, s.name, s.region, s.platform, s.environment,
+			s.dr_paired_site_id, s.last_sync_at, s.metadata, s.created_at, s.updated_at,
+			COALESCE(asset_stats.total, 0) as asset_count,
+			COALESCE(asset_stats.compliant, 0) as compliant_count,
+			COALESCE(asset_stats.total, 0) - COALESCE(asset_stats.compliant, 0) as drifted_count,
+			CASE
+				WHEN COALESCE(asset_stats.total, 0) = 0 THEN 0
+				ELSE (COALESCE(asset_stats.compliant, 0)::float / asset_stats.total) * 100
+			END as coverage_percentage,
+			s.dr_paired_site_id IS NOT NULL as dr_paired
+		FROM sites s
+		LEFT JOIN LATERAL (
+			SELECT
+				COUNT(*) as total,
+				COUNT(CASE
+					WHEN i.id IS NOT NULL AND a.image_version = i.version THEN 1
+				END) as compliant
+			FROM assets a
+			LEFT JOIN images i ON a.org_id = i.org_id
+				AND a.image_ref = i.family
+				AND i.status = 'production'
+			WHERE a.site_id = s.id AND a.state = 'running'
+		) asset_stats ON true
+		WHERE s.id = $1 AND s.org_id = $2
+	`, id, orgID).Scan(
+		&s.ID, &s.OrgID, &s.Name, &s.Region, &s.Platform, &s.Environment,
+		&s.DRPairedSiteID, &s.LastSyncAt, &s.Metadata, &s.CreatedAt, &s.UpdatedAt,
+		&s.AssetCount, &s.CompliantCount, &s.DriftedCount, &s.CoveragePercentage, &s.DRPaired,
+	)
+	if err != nil {
+		return nil, err
+	}
+	s.Status = calculateDriftStatus(s.CoveragePercentage)
+	return &s, nil
+}
+
+// ListSitesWithStats retrieves all sites for an organization with asset statistics.
+func (r *Repository) ListSitesWithStats(ctx context.Context, orgID uuid.UUID) ([]SiteWithStats, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT
+			s.id, s.org_id, s.name, s.region, s.platform, s.environment,
+			s.dr_paired_site_id, s.last_sync_at, s.metadata, s.created_at, s.updated_at,
+			COALESCE(asset_stats.total, 0) as asset_count,
+			COALESCE(asset_stats.compliant, 0) as compliant_count,
+			COALESCE(asset_stats.total, 0) - COALESCE(asset_stats.compliant, 0) as drifted_count,
+			CASE
+				WHEN COALESCE(asset_stats.total, 0) = 0 THEN 0
+				ELSE (COALESCE(asset_stats.compliant, 0)::float / asset_stats.total) * 100
+			END as coverage_percentage,
+			s.dr_paired_site_id IS NOT NULL as dr_paired
+		FROM sites s
+		LEFT JOIN LATERAL (
+			SELECT
+				COUNT(*) as total,
+				COUNT(CASE
+					WHEN i.id IS NOT NULL AND a.image_version = i.version THEN 1
+				END) as compliant
+			FROM assets a
+			LEFT JOIN images i ON a.org_id = i.org_id
+				AND a.image_ref = i.family
+				AND i.status = 'production'
+			WHERE a.site_id = s.id AND a.state = 'running'
+		) asset_stats ON true
+		WHERE s.org_id = $1
+		ORDER BY s.name
+	`, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sites []SiteWithStats
+	for rows.Next() {
+		var s SiteWithStats
+		if err := rows.Scan(
+			&s.ID, &s.OrgID, &s.Name, &s.Region, &s.Platform, &s.Environment,
+			&s.DRPairedSiteID, &s.LastSyncAt, &s.Metadata, &s.CreatedAt, &s.UpdatedAt,
+			&s.AssetCount, &s.CompliantCount, &s.DriftedCount, &s.CoveragePercentage, &s.DRPaired,
+		); err != nil {
+			return nil, err
+		}
+		s.Status = calculateDriftStatus(s.CoveragePercentage)
+		sites = append(sites, s)
+	}
+	return sites, rows.Err()
+}
+
+// =============================================================================
+// Alert Models and Methods
+// =============================================================================
+
+// Alert represents a system alert.
+type Alert struct {
+	ID             uuid.UUID  `json:"id"`
+	OrgID          uuid.UUID  `json:"org_id"`
+	Severity       string     `json:"severity"`
+	Title          string     `json:"title"`
+	Description    string     `json:"description"`
+	Source         string     `json:"source"`
+	SiteID         *uuid.UUID `json:"site_id,omitempty"`
+	AssetID        *uuid.UUID `json:"asset_id,omitempty"`
+	ImageID        *uuid.UUID `json:"image_id,omitempty"`
+	Status         string     `json:"status"`
+	CreatedAt      time.Time  `json:"created_at"`
+	AcknowledgedAt *time.Time `json:"acknowledged_at,omitempty"`
+	AcknowledgedBy *uuid.UUID `json:"acknowledged_by,omitempty"`
+	ResolvedAt     *time.Time `json:"resolved_at,omitempty"`
+	ResolvedBy     *uuid.UUID `json:"resolved_by,omitempty"`
+}
+
+// AlertCount represents count of alerts by severity.
+type AlertCount struct {
+	Severity string `json:"severity"`
+	Count    int    `json:"count"`
+}
+
+// ListAlertsParams contains parameters for listing alerts.
+type ListAlertsParams struct {
+	OrgID    uuid.UUID
+	Severity *string
+	Status   *string
+	Source   *string
+	SiteID   *uuid.UUID
+	Limit    int32
+	Offset   int32
+}
+
+// CreateAlertParams contains parameters for creating an alert.
+type CreateAlertParams struct {
+	OrgID       uuid.UUID
+	Severity    string
+	Title       string
+	Description string
+	Source      string
+	SiteID      *uuid.UUID
+	AssetID     *uuid.UUID
+	ImageID     *uuid.UUID
+}
+
+// GetAlert retrieves an alert by ID.
+func (r *Repository) GetAlert(ctx context.Context, id uuid.UUID) (*Alert, error) {
+	var a Alert
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, org_id, severity, title, description, source,
+		       site_id, asset_id, image_id, status, created_at,
+		       acknowledged_at, acknowledged_by, resolved_at, resolved_by
+		FROM alerts WHERE id = $1
+	`, id).Scan(
+		&a.ID, &a.OrgID, &a.Severity, &a.Title, &a.Description, &a.Source,
+		&a.SiteID, &a.AssetID, &a.ImageID, &a.Status, &a.CreatedAt,
+		&a.AcknowledgedAt, &a.AcknowledgedBy, &a.ResolvedAt, &a.ResolvedBy,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// ListAlerts retrieves alerts for an organization with optional filters.
+func (r *Repository) ListAlerts(ctx context.Context, params ListAlertsParams) ([]Alert, error) {
+	query := `
+		SELECT id, org_id, severity, title, description, source,
+		       site_id, asset_id, image_id, status, created_at,
+		       acknowledged_at, acknowledged_by, resolved_at, resolved_by
+		FROM alerts
+		WHERE org_id = $1
+	`
+	args := []interface{}{params.OrgID}
+	argIdx := 2
+
+	if params.Severity != nil {
+		query += ` AND severity = $` + string(rune('0'+argIdx))
+		args = append(args, *params.Severity)
+		argIdx++
+	}
+	if params.Status != nil {
+		query += ` AND status = $` + string(rune('0'+argIdx))
+		args = append(args, *params.Status)
+		argIdx++
+	}
+	if params.Source != nil {
+		query += ` AND source = $` + string(rune('0'+argIdx))
+		args = append(args, *params.Source)
+		argIdx++
+	}
+	if params.SiteID != nil {
+		query += ` AND site_id = $` + string(rune('0'+argIdx))
+		args = append(args, *params.SiteID)
+		argIdx++
+	}
+
+	query += ` ORDER BY created_at DESC LIMIT $` + string(rune('0'+argIdx)) + ` OFFSET $` + string(rune('0'+argIdx+1))
+	args = append(args, params.Limit, params.Offset)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var alerts []Alert
+	for rows.Next() {
+		var a Alert
+		if err := rows.Scan(
+			&a.ID, &a.OrgID, &a.Severity, &a.Title, &a.Description, &a.Source,
+			&a.SiteID, &a.AssetID, &a.ImageID, &a.Status, &a.CreatedAt,
+			&a.AcknowledgedAt, &a.AcknowledgedBy, &a.ResolvedAt, &a.ResolvedBy,
+		); err != nil {
+			return nil, err
+		}
+		alerts = append(alerts, a)
+	}
+	return alerts, rows.Err()
+}
+
+// CountAlertsByOrg counts alerts for an organization.
+func (r *Repository) CountAlertsByOrg(ctx context.Context, orgID uuid.UUID) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM alerts WHERE org_id = $1`, orgID).Scan(&count)
+	return count, err
+}
+
+// CountAlertsBySeverity counts alerts grouped by severity.
+func (r *Repository) CountAlertsBySeverity(ctx context.Context, orgID uuid.UUID) ([]AlertCount, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT severity, COUNT(*) as count
+		FROM alerts
+		WHERE org_id = $1 AND status != 'resolved'
+		GROUP BY severity
+	`, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var counts []AlertCount
+	for rows.Next() {
+		var c AlertCount
+		if err := rows.Scan(&c.Severity, &c.Count); err != nil {
+			return nil, err
+		}
+		counts = append(counts, c)
+	}
+	return counts, rows.Err()
+}
+
+// UpdateAlertStatus updates an alert's status.
+func (r *Repository) UpdateAlertStatus(ctx context.Context, id uuid.UUID, status string, userID *uuid.UUID) error {
+	var query string
+	var args []interface{}
+
+	switch status {
+	case "acknowledged":
+		query = `UPDATE alerts SET status = $1, acknowledged_at = NOW(), acknowledged_by = $2 WHERE id = $3`
+		args = []interface{}{status, userID, id}
+	case "resolved":
+		query = `UPDATE alerts SET status = $1, resolved_at = NOW(), resolved_by = $2 WHERE id = $3`
+		args = []interface{}{status, userID, id}
+	default:
+		query = `UPDATE alerts SET status = $1 WHERE id = $2`
+		args = []interface{}{status, id}
+	}
+
+	_, err := r.pool.Exec(ctx, query, args...)
+	return err
+}
+
+// CreateAlert creates a new alert.
+func (r *Repository) CreateAlert(ctx context.Context, params CreateAlertParams) (*Alert, error) {
+	var a Alert
+	err := r.pool.QueryRow(ctx, `
+		INSERT INTO alerts (org_id, severity, title, description, source, site_id, asset_id, image_id, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open')
+		RETURNING id, org_id, severity, title, description, source,
+		          site_id, asset_id, image_id, status, created_at,
+		          acknowledged_at, acknowledged_by, resolved_at, resolved_by
+	`, params.OrgID, params.Severity, params.Title, params.Description, params.Source,
+		params.SiteID, params.AssetID, params.ImageID,
+	).Scan(
+		&a.ID, &a.OrgID, &a.Severity, &a.Title, &a.Description, &a.Source,
+		&a.SiteID, &a.AssetID, &a.ImageID, &a.Status, &a.CreatedAt,
+		&a.AcknowledgedAt, &a.AcknowledgedBy, &a.ResolvedAt, &a.ResolvedBy,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// =============================================================================
+// Activity Models and Methods
+// =============================================================================
+
+// Activity represents a recent activity/event.
+type Activity struct {
+	ID        uuid.UUID  `json:"id"`
+	OrgID     uuid.UUID  `json:"org_id"`
+	Type      string     `json:"type"`
+	Action    string     `json:"action"`
+	Detail    string     `json:"detail,omitempty"`
+	UserID    *uuid.UUID `json:"user_id,omitempty"`
+	SiteID    *uuid.UUID `json:"site_id,omitempty"`
+	AssetID   *uuid.UUID `json:"asset_id,omitempty"`
+	ImageID   *uuid.UUID `json:"image_id,omitempty"`
+	Timestamp time.Time  `json:"created_at"`
+}
+
+// CreateActivityParams contains parameters for creating an activity.
+type CreateActivityParams struct {
+	OrgID   uuid.UUID
+	Type    string
+	Action  string
+	Detail  string
+	UserID  *uuid.UUID
+	SiteID  *uuid.UUID
+	AssetID *uuid.UUID
+	ImageID *uuid.UUID
+}
+
+// ListRecentActivities retrieves recent activities for an organization.
+func (r *Repository) ListRecentActivities(ctx context.Context, orgID uuid.UUID, limit int) ([]Activity, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, org_id, type, action, detail, user_id, site_id, asset_id, image_id, created_at
+		FROM activities
+		WHERE org_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, orgID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var activities []Activity
+	for rows.Next() {
+		var a Activity
+		if err := rows.Scan(
+			&a.ID, &a.OrgID, &a.Type, &a.Action, &a.Detail,
+			&a.UserID, &a.SiteID, &a.AssetID, &a.ImageID, &a.Timestamp,
+		); err != nil {
+			return nil, err
+		}
+		activities = append(activities, a)
+	}
+	return activities, rows.Err()
+}
+
+// CreateActivity creates a new activity.
+func (r *Repository) CreateActivity(ctx context.Context, params CreateActivityParams) (*Activity, error) {
+	var a Activity
+	err := r.pool.QueryRow(ctx, `
+		INSERT INTO activities (org_id, type, action, detail, user_id, site_id, asset_id, image_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, org_id, type, action, detail, user_id, site_id, asset_id, image_id, created_at
+	`, params.OrgID, params.Type, params.Action, params.Detail,
+		params.UserID, params.SiteID, params.AssetID, params.ImageID,
+	).Scan(
+		&a.ID, &a.OrgID, &a.Type, &a.Action, &a.Detail,
+		&a.UserID, &a.SiteID, &a.AssetID, &a.ImageID, &a.Timestamp,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// =============================================================================
 // Helper Functions
 // =============================================================================
 
