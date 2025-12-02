@@ -1,0 +1,360 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ql-rf.io/schemas/events-v1.json",
+  "title": "QL-RF Event Schema",
+  "description": "Schema for all events published by QL-RF services",
+
+  "definitions": {
+    "eventBase": {
+      "type": "object",
+      "required": ["id", "type", "source", "timestamp", "specversion"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier"
+        },
+        "type": {
+          "type": "string",
+          "pattern": "^[a-z]+\\.[a-z]+$",
+          "description": "Event type (e.g., image.published, drift.detected)"
+        },
+        "source": {
+          "type": "string",
+          "description": "Service that produced the event"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Event timestamp in ISO 8601 format"
+        },
+        "specversion": {
+          "type": "string",
+          "const": "1.0",
+          "description": "CloudEvents spec version"
+        },
+        "subject": {
+          "type": "string",
+          "description": "Subject of the event (e.g., image family, asset ID)"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Correlation ID for tracing related events"
+        },
+        "orgId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Organization ID for multi-tenancy"
+        }
+      }
+    },
+
+    "imagePublishedData": {
+      "type": "object",
+      "required": ["imageId", "family", "version", "status"],
+      "properties": {
+        "imageId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "family": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "testing", "production", "deprecated", "retired"]
+        },
+        "platforms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "type": "string",
+                "enum": ["aws", "azure", "gcp", "vsphere"]
+              },
+              "region": {
+                "type": "string"
+              },
+              "identifier": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "signed": {
+          "type": "boolean"
+        },
+        "sbomUrl": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+
+    "assetDiscoveredData": {
+      "type": "object",
+      "required": ["assetId", "platform", "instanceId", "action"],
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "platform": {
+          "type": "string",
+          "enum": ["aws", "azure", "gcp", "vsphere", "kubernetes"]
+        },
+        "account": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "imageRef": {
+          "type": "string"
+        },
+        "imageVersion": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": ["running", "stopped", "terminated", "pending"]
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "action": {
+          "type": "string",
+          "enum": ["discovered", "updated", "removed"]
+        }
+      }
+    },
+
+    "driftDetectedData": {
+      "type": "object",
+      "required": ["reportId", "status", "coveragePct", "totalAssets", "compliantAssets"],
+      "properties": {
+        "reportId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "envId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "site": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["healthy", "warning", "critical"]
+        },
+        "coveragePct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "totalAssets": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "compliantAssets": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "topOffenders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "assetId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "instanceId": {
+                "type": "string"
+              },
+              "currentVersion": {
+                "type": "string"
+              },
+              "expectedVersion": {
+                "type": "string"
+              },
+              "driftAgeDays": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "previousCoveragePct": {
+          "type": "number",
+          "description": "Previous coverage for trend comparison"
+        }
+      }
+    },
+
+    "complianceViolationData": {
+      "type": "object",
+      "required": ["violationId", "imageId", "rule", "severity"],
+      "properties": {
+        "violationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "imageId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "rule": {
+          "type": "string",
+          "description": "OPA policy rule that was violated"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "message": {
+          "type": "string"
+        },
+        "remediation": {
+          "type": "string"
+        }
+      }
+    },
+
+    "workflowEventData": {
+      "type": "object",
+      "required": ["workflowId", "workflowType", "status"],
+      "properties": {
+        "workflowId": {
+          "type": "string"
+        },
+        "workflowType": {
+          "type": "string",
+          "enum": ["image-build", "patch-rollout", "dr-drill", "evidence-pack"]
+        },
+        "runId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["started", "completed", "failed", "cancelled", "timed-out"]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "error": {
+          "type": "string"
+        },
+        "output": {
+          "type": "object"
+        }
+      }
+    }
+  },
+
+  "oneOf": [
+    {
+      "title": "Image Published Event",
+      "allOf": [
+        { "$ref": "#/definitions/eventBase" },
+        {
+          "properties": {
+            "type": { "const": "image.published" },
+            "data": { "$ref": "#/definitions/imagePublishedData" }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Image Deprecated Event",
+      "allOf": [
+        { "$ref": "#/definitions/eventBase" },
+        {
+          "properties": {
+            "type": { "const": "image.deprecated" },
+            "data": { "$ref": "#/definitions/imagePublishedData" }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Asset Discovered Event",
+      "allOf": [
+        { "$ref": "#/definitions/eventBase" },
+        {
+          "properties": {
+            "type": { "const": "asset.discovered" },
+            "data": { "$ref": "#/definitions/assetDiscoveredData" }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Asset Updated Event",
+      "allOf": [
+        { "$ref": "#/definitions/eventBase" },
+        {
+          "properties": {
+            "type": { "const": "asset.updated" },
+            "data": { "$ref": "#/definitions/assetDiscoveredData" }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Drift Detected Event",
+      "allOf": [
+        { "$ref": "#/definitions/eventBase" },
+        {
+          "properties": {
+            "type": { "const": "drift.detected" },
+            "data": { "$ref": "#/definitions/driftDetectedData" }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Compliance Violation Event",
+      "allOf": [
+        { "$ref": "#/definitions/eventBase" },
+        {
+          "properties": {
+            "type": { "const": "compliance.violation" },
+            "data": { "$ref": "#/definitions/complianceViolationData" }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Workflow Event",
+      "allOf": [
+        { "$ref": "#/definitions/eventBase" },
+        {
+          "properties": {
+            "type": { "pattern": "^workflow\\." },
+            "data": { "$ref": "#/definitions/workflowEventData" }
+          }
+        }
+      ]
+    }
+  ]
+}

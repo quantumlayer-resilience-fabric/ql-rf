@@ -1,0 +1,284 @@
+# QL-RF Golden Image Contract Schema
+# Version: 1.0.0
+#
+# This schema defines the structure for golden image contracts.
+# All golden images must be registered with a valid contract.
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://ql-rf.io/schemas/image-contract-v1.json"
+
+title: "Golden Image Contract"
+description: "Contract defining a golden image and its platform coordinates"
+type: object
+
+required:
+  - apiVersion
+  - kind
+  - metadata
+  - spec
+
+properties:
+  apiVersion:
+    type: string
+    const: "ql-rf.io/v1"
+    description: "API version for this contract"
+
+  kind:
+    type: string
+    const: "GoldenImage"
+    description: "Resource type"
+
+  metadata:
+    type: object
+    required:
+      - family
+      - version
+    properties:
+      family:
+        type: string
+        pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        minLength: 3
+        maxLength: 63
+        description: "Image family identifier (e.g., rhel9-baseline, windows2022-standard)"
+      version:
+        type: string
+        pattern: "^\\d+\\.\\d+\\.\\d+(-[a-z0-9]+)?$"
+        description: "Semantic version (e.g., 1.6.4, 2.0.0-beta1)"
+      labels:
+        type: object
+        additionalProperties:
+          type: string
+        description: "Optional labels for categorization"
+      annotations:
+        type: object
+        additionalProperties:
+          type: string
+        description: "Optional annotations for metadata"
+
+  spec:
+    type: object
+    required:
+      - os
+      - compliance
+    properties:
+      os:
+        type: object
+        required:
+          - name
+          - version
+        properties:
+          name:
+            type: string
+            enum: [rhel, ubuntu, debian, amazonlinux, windows, sles]
+            description: "Operating system name"
+          version:
+            type: string
+            description: "Operating system version (e.g., 9.3, 22.04, 2022)"
+          architecture:
+            type: string
+            enum: [x86_64, arm64]
+            default: x86_64
+            description: "CPU architecture"
+
+      compliance:
+        type: object
+        properties:
+          cisLevel:
+            type: integer
+            enum: [1, 2, 3]
+            description: "CIS Benchmark hardening level"
+          signed:
+            type: boolean
+            default: false
+            description: "Whether the image is signed with Cosign"
+          signatureKeyRef:
+            type: string
+            description: "Reference to signing key (e.g., cosign public key URL)"
+          sbomRequired:
+            type: boolean
+            default: true
+            description: "Whether SBOM is required"
+          sbomUrl:
+            type: string
+            format: uri
+            description: "URL to SBOM document"
+          slsaLevel:
+            type: integer
+            enum: [1, 2, 3, 4]
+            description: "SLSA provenance level"
+          attestations:
+            type: array
+            items:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [vulnerability-scan, compliance-scan, unit-test, integration-test]
+                url:
+                  type: string
+                  format: uri
+                passed:
+                  type: boolean
+
+      lifecycle:
+        type: object
+        properties:
+          status:
+            type: string
+            enum: [draft, testing, production, deprecated, retired]
+            default: draft
+            description: "Current lifecycle status"
+          createdAt:
+            type: string
+            format: date-time
+          promotedAt:
+            type: string
+            format: date-time
+            description: "When promoted to production"
+          deprecatedAt:
+            type: string
+            format: date-time
+          retiredAt:
+            type: string
+            format: date-time
+          retentionDays:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 90
+            description: "Days to retain after retirement"
+
+      platforms:
+        type: object
+        description: "Platform-specific coordinates"
+        properties:
+          aws:
+            $ref: "#/$defs/awsPlatform"
+          azure:
+            $ref: "#/$defs/azurePlatform"
+          gcp:
+            $ref: "#/$defs/gcpPlatform"
+          vsphere:
+            $ref: "#/$defs/vspherePlatform"
+
+      build:
+        type: object
+        description: "Build information"
+        properties:
+          packerTemplate:
+            type: string
+            description: "Path to Packer template"
+          sourceImage:
+            type: string
+            description: "Base image used for build"
+          buildNumber:
+            type: string
+          gitCommit:
+            type: string
+            pattern: "^[a-f0-9]{40}$"
+          ciPipelineUrl:
+            type: string
+            format: uri
+
+$defs:
+  awsPlatform:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+      regions:
+        type: array
+        items:
+          type: string
+          pattern: "^[a-z]{2}-[a-z]+-\\d+$"
+        minItems: 1
+        description: "AWS regions to publish to"
+      amiIds:
+        type: object
+        additionalProperties:
+          type: string
+          pattern: "^ami-[a-f0-9]{17}$"
+        description: "Map of region to AMI ID"
+      shareWithAccounts:
+        type: array
+        items:
+          type: string
+          pattern: "^\\d{12}$"
+        description: "AWS account IDs to share with"
+      kmsKeyId:
+        type: string
+        description: "KMS key for encryption"
+
+  azurePlatform:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+      subscriptionId:
+        type: string
+        format: uuid
+      resourceGroup:
+        type: string
+      gallery:
+        type: object
+        properties:
+          name:
+            type: string
+            description: "Shared Image Gallery name"
+          imageName:
+            type: string
+          imageVersion:
+            type: string
+        required:
+          - name
+          - imageName
+      regions:
+        type: array
+        items:
+          type: string
+        description: "Azure regions for replication"
+
+  gcpPlatform:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+      projectId:
+        type: string
+      imageFamily:
+        type: string
+        description: "GCP image family name"
+      imageName:
+        type: string
+        description: "Specific image name"
+      regions:
+        type: array
+        items:
+          type: string
+
+  vspherePlatform:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+      vcenter:
+        type: string
+        description: "vCenter server hostname"
+      datacenter:
+        type: string
+      cluster:
+        type: string
+      datastore:
+        type: string
+      folder:
+        type: string
+      templateName:
+        type: string
+        description: "VM template name in Content Library"
+      contentLibrary:
+        type: string
+        description: "Content Library name"

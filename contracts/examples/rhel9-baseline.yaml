@@ -1,0 +1,107 @@
+# Example: RHEL 9 Baseline Golden Image Contract
+#
+# This contract defines a production-ready RHEL 9 golden image
+# with CIS Level 2 hardening and multi-cloud deployment.
+
+apiVersion: ql-rf.io/v1
+kind: GoldenImage
+
+metadata:
+  family: rhel9-baseline
+  version: 1.6.4
+  labels:
+    environment: production
+    team: platform
+    tier: base
+  annotations:
+    description: "RHEL 9.3 baseline image with CIS Level 2 hardening"
+    owner: "platform-team@example.com"
+    jira: "PLAT-1234"
+
+spec:
+  os:
+    name: rhel
+    version: "9.3"
+    architecture: x86_64
+
+  compliance:
+    cisLevel: 2
+    signed: true
+    signatureKeyRef: "https://keys.example.com/cosign/platform.pub"
+    sbomRequired: true
+    sbomUrl: "s3://ql-rf-sboms/rhel9-baseline/1.6.4/sbom.spdx.json"
+    slsaLevel: 3
+    attestations:
+      - type: vulnerability-scan
+        url: "s3://ql-rf-attestations/rhel9-baseline/1.6.4/trivy-scan.json"
+        passed: true
+      - type: compliance-scan
+        url: "s3://ql-rf-attestations/rhel9-baseline/1.6.4/inspec-cis.json"
+        passed: true
+      - type: integration-test
+        url: "s3://ql-rf-attestations/rhel9-baseline/1.6.4/test-results.json"
+        passed: true
+
+  lifecycle:
+    status: production
+    createdAt: "2024-01-15T10:30:00Z"
+    promotedAt: "2024-01-20T14:00:00Z"
+    retentionDays: 90
+
+  platforms:
+    aws:
+      enabled: true
+      regions:
+        - us-east-1
+        - us-west-2
+        - eu-west-1
+        - ap-southeast-1
+      amiIds:
+        us-east-1: ami-0123456789abcdef0
+        us-west-2: ami-0fedcba9876543210
+        eu-west-1: ami-0abcdef1234567890
+        ap-southeast-1: ami-0987654321fedcba0
+      shareWithAccounts:
+        - "111111111111"  # prod account
+        - "222222222222"  # staging account
+      kmsKeyId: "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+
+    azure:
+      enabled: true
+      subscriptionId: "12345678-1234-1234-1234-123456789012"
+      resourceGroup: "rg-golden-images"
+      gallery:
+        name: "sig_platform_images"
+        imageName: "rhel9-baseline"
+        imageVersion: "1.6.4"
+      regions:
+        - eastus
+        - westeurope
+        - southeastasia
+
+    gcp:
+      enabled: true
+      projectId: "platform-images-prod"
+      imageFamily: "rhel9-baseline"
+      imageName: "rhel9-baseline-1-6-4"
+      regions:
+        - us-central1
+        - europe-west1
+        - asia-southeast1
+
+    vsphere:
+      enabled: true
+      vcenter: "vcenter.dc1.example.com"
+      datacenter: "DC1"
+      cluster: "Production"
+      datastore: "vsanDatastore"
+      folder: "/Golden-Images/RHEL"
+      templateName: "rhel9-baseline-1.6.4"
+      contentLibrary: "Golden-Images"
+
+  build:
+    packerTemplate: "packer/rhel9-baseline/rhel9.pkr.hcl"
+    sourceImage: "rhel-9.3-x86_64"
+    buildNumber: "b1234"
+    gitCommit: "abc123def456789012345678901234567890abcd"
+    ciPipelineUrl: "https://github.com/example/golden-images/actions/runs/12345"

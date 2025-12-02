@@ -1,0 +1,239 @@
+# QL-RF Windows Golden Image Contract Schema
+# Version: 1.0.0
+#
+# Extended schema for Windows-specific golden image requirements.
+# Includes Windows hardening, patching, and security configurations.
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://ql-rf.io/schemas/image-contract-windows-v1.json"
+
+title: "Windows Golden Image Contract"
+description: "Extended contract for Windows golden images with platform-specific requirements"
+type: object
+
+allOf:
+  - $ref: "image.contract.yaml"
+  - type: object
+    properties:
+      spec:
+        type: object
+        properties:
+          windows:
+            type: object
+            description: "Windows-specific configuration"
+            properties:
+              edition:
+                type: string
+                enum:
+                  - datacenter
+                  - standard
+                  - datacenter-core
+                  - standard-core
+                description: "Windows Server edition"
+
+              servicing:
+                type: object
+                properties:
+                  channel:
+                    type: string
+                    enum: [ltsc, sac]
+                    default: ltsc
+                    description: "Servicing channel (Long-Term or Semi-Annual)"
+                  wsusServer:
+                    type: string
+                    format: uri
+                    description: "WSUS server URL for updates"
+                  updatePolicy:
+                    type: string
+                    enum: [automatic, scheduled, manual]
+                    default: scheduled
+
+              security:
+                type: object
+                properties:
+                  credentialGuard:
+                    type: boolean
+                    default: true
+                    description: "Enable Credential Guard"
+                  deviceGuard:
+                    type: boolean
+                    default: true
+                    description: "Enable Device Guard"
+                  secureboot:
+                    type: boolean
+                    default: true
+                    description: "Require Secure Boot"
+                  bitlocker:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                        default: false
+                      recoveryKeyEscrow:
+                        type: string
+                        enum: [ad, azure-ad, local]
+
+              defender:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    default: true
+                  realtimeProtection:
+                    type: boolean
+                    default: true
+                  cloudDeliveredProtection:
+                    type: boolean
+                    default: true
+                  automaticSampleSubmission:
+                    type: boolean
+                    default: false
+                  exclusions:
+                    type: object
+                    properties:
+                      paths:
+                        type: array
+                        items:
+                          type: string
+                      extensions:
+                        type: array
+                        items:
+                          type: string
+                      processes:
+                        type: array
+                        items:
+                          type: string
+
+              laps:
+                type: object
+                description: "Local Administrator Password Solution"
+                properties:
+                  enabled:
+                    type: boolean
+                    default: true
+                  passwordLength:
+                    type: integer
+                    minimum: 14
+                    maximum: 64
+                    default: 20
+                  passwordAgeDays:
+                    type: integer
+                    minimum: 1
+                    maximum: 365
+                    default: 30
+                  managementMode:
+                    type: string
+                    enum: [legacy, windows-laps]
+                    default: windows-laps
+
+              roles:
+                type: array
+                description: "Windows Server roles to install"
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: "Role name (e.g., Web-Server, AD-Domain-Services)"
+                    features:
+                      type: array
+                      items:
+                        type: string
+                      description: "Role features to enable"
+
+              dotnet:
+                type: object
+                properties:
+                  framework35:
+                    type: boolean
+                    default: false
+                    description: "Install .NET Framework 3.5"
+                  framework48:
+                    type: boolean
+                    default: true
+                    description: "Install .NET Framework 4.8"
+                  dotnet6:
+                    type: boolean
+                    default: false
+                  dotnet8:
+                    type: boolean
+                    default: false
+
+              powershell:
+                type: object
+                properties:
+                  executionPolicy:
+                    type: string
+                    enum: [Restricted, AllSigned, RemoteSigned, Unrestricted]
+                    default: RemoteSigned
+                  transcription:
+                    type: boolean
+                    default: true
+                    description: "Enable PowerShell transcription logging"
+                  scriptBlockLogging:
+                    type: boolean
+                    default: true
+                    description: "Enable script block logging"
+                  constrainedLanguageMode:
+                    type: boolean
+                    default: false
+
+              audit:
+                type: object
+                description: "Windows audit policy configuration"
+                properties:
+                  logonEvents:
+                    type: boolean
+                    default: true
+                  objectAccess:
+                    type: boolean
+                    default: true
+                  policyChange:
+                    type: boolean
+                    default: true
+                  privilegeUse:
+                    type: boolean
+                    default: true
+                  processTracking:
+                    type: boolean
+                    default: false
+                  systemEvents:
+                    type: boolean
+                    default: true
+
+              firewall:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    default: true
+                  profiles:
+                    type: object
+                    properties:
+                      domain:
+                        type: boolean
+                        default: true
+                      private:
+                        type: boolean
+                        default: true
+                      public:
+                        type: boolean
+                        default: true
+                  rules:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        direction:
+                          type: string
+                          enum: [inbound, outbound]
+                        action:
+                          type: string
+                          enum: [allow, block]
+                        port:
+                          type: integer
+                        protocol:
+                          type: string
+                          enum: [tcp, udp, icmp, any]
