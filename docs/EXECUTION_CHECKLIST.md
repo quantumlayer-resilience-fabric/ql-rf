@@ -110,21 +110,61 @@ This document tracks the implementation progress of QL-RF.
   - Drift delta checks
   - Risk level enforcement
 
+### Execution Engine (`internal/executor/`)
+- [x] **Phased Rollout**
+  - Multi-phase execution with configurable wait times
+  - Asset-level tracking and status
+  - Health checks between phases
+- [x] **Rollback Support**
+  - Automatic rollback on failure
+  - Configurable rollback triggers
+  - Rollback plan execution
+- [x] **Execution Controls**
+  - Pause/Resume execution
+  - Cancel execution
+  - Real-time status updates
+
+### Notification System (`internal/notifier/`)
+- [x] **Slack Notifications**
+  - Rich formatting with colors
+  - Task and execution events
+- [x] **Email Notifications**
+  - HTML templates
+  - Configurable recipients
+- [x] **Webhook Notifications**
+  - JSON payloads
+  - Configurable endpoints
+
 ### Frontend AI Features
 - [x] **AI Copilot Page** (`/ai`)
   - Chat interface
   - Suggested prompts
   - Proactive insights sidebar
   - Context status display
+- [x] **Task Management** (`/ai/tasks`)
+  - Task list with filtering
+  - Task detail view
+  - Plan visualization
 - [x] **Task Approval Card** component
   - Risk level badges
   - Plan details (expandable)
   - Approve/Reject/Modify actions
+- [x] **Execution Status** component
+  - Progress bar with phase tracking
+  - Phase expansion with asset details
+  - Pause/Resume/Cancel controls
 - [x] **React Query Hooks** (`use-ai.ts`)
   - useSendAIMessage
   - useApproveTask
   - useRejectTask
   - usePendingTasks
+  - useAllTasks
+  - useTask
+  - useTaskExecutions
+  - useExecution
+  - usePauseExecution
+  - useResumeExecution
+  - useCancelExecution
   - useProactiveInsights
 
 ---
@@ -227,6 +267,9 @@ curl -X POST http://localhost:8083/api/v1/ai/execute \
 | ADR-004 | ✅ Implemented | Temporal for Workflows |
 | ADR-005 | ✅ Implemented | OPA as Policy Engine |
 | ADR-006 | ✅ Accepted | SBOM Format (SPDX) |
+| ADR-007 | ✅ Implemented | LLM-First Orchestration Architecture |
+| ADR-008 | ✅ Implemented | Task/Plan/Run Lifecycle & State Machine |
+| ADR-009 | ✅ Implemented | Tool Risk Taxonomy & HITL Policy |
 
 ---
 
@@ -237,14 +280,31 @@ curl -X POST http://localhost:8083/api/v1/ai/execute \
 - `services/orchestrator/internal/handlers/handlers.go` - HTTP handlers
 - `services/orchestrator/internal/agents/registry.go` - Agent definitions
 - `services/orchestrator/internal/tools/registry.go` - Tool implementations
+- `services/orchestrator/internal/executor/executor.go` - Execution engine
+- `services/orchestrator/internal/notifier/notifier.go` - Notification system
 - `services/orchestrator/internal/temporal/workflows/task_workflow.go` - Main workflow
+- `services/orchestrator/internal/validation/pipeline.go` - Validation pipeline
+- `services/orchestrator/README.md` - Service documentation
+- `services/orchestrator/api/openapi.yaml` - OpenAPI specification
+
+### OPA Policies
+- `policy/plan_safety.rego` - Production safety policies
+- `policy/sop_safety.rego` - SOP execution guardrails
+- `policy/image_safety.rego` - Image build/promotion rules
+- `policy/terraform_safety.rego` - Infrastructure change validation
+- `policy/tool_authorization.rego` - Tool access control
 
 ### Frontend
 - `ui/control-tower/src/app/(dashboard)/ai/page.tsx` - AI Copilot page
+- `ui/control-tower/src/app/(dashboard)/ai/tasks/page.tsx` - Task list page
+- `ui/control-tower/src/app/(dashboard)/ai/tasks/[taskId]/page.tsx` - Task detail page
 - `ui/control-tower/src/components/ai/task-approval-card.tsx` - Approval UI
+- `ui/control-tower/src/components/ai/execution-status.tsx` - Execution progress UI
+- `ui/control-tower/src/components/ai/quality-score-display.tsx` - Quality score UI
 - `ui/control-tower/src/hooks/use-ai.ts` - AI hooks
 
 ### Configuration
 - `pkg/config/config.go` - Centralized configuration
 - `docker-compose.yml` - Local development setup
+- `.env.example` - Environment variables template
 - `policy/*.rego` - OPA policies
