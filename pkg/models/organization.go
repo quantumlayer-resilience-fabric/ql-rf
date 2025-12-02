@@ -82,6 +82,7 @@ var RolePermissions = map[Role][]Permission{
 		PermExportReports,
 		PermTriggerDrill,
 		PermAcknowledgeAlerts,
+		PermExecuteAITasks, // Can execute (use) AI tasks
 	},
 	RoleEngineer: {
 		PermReadDashboard,
@@ -94,6 +95,8 @@ var RolePermissions = map[Role][]Permission{
 		PermExecuteRollout,
 		PermManageImages,
 		PermApplyPatches,
+		PermExecuteAITasks,  // Can execute (use) AI tasks
+		PermApproveAITasks,  // Can approve AI-generated plans
 	},
 	RoleAdmin: {
 		PermReadDashboard,
@@ -109,6 +112,8 @@ var RolePermissions = map[Role][]Permission{
 		PermManageRBAC,
 		PermConfigureIntegrations,
 		PermApproveExceptions,
+		PermExecuteAITasks,  // Can execute (use) AI tasks
+		PermApproveAITasks,  // Can approve AI-generated plans
 	},
 }
 
@@ -129,6 +134,8 @@ const (
 	PermManageRBAC            Permission = "manage:rbac"
 	PermConfigureIntegrations Permission = "configure:integrations"
 	PermApproveExceptions     Permission = "approve:exceptions"
+	PermApproveAITasks        Permission = "approve:ai-tasks"
+	PermExecuteAITasks        Permission = "execute:ai-tasks"
 )
 
 // HasPermission checks if a role has a specific permission.

@@ -13,7 +13,7 @@ This document tracks the implementation progress of QL-RF.
 - [x] PostgreSQL database setup
 - [x] Redis cache
 - [x] Kafka message broker
-- [x] Database migrations (4 migration files)
+- [x] Database migrations (5 migration files)
 
 ### Backend Services
 - [x] **API Service** (`services/api/`)
@@ -201,8 +201,17 @@ This document tracks the implementation progress of QL-RF.
 ### Multi-Tenancy
 - [x] Frontend Clerk authentication (login/signup pages)
 - [x] Backend JWT validation for API requests
-- [ ] Organization/Project/Environment RBAC
-- [ ] Row-level security in database
+- [x] **Organization/Project/Environment RBAC**
+  - Permission-based middleware (`RequirePermission`)
+  - 15 permissions defined (read, manage, trigger, approve, execute, configure)
+  - 4 roles: viewer, operator, engineer, admin
+  - AI-specific permissions: `execute:ai-tasks`, `approve:ai-tasks`
+  - Applied to API routes and orchestrator endpoints
+- [x] **Row-Level Security (RLS)** (`migrations/000005_add_row_level_security.up.sql`)
+  - RLS policies on all tenant-scoped tables
+  - `current_org_id()` function for session-based tenant isolation
+  - `TenantConn` wrapper in `pkg/database/postgres.go`
+  - Automatic org_id context for all tenant queries
 
 ### DR Features
 - [ ] DR drill execution via Temporal
@@ -279,6 +288,37 @@ curl -X POST http://localhost:8083/api/v1/ai/execute \
 
 ---
 
+## RBAC Permissions Matrix
+
+### Roles
+| Role | Description |
+|------|-------------|
+| `viewer` | Read-only access to dashboards and data |
+| `operator` | Can acknowledge alerts, trigger drills, execute AI tasks |
+| `engineer` | Can manage images, approve AI tasks, execute rollouts |
+| `admin` | Full access including RBAC management and integrations |
+
+### Permissions by Role
+| Permission | Viewer | Operator | Engineer | Admin |
+|------------|--------|----------|----------|-------|
+| `read:dashboard` | ✅ | ✅ | ✅ | ✅ |
+| `read:drift` | ✅ | ✅ | ✅ | ✅ |
+| `read:assets` | ✅ | ✅ | ✅ | ✅ |
+| `read:images` | ✅ | ✅ | ✅ | ✅ |
+| `export:reports` | ✅ | ✅ | ✅ | ✅ |
+| `trigger:drill` | | ✅ | ✅ | ✅ |
+| `acknowledge:alerts` | | ✅ | ✅ | ✅ |
+| `execute:ai-tasks` | | ✅ | ✅ | ✅ |
+| `execute:rollout` | | | ✅ | ✅ |
+| `manage:images` | | | ✅ | ✅ |
+| `apply:patches` | | | ✅ | ✅ |
+| `approve:ai-tasks` | | | ✅ | ✅ |
+| `manage:rbac` | | | | ✅ |
+| `configure:integrations` | | | | ✅ |
+| `approve:exceptions` | | | | ✅ |
+
+---
+
 ## Architecture Decision Records
 
 | ADR | Status | Description |
@@ -292,15 +332,19 @@ curl -X POST http://localhost:8083/api/v1/ai/execute \
 | ADR-007 | ✅ Implemented | LLM-First Orchestration Architecture |
 | ADR-008 | ✅ Implemented | Task/Plan/Run Lifecycle & State Machine |
 | ADR-009 | ✅ Implemented | Tool Risk Taxonomy & HITL Policy |
+| ADR-010 | ✅ Implemented | RBAC with Permission-Based Authorization |
+| ADR-011 | ✅ Implemented | Row-Level Security for Multi-Tenancy |
 
 ---
 
 ## Key Files Reference
 
-### Authentication
+### Authentication & Authorization
 - `pkg/auth/clerk.go` - Clerk JWT verification using JWKS
-- `services/api/internal/middleware/auth.go` - API service auth middleware
-- `services/orchestrator/internal/middleware/auth.go` - Orchestrator auth middleware
+- `pkg/models/organization.go` - Role and Permission definitions (15 permissions, 4 roles)
+- `services/api/internal/middleware/auth.go` - API auth middleware with RequireRole/RequirePermission
+- `services/api/internal/routes/routes.go` - Permission-protected API routes
+- `services/orchestrator/internal/middleware/auth.go` - Orchestrator auth with RequirePermission
 
 ### Orchestrator
 - `services/orchestrator/cmd/orchestrator/main.go` - Entry point
@@ -343,8 +387,12 @@ curl -X POST http://localhost:8083/api/v1/ai/execute \
 - `.env.example` - Environment variables template
 - `policy/*.rego` - OPA policies
 
+### Database
+- `pkg/database/postgres.go` - Database connection pool with RLS support (TenantConn)
+
 ### Database Migrations
-- `migrations/000001_initial_schema.up.sql` - Core tables
-- `migrations/000002_add_indexes.up.sql` - Performance indexes
-- `migrations/000003_add_compliance_dr.up.sql` - Compliance & DR tables
+- `migrations/000001_init_schema.up.sql` - Core tables (orgs, projects, users, assets, images)
+- `migrations/000002_add_connector_status.up.sql` - Connector status tracking
+- `migrations/000003_add_sites_alerts_compliance.up.sql` - Sites, alerts, DR tables
 - `migrations/000004_add_ai_orchestration.up.sql` - AI orchestration tables (ai_tasks, ai_plans, ai_runs)
+- `migrations/000005_add_row_level_security.up.sql` - RLS policies for multi-tenant isolation

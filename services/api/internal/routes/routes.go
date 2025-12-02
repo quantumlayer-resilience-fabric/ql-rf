@@ -11,6 +11,7 @@ import (
 	"github.com/quantumlayerhq/ql-rf/pkg/config"
 	"github.com/quantumlayerhq/ql-rf/pkg/database"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
+	"github.com/quantumlayerhq/ql-rf/pkg/models"
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/handlers"
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/middleware"
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/repository"
@@ -100,14 +101,20 @@ func New(cfg Config) http.Handler {
 
 		// Images
 		r.Route("/images", func(r chi.Router) {
+			// Read operations - require read:images permission
 			r.Get("/", imageHandler.List)
-			r.Post("/", imageHandler.Create)
 			r.Get("/{family}/latest", imageHandler.GetLatest)
 			r.Get("/{id}", imageHandler.Get)
-			r.Patch("/{id}", imageHandler.Update)
-			r.Delete("/{id}", imageHandler.Delete)
-			r.Post("/{id}/coordinates", imageHandler.AddCoordinate)
-			r.Post("/{id}/promote", imageHandler.Promote)
+
+			// Write operations - require manage:images permission
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequirePermission(models.PermManageImages))
+				r.Post("/", imageHandler.Create)
+				r.Patch("/{id}", imageHandler.Update)
+				r.Delete("/{id}", imageHandler.Delete)
+				r.Post("/{id}/coordinates", imageHandler.AddCoordinate)
+				r.Post("/{id}/promote", imageHandler.Promote)
+			})
 		})
 
 		// Assets
@@ -135,11 +142,17 @@ func New(cfg Config) http.Handler {
 
 		// Alerts
 		r.Route("/alerts", func(r chi.Router) {
+			// Read operations
 			r.Get("/", alertHandler.List)
 			r.Get("/summary", alertHandler.Summary)
 			r.Get("/{id}", alertHandler.Get)
-			r.Post("/{id}/acknowledge", alertHandler.Acknowledge)
-			r.Post("/{id}/resolve", alertHandler.Resolve)
+
+			// Alert actions - require acknowledge:alerts permission
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequirePermission(models.PermAcknowledgeAlerts))
+				r.Post("/{id}/acknowledge", alertHandler.Acknowledge)
+				r.Post("/{id}/resolve", alertHandler.Resolve)
+			})
 		})
 
 		// Overview
@@ -149,20 +162,30 @@ func New(cfg Config) http.Handler {
 
 		// Compliance
 		r.Route("/compliance", func(r chi.Router) {
+			// Read operations
 			r.Get("/summary", complianceHandler.Summary)
 			r.Get("/frameworks", complianceHandler.ListFrameworks)
 			r.Get("/controls/failing", complianceHandler.FailingControls)
 			r.Get("/images", complianceHandler.ImageCompliance)
-			r.Post("/audit", complianceHandler.TriggerAudit)
+
+			// Audit trigger - require trigger:drill permission (similar to DR drill)
+			r.With(middleware.RequirePermission(models.PermTriggerDrill)).
+				Post("/audit", complianceHandler.TriggerAudit)
 		})
 
 		// Resilience / DR
 		r.Route("/resilience", func(r chi.Router) {
+			// Read operations
 			r.Get("/summary", resilienceHandler.Summary)
 			r.Get("/dr-pairs", resilienceHandler.ListDRPairs)
 			r.Get("/dr-pairs/{id}", resilienceHandler.GetDRPair)
-			r.Post("/dr-pairs/{id}/test", resilienceHandler.TriggerFailoverTest)
-			r.Post("/dr-pairs/{id}/sync", resilienceHandler.TriggerSync)
+
+			// DR actions - require trigger:drill permission
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequirePermission(models.PermTriggerDrill))
+				r.Post("/dr-pairs/{id}/test", resilienceHandler.TriggerFailoverTest)
+				r.Post("/dr-pairs/{id}/sync", resilienceHandler.TriggerSync)
+			})
 		})
 
 		// Organizations (admin only)

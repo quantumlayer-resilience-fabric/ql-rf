@@ -3,6 +3,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/quantumlayerhq/ql-rf/pkg/auth"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
+	"github.com/quantumlayerhq/ql-rf/pkg/models"
 )
 
 // ContextKey is a custom type for context keys.
@@ -193,4 +195,78 @@ func GetRole(ctx context.Context) string {
 		return v
 	}
 	return ""
+}
+
+// RequireRole returns a middleware that checks if the user has the required role.
+func RequireRole(requiredRole string) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			role := GetRole(r.Context())
+			if role == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "authentication required"})
+				return
+			}
+
+			// Admin has access to everything
+			if role == "admin" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Check specific role requirement
+			if role != requiredRole {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error":    "insufficient permissions",
+					"required": requiredRole,
+					"current":  role,
+				})
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequirePermission returns a middleware that checks if the user has the required permission.
+func RequirePermission(perm models.Permission) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			roleStr := GetRole(r.Context())
+			if roleStr == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "authentication required"})
+				return
+			}
+
+			role := models.Role(roleStr)
+			if !role.IsValid() {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": "invalid role",
+					"role":  roleStr,
+				})
+				return
+			}
+
+			if !role.HasPermission(perm) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error":      "insufficient permissions",
+					"required":   string(perm),
+					"role":       roleStr,
+				})
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }

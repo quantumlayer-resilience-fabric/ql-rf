@@ -14,6 +14,7 @@ import (
 	"github.com/quantumlayerhq/ql-rf/pkg/config"
 	"github.com/quantumlayerhq/ql-rf/pkg/database"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
+	"github.com/quantumlayerhq/ql-rf/pkg/models"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/agents"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/executor"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/llm"
@@ -114,24 +115,36 @@ func (h *Handler) Router() http.Handler {
 			// Use optional auth - allows dev mode without tokens
 			r.Use(middleware.OptionalAuth(authCfg, h.log))
 
-			r.Post("/execute", h.executeTask)
+			// Read-only routes - available to all authenticated users
 			r.Get("/tasks", h.listTasks)
 			r.Get("/tasks/{taskID}", h.getTask)
-			r.Post("/tasks/{taskID}/approve", h.approveTask)
-			r.Post("/tasks/{taskID}/reject", h.rejectTask)
-			r.Post("/tasks/{taskID}/modify", h.modifyTask)
-			r.Post("/tasks/{taskID}/cancel", h.cancelTask)
-
-			// Execution management
 			r.Get("/tasks/{taskID}/executions", h.listExecutions)
 			r.Get("/executions/{executionID}", h.getExecution)
-			r.Post("/executions/{executionID}/pause", h.pauseExecution)
-			r.Post("/executions/{executionID}/resume", h.resumeExecution)
-			r.Post("/executions/{executionID}/cancel", h.cancelExecution)
-
-			// Agent and tool metadata
 			r.Get("/agents", h.listAgents)
 			r.Get("/tools", h.listTools)
+
+			// Task execution - requires execute:ai-tasks permission
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequirePermission(models.PermExecuteAITasks))
+				r.Post("/execute", h.executeTask)
+			})
+
+			// Task approval/rejection - requires approve:ai-tasks permission
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequirePermission(models.PermApproveAITasks))
+				r.Post("/tasks/{taskID}/approve", h.approveTask)
+				r.Post("/tasks/{taskID}/reject", h.rejectTask)
+				r.Post("/tasks/{taskID}/modify", h.modifyTask)
+				r.Post("/tasks/{taskID}/cancel", h.cancelTask)
+			})
+
+			// Execution control - requires execute:ai-tasks permission
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequirePermission(models.PermExecuteAITasks))
+				r.Post("/executions/{executionID}/pause", h.pauseExecution)
+				r.Post("/executions/{executionID}/resume", h.resumeExecution)
+				r.Post("/executions/{executionID}/cancel", h.cancelExecution)
+			})
 		})
 	})
 
