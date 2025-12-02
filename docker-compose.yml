@@ -110,6 +110,157 @@ services:
       kafka-topics --list --bootstrap-server kafka:29092
       "
 
+  # =============================================================================
+  # AI Orchestration Infrastructure
+  # =============================================================================
+
+  # Temporal Server - Workflow orchestration
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    container_name: qlrf-temporal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PWD=postgres
+      - POSTGRES_SEEDS=postgres
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"  # gRPC
+    volumes:
+      - ./infrastructure/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # Temporal Web UI
+  temporal-ui:
+    image: temporalio/ui:2.26.2
+    container_name: qlrf-temporal-ui
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    ports:
+      - "8088:8080"
+
+  # OPA (Open Policy Agent) - Policy enforcement
+  opa:
+    image: openpolicyagent/opa:0.68.0
+    platform: linux/amd64
+    container_name: qlrf-opa
+    command:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "--log-level=info"
+      - "--set=decision_logs.console=true"
+      - "/policies"
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./policy:/policies:ro
+    healthcheck:
+      test: ["CMD", "/opa", "version"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # =============================================================================
+  # Database Migrations
+  # =============================================================================
+  migrate:
+    image: migrate/migrate:v4.17.0
+    container_name: qlrf-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations:ro
+    command: ["-path", "/migrations", "-database", "postgres://postgres:postgres@postgres:5432/qlrf?sslmode=disable", "up"]
+
+  # =============================================================================
+  # Application Services
+  # =============================================================================
+
+  # API Service
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    container_name: qlrf-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      - RF_ENV=development
+      - RF_LOG_LEVEL=debug
+      - RF_API_HOST=0.0.0.0
+      - RF_API_PORT=8080
+      - RF_DATABASE_URL=postgres://postgres:postgres@postgres:5432/qlrf?sslmode=disable
+      - RF_REDIS_URL=redis://redis:6379/0
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # AI Orchestrator Service
+  orchestrator:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    container_name: qlrf-orchestrator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      opa:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    environment:
+      - RF_ENV=development
+      - RF_LOG_LEVEL=debug
+      - RF_ORCHESTRATOR_HOST=0.0.0.0
+      - RF_ORCHESTRATOR_PORT=8083
+      - RF_ORCHESTRATOR_ENABLED=true
+      - RF_DATABASE_URL=postgres://postgres:postgres@postgres:5432/qlrf?sslmode=disable
+      - RF_LLM_PROVIDER=azure_anthropic
+      - RF_LLM_AZURE_ANTHROPIC_ENDPOINT=https://quantumlayer-rf-resource.services.ai.azure.com
+      - RF_LLM_API_KEY=${RF_LLM_API_KEY}
+      - RF_LLM_MODEL=claude-sonnet-4-5
+      - RF_LLM_MAX_TOKENS=4096
+      - RF_LLM_TEMPERATURE=0.3
+      - RF_OPA_ENABLED=true
+      - RF_OPA_MODE=remote
+      - RF_OPA_URL=http://opa:8181
+      - RF_TEMPORAL_HOST=temporal
+      - RF_TEMPORAL_PORT=7233
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8083/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
   redis_data:

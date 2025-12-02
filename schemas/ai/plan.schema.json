@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ql-rf.io/schemas/ai/plan.schema.json",
+  "title": "Plan",
+  "description": "AI-generated plan for infrastructure operations",
+  "type": "object",
+  "required": ["id", "task_id", "type", "payload", "status"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "task_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Reference to parent Task"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "drift_plan",
+        "patch_plan",
+        "dr_runbook",
+        "compliance_report",
+        "incident_analysis",
+        "cost_optimization_plan",
+        "security_report",
+        "image_spec"
+      ],
+      "description": "Type of plan generated"
+    },
+    "payload": {
+      "type": "object",
+      "required": ["summary", "affected_assets"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 1000,
+          "description": "Human-readable summary of the plan"
+        },
+        "affected_assets": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of asset IDs affected by this plan"
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Phase"
+          },
+          "description": "Ordered list of execution phases"
+        },
+        "estimated_duration": {
+          "type": "string",
+          "pattern": "^\\d+[mhd]$",
+          "description": "Estimated duration (e.g., '2h', '30m', '1d')"
+        },
+        "risk_assessment": {
+          "type": "string",
+          "description": "Risk assessment summary"
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "schema_valid": {
+          "type": "boolean"
+        },
+        "schema_errors": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "opa_valid": {
+          "type": "boolean"
+        },
+        "opa_violations": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "safety_valid": {
+          "type": "boolean"
+        },
+        "safety_violations": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "overall_valid": {
+          "type": "boolean"
+        }
+      }
+    },
+    "quality_score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Quality score for AI feedback loop (0-100)"
+    },
+    "status": {
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["draft", "validated", "awaiting_approval", "approved", "rejected", "superseded"]
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "approved_by": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "approved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "rejection_reason": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "Phase": {
+      "type": "object",
+      "required": ["name", "assets"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Phase name (e.g., 'Canary', 'Wave1', 'Wave2')"
+        },
+        "assets": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Asset IDs in this phase"
+        },
+        "wait_time": {
+          "type": "string",
+          "pattern": "^\\d+[mh]$",
+          "description": "Wait time after phase completion (e.g., '30m', '1h')"
+        },
+        "health_checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HealthCheck"
+          },
+          "description": "Health checks to run after phase"
+        },
+        "rollback_if": {
+          "type": "string",
+          "description": "Condition triggering rollback (e.g., 'error_rate > 1%')"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "description": "Actions to perform in this phase"
+        }
+      }
+    },
+    "HealthCheck": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["http_200", "error_rate", "latency_p99", "custom_metric"]
+        },
+        "target": {
+          "type": "string",
+          "description": "Target endpoint or metric name"
+        },
+        "threshold": {
+          "type": "string",
+          "description": "Threshold condition (e.g., '< 1%', '< 500ms')"
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^\\d+[ms]$",
+          "description": "Timeout for health check"
+        }
+      }
+    },
+    "Action": {
+      "type": "object",
+      "required": ["tool", "params"],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "description": "Tool to invoke"
+        },
+        "params": {
+          "type": "object",
+          "description": "Parameters for tool invocation"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ql-rf.io/schemas/ai/task.schema.json",
+  "title": "Task",
+  "description": "AI Task entity representing a user's infrastructure operation request",
+  "type": "object",
+  "required": ["id", "org_id", "created_by", "user_intent", "status"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "org_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Organization this task belongs to"
+    },
+    "project_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Project within organization (optional)"
+    },
+    "created_by": {
+      "type": "string",
+      "format": "uuid",
+      "description": "User who created this task"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "user_intent": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 2000,
+      "description": "Original natural language request from user"
+    },
+    "task_spec": {
+      "$ref": "task-spec.schema.json",
+      "description": "Parsed TaskSpec (null until parsing completes)"
+    },
+    "execution_policy": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["plan_only", "canary_only", "full_auto"],
+          "default": "plan_only"
+        },
+        "allowed_approver_roles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "require_two_approvers": {
+          "type": "boolean",
+          "default": false
+        },
+        "timeout_minutes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30
+        }
+      },
+      "description": "Execution policy (from org defaults or task-specific)"
+    },
+    "llm_profile": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "LLM model used for parsing/planning"
+        },
+        "agent_version": {
+          "type": "string",
+          "description": "Agent version(s) used"
+        },
+        "prompts_version": {
+          "type": "string",
+          "description": "Prompts version used"
+        },
+        "total_tokens": {
+          "type": "integer",
+          "description": "Total tokens consumed"
+        },
+        "total_latency_ms": {
+          "type": "integer",
+          "description": "Total LLM latency in milliseconds"
+        }
+      },
+      "description": "LLM usage tracking for cost/performance analysis"
+    },
+    "status": {
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["created", "parsing", "planned", "failed"],
+          "description": "Current task state"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "error": {
+          "type": "string",
+          "description": "Error message if failed"
+        },
+        "error_code": {
+          "type": "string",
+          "enum": [
+            "parse_error",
+            "validation_error",
+            "scope_error",
+            "permission_error",
+            "timeout",
+            "llm_error",
+            "unknown"
+          ],
+          "description": "Error classification for debugging"
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["chat", "api", "scheduled", "webhook"],
+          "description": "How this task was created"
+        },
+        "correlation_id": {
+          "type": "string",
+          "description": "External correlation ID (e.g., incident ticket)"
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "User-defined tags"
+        }
+      }
+    }
+  }
+}

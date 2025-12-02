@@ -15,14 +15,19 @@ type Config struct {
 	Env      string `mapstructure:"env"`
 	LogLevel string `mapstructure:"log_level"`
 
-	API        APIConfig        `mapstructure:"api"`
-	Database   DatabaseConfig   `mapstructure:"database"`
-	Redis      RedisConfig      `mapstructure:"redis"`
-	Kafka      KafkaConfig      `mapstructure:"kafka"`
-	Clerk      ClerkConfig      `mapstructure:"clerk"`
-	Connectors ConnectorsConfig `mapstructure:"connectors"`
-	Drift      DriftConfig      `mapstructure:"drift"`
-	Metrics    MetricsConfig    `mapstructure:"metrics"`
+	API           APIConfig           `mapstructure:"api"`
+	Database      DatabaseConfig      `mapstructure:"database"`
+	Redis         RedisConfig         `mapstructure:"redis"`
+	Kafka         KafkaConfig         `mapstructure:"kafka"`
+	Clerk         ClerkConfig         `mapstructure:"clerk"`
+	Connectors    ConnectorsConfig    `mapstructure:"connectors"`
+	Drift         DriftConfig         `mapstructure:"drift"`
+	Metrics       MetricsConfig       `mapstructure:"metrics"`
+	Orchestrator  OrchestratorConfig  `mapstructure:"orchestrator"`
+	LLM           LLMConfig           `mapstructure:"llm"`
+	Temporal      TemporalConfig      `mapstructure:"temporal"`
+	OPA           OPAConfig           `mapstructure:"opa"`
+	Notifications NotificationConfig  `mapstructure:"notifications"`
 }
 
 // APIConfig holds API server configuration.
@@ -123,6 +128,98 @@ type MetricsConfig struct {
 	Path    string `mapstructure:"path"`
 }
 
+// OrchestratorConfig holds AI orchestrator service configuration.
+type OrchestratorConfig struct {
+	Host    string `mapstructure:"host"`
+	Port    int    `mapstructure:"port"`
+	Enabled bool   `mapstructure:"enabled"`
+}
+
+// LLMConfig holds LLM provider configuration.
+type LLMConfig struct {
+	Provider    string  `mapstructure:"provider"`     // anthropic, azure_openai, openai
+	APIKey      string  `mapstructure:"api_key"`      // API key for the provider
+	Model       string  `mapstructure:"model"`        // Model name (e.g., claude-3-5-sonnet-20241022)
+	MaxTokens   int     `mapstructure:"max_tokens"`   // Maximum tokens for completion
+	Temperature float64 `mapstructure:"temperature"` // Temperature for sampling (0.0-2.0)
+
+	// Azure OpenAI specific
+	AzureEndpoint   string `mapstructure:"azure_endpoint"`    // Azure OpenAI endpoint
+	AzureAPIVersion string `mapstructure:"azure_api_version"` // Azure API version
+	AzureDeployment string `mapstructure:"azure_deployment"`  // Azure OpenAI deployment name
+
+	// Azure Anthropic (Microsoft Foundry) specific
+	AzureAnthropicEndpoint string `mapstructure:"azure_anthropic_endpoint"` // Azure Anthropic endpoint (e.g., https://<resource>.services.ai.azure.com)
+
+	// Rate limiting
+	MaxRequestsPerMinute int `mapstructure:"max_requests_per_minute"`
+
+	// Fallback configuration
+	FallbackProvider string `mapstructure:"fallback_provider"` // Fallback provider if primary fails
+	FallbackModel    string `mapstructure:"fallback_model"`    // Fallback model
+}
+
+// TemporalConfig holds Temporal workflow configuration.
+type TemporalConfig struct {
+	Host      string `mapstructure:"host"`       // Temporal server host
+	Port      int    `mapstructure:"port"`       // Temporal server port
+	Namespace string `mapstructure:"namespace"`  // Temporal namespace
+	TaskQueue string `mapstructure:"task_queue"` // Task queue name for workers
+
+	// Worker configuration
+	WorkerCount           int `mapstructure:"worker_count"`            // Number of workflow workers
+	MaxConcurrentWorkflows int `mapstructure:"max_concurrent_workflows"` // Max concurrent workflow executions
+	MaxConcurrentActivities int `mapstructure:"max_concurrent_activities"` // Max concurrent activity executions
+
+	// TLS (for Temporal Cloud)
+	TLSEnabled  bool   `mapstructure:"tls_enabled"`
+	TLSCertPath string `mapstructure:"tls_cert_path"`
+	TLSKeyPath  string `mapstructure:"tls_key_path"`
+}
+
+// OPAConfig holds OPA policy engine configuration.
+type OPAConfig struct {
+	Enabled     bool   `mapstructure:"enabled"`      // Enable OPA validation
+	Mode        string `mapstructure:"mode"`         // embedded or remote
+	URL         string `mapstructure:"url"`          // OPA server URL (for remote mode)
+	PoliciesDir string `mapstructure:"policies_dir"` // Directory containing .rego files (for embedded mode)
+
+	// Timeout for policy evaluation
+	EvalTimeout time.Duration `mapstructure:"eval_timeout"`
+}
+
+// NotificationConfig holds notification service configuration.
+type NotificationConfig struct {
+	// Slack
+	SlackEnabled    bool   `mapstructure:"slack_enabled"`
+	SlackWebhookURL string `mapstructure:"slack_webhook_url"`
+	SlackChannel    string `mapstructure:"slack_channel"`
+
+	// Email
+	EmailEnabled    bool     `mapstructure:"email_enabled"`
+	SMTPHost        string   `mapstructure:"smtp_host"`
+	SMTPPort        int      `mapstructure:"smtp_port"`
+	SMTPUser        string   `mapstructure:"smtp_user"`
+	SMTPPassword    string   `mapstructure:"smtp_password"`
+	EmailFrom       string   `mapstructure:"email_from"`
+	EmailRecipients []string `mapstructure:"email_recipients"`
+
+	// Webhook
+	WebhookEnabled bool   `mapstructure:"webhook_enabled"`
+	WebhookURL     string `mapstructure:"webhook_url"`
+	WebhookSecret  string `mapstructure:"webhook_secret"`
+}
+
+// TemporalAddress returns the Temporal server address.
+func (c *TemporalConfig) Address() string {
+	return fmt.Sprintf("%s:%d", c.Host, c.Port)
+}
+
+// OrchestratorAddress returns the orchestrator service address.
+func (c *OrchestratorConfig) Address() string {
+	return fmt.Sprintf("%s:%d", c.Host, c.Port)
+}
+
 // Load reads configuration from environment variables.
 func Load() (*Config, error) {
 	v := viper.New()
@@ -193,6 +290,36 @@ func setDefaults(v *viper.Viper) {
 	// Metrics
 	v.SetDefault("metrics.enabled", true)
 	v.SetDefault("metrics.path", "/metrics")
+
+	// Orchestrator
+	v.SetDefault("orchestrator.host", "0.0.0.0")
+	v.SetDefault("orchestrator.port", 8083)
+	v.SetDefault("orchestrator.enabled", true)
+
+	// LLM
+	v.SetDefault("llm.provider", "anthropic")
+	v.SetDefault("llm.model", "claude-3-5-sonnet-20241022")
+	v.SetDefault("llm.max_tokens", 4096)
+	v.SetDefault("llm.temperature", 0.3)
+	v.SetDefault("llm.max_requests_per_minute", 60)
+	v.SetDefault("llm.azure_api_version", "2024-02-15-preview")
+
+	// Temporal
+	v.SetDefault("temporal.host", "localhost")
+	v.SetDefault("temporal.port", 7233)
+	v.SetDefault("temporal.namespace", "default")
+	v.SetDefault("temporal.task_queue", "ql-rf-orchestrator")
+	v.SetDefault("temporal.worker_count", 4)
+	v.SetDefault("temporal.max_concurrent_workflows", 100)
+	v.SetDefault("temporal.max_concurrent_activities", 50)
+	v.SetDefault("temporal.tls_enabled", false)
+
+	// OPA
+	v.SetDefault("opa.enabled", true)
+	v.SetDefault("opa.mode", "embedded")
+	v.SetDefault("opa.policies_dir", "./policy")
+	v.SetDefault("opa.url", "http://localhost:8181")
+	v.SetDefault("opa.eval_timeout", "5s")
 }
 
 func bindEnvVars(v *viper.Viper) error {
@@ -225,6 +352,40 @@ func bindEnvVars(v *viper.Viper) error {
 		"drift.threshold_critical",
 		"metrics.enabled",
 		"metrics.path",
+		// Orchestrator
+		"orchestrator.host",
+		"orchestrator.port",
+		"orchestrator.enabled",
+		// LLM
+		"llm.provider",
+		"llm.api_key",
+		"llm.model",
+		"llm.max_tokens",
+		"llm.temperature",
+		"llm.azure_endpoint",
+		"llm.azure_api_version",
+		"llm.azure_anthropic_endpoint",
+		"llm.azure_deployment",
+		"llm.max_requests_per_minute",
+		"llm.fallback_provider",
+		"llm.fallback_model",
+		// Temporal
+		"temporal.host",
+		"temporal.port",
+		"temporal.namespace",
+		"temporal.task_queue",
+		"temporal.worker_count",
+		"temporal.max_concurrent_workflows",
+		"temporal.max_concurrent_activities",
+		"temporal.tls_enabled",
+		"temporal.tls_cert_path",
+		"temporal.tls_key_path",
+		// OPA
+		"opa.enabled",
+		"opa.mode",
+		"opa.url",
+		"opa.policies_dir",
+		"opa.eval_timeout",
 	}
 
 	for _, key := range envVars {

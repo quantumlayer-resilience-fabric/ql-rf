@@ -1,12 +1,13 @@
 # ADR-004: Temporal for Workflows
 
 ## Status
-Accepted
+**Implemented** ✅
 
 ## Context
 QL-RF requires orchestration of long-running, multi-step workflows:
-- Image build pipelines (packer build → test → sign → publish)
-- Patch rollout campaigns (canary → staged → fleet)
+- AI task execution with human-in-the-loop (HITL) approval
+- Drift remediation campaigns (canary → staged → fleet)
+- Patch rollout campaigns
 - DR drills (provision pilot-light → validate → measure RTO)
 - Compliance evidence generation
 
@@ -15,6 +16,7 @@ These workflows must be:
 - Observable (track progress, debug failures)
 - Recoverable (retry failed steps, compensate)
 - Scalable (handle concurrent campaigns)
+- Support signals for runtime interaction (e.g., approval signals)
 
 Options considered:
 1. **Argo Workflows**: Kubernetes-native, YAML-based
@@ -28,31 +30,83 @@ We adopt **Temporal** for workflow orchestration:
 1. **Code-as-workflow**: Write workflows in Go (our primary language)
 2. **Durable execution**: Automatic state persistence and recovery
 3. **Native retries**: Configurable retry policies per activity
-4. **Observability**: Built-in UI for workflow inspection
+4. **Observability**: Built-in UI for workflow inspection (port 8088)
 5. **Signals/queries**: Runtime interaction with workflows
 
-Example workflow:
+## Implementation
+
+### Location
+- `services/orchestrator/internal/temporal/workflows/` - Workflow definitions
+- `services/orchestrator/internal/temporal/activities/` - Activity implementations
+- `services/orchestrator/internal/temporal/worker/` - Worker setup
+
+### Task Execution Workflow
+The primary workflow handles AI task execution with HITL approval:
+
 ```go
-func ImageBuildWorkflow(ctx workflow.Context, req ImageBuildRequest) error {
-    // Step 1: Build image
-    var imageID string
-    err := workflow.ExecuteActivity(ctx, BuildImage, req).Get(ctx, &imageID)
-    if err != nil {
-        return err
+// services/orchestrator/internal/temporal/workflows/task_workflow.go
+func TaskExecutionWorkflow(ctx workflow.Context, input TaskWorkflowInput) (*TaskWorkflowResult, error) {
+    // Step 1: Update task status to pending
+    workflow.ExecuteActivity(ctx, "UpdateTaskStatus", input.TaskID, StatusPending)
+
+    // Step 2: Wait for approval signal (24h timeout)
+    approvalCh := workflow.GetSignalChannel(ctx, SignalApproval)
+    var approval ApprovalSignal
+
+    selector := workflow.NewSelector(ctx)
+    selector.AddReceive(approvalCh, func(c workflow.ReceiveChannel, more bool) {
+        c.Receive(ctx, &approval)
+    })
+    selector.AddFuture(workflow.NewTimer(ctx, 24*time.Hour), func(f workflow.Future) {
+        // Timeout - cancel task
+    })
+    selector.Select(ctx)
+
+    // Step 3: Handle approval action (approve/reject/modify)
+    switch approval.Action {
+    case "approve":
+        // Execute the task
+        workflow.ExecuteActivity(ctx, "ExecuteTask", execInput)
+    case "reject":
+        // Record rejection
+    case "modify":
+        // Update plan and wait for re-approval
     }
 
-    // Step 2: Run tests
-    err = workflow.ExecuteActivity(ctx, TestImage, imageID).Get(ctx, nil)
-    if err != nil {
-        // Compensate: delete failed image
-        workflow.ExecuteActivity(ctx, DeleteImage, imageID)
-        return err
-    }
+    // Step 4: Send notifications and record audit log
+    workflow.ExecuteActivity(ctx, "SendNotification", ...)
+    workflow.ExecuteActivity(ctx, "RecordAuditLog", ...)
 
-    // Step 3: Sign and publish
-    return workflow.ExecuteActivity(ctx, SignAndPublish, imageID).Get(ctx, nil)
+    return result, nil
 }
 ```
+
+### Activities
+- `UpdateTaskStatus` - Updates task state in PostgreSQL
+- `RecordAuditLog` - Records audit trail via ai_tool_invocations table
+- `SendNotification` - Logs notifications (extensible for email/slack)
+- `UpdateTaskPlan` - Handles task modifications
+- `ExecuteTask` - Executes tasks by type (drift_remediation, patch_rollout, etc.)
+
+### Handler Integration
+The HTTP handlers signal workflows for approval/rejection:
+
+```go
+// services/orchestrator/internal/handlers/handlers.go
+func (h *Handler) approveTask(w http.ResponseWriter, r *http.Request) {
+    approval := workflows.ApprovalSignal{
+        Action:     "approve",
+        ApprovedBy: userID,
+    }
+    h.temporalWorker.SignalApproval(ctx, taskID, approval)
+}
+```
+
+### Infrastructure
+- Temporal Server runs via Docker Compose (temporalio/auto-setup:1.24.2)
+- Temporal UI available at http://localhost:8088
+- Uses PostgreSQL for persistence (shared with QL-RF)
+- Task queue: `ql-rf-orchestrator`
 
 ## Consequences
 
@@ -62,6 +116,7 @@ func ImageBuildWorkflow(ctx workflow.Context, req ImageBuildRequest) error {
 - Workflow versioning for safe updates
 - Excellent debugging via Temporal UI
 - Scales to thousands of concurrent workflows
+- HITL approval with 24-hour timeout built-in
 
 ### Negative
 - Additional infrastructure (Temporal Server + persistence)
@@ -69,7 +124,8 @@ func ImageBuildWorkflow(ctx workflow.Context, req ImageBuildRequest) error {
 - Vendor dependency (though open-source)
 
 ### Mitigations
-- Use Temporal Cloud initially, self-host later if needed
+- ✅ Docker Compose setup for local development
+- ✅ Worker gracefully starts even if Temporal unavailable
+- ✅ Fallback to direct database updates if workflow fails
 - Create workflow templates for common patterns
-- Document workflow development guidelines
 - Use Temporal Go SDK's testing framework

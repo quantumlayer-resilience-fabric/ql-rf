@@ -1,0 +1,724 @@
+openapi: 3.0.3
+info:
+  title: QL-RF AI Orchestrator API
+  description: |
+    The AI Orchestrator converts natural language requests into validated,
+    auditable infrastructure operations through specialist AI agents.
+  version: 1.0.0
+  contact:
+    name: QL-RF Team
+    email: support@quantumlayer.com
+
+servers:
+  - url: http://localhost:8083
+    description: Local development
+  - url: https://api.ql-rf.example.com
+    description: Production
+
+tags:
+  - name: Tasks
+    description: Task management endpoints
+  - name: Executions
+    description: Execution management endpoints
+  - name: Metadata
+    description: Agents and tools metadata
+
+paths:
+  /api/v1/ai/execute:
+    post:
+      summary: Submit a new task
+      description: Submit a natural language intent to be processed by AI agents
+      tags:
+        - Tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteRequest'
+            example:
+              intent: "Fix drift on production web servers"
+              org_id: "org-123"
+              environment: "production"
+              context:
+                fleet_size: 100
+                drift_score: 85
+      responses:
+        '200':
+          description: Task created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/ai/tasks:
+    get:
+      summary: List tasks
+      description: List all tasks with optional filtering
+      tags:
+        - Tasks
+      parameters:
+        - name: org_id
+          in: query
+          description: Filter by organization ID
+          schema:
+            type: string
+        - name: state
+          in: query
+          description: Filter by task state
+          schema:
+            type: string
+            enum: [pending, planned, approved, rejected, executing, completed, failed]
+        - name: limit
+          in: query
+          description: Maximum number of results
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          description: Offset for pagination
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TaskWithPlan'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/ai/tasks/{taskId}:
+    get:
+      summary: Get task details
+      description: Get detailed information about a specific task
+      tags:
+        - Tasks
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      responses:
+        '200':
+          description: Task details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskWithPlan'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/ai/tasks/{taskId}/approve:
+    post:
+      summary: Approve a task
+      description: Approve a task for execution
+      tags:
+        - Tasks
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Optional approval reason
+      responses:
+        '200':
+          description: Task approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskWithPlan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/ai/tasks/{taskId}/reject:
+    post:
+      summary: Reject a task
+      description: Reject a task
+      tags:
+        - Tasks
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Rejection reason
+      responses:
+        '200':
+          description: Task rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskWithPlan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/ai/tasks/{taskId}/executions:
+    get:
+      summary: List task executions
+      description: List all executions for a specific task
+      tags:
+        - Executions
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      responses:
+        '200':
+          description: List of executions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  executions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Execution'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/ai/executions/{executionId}:
+    get:
+      summary: Get execution details
+      description: Get detailed information about a specific execution
+      tags:
+        - Executions
+      parameters:
+        - $ref: '#/components/parameters/executionId'
+      responses:
+        '200':
+          description: Execution details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Execution'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/ai/executions/{executionId}/pause:
+    post:
+      summary: Pause execution
+      description: Pause a running execution
+      tags:
+        - Executions
+      parameters:
+        - $ref: '#/components/parameters/executionId'
+      responses:
+        '200':
+          description: Execution paused
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/ai/executions/{executionId}/resume:
+    post:
+      summary: Resume execution
+      description: Resume a paused execution
+      tags:
+        - Executions
+      parameters:
+        - $ref: '#/components/parameters/executionId'
+      responses:
+        '200':
+          description: Execution resumed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/ai/executions/{executionId}/cancel:
+    post:
+      summary: Cancel execution
+      description: Cancel a running or paused execution
+      tags:
+        - Executions
+      parameters:
+        - $ref: '#/components/parameters/executionId'
+      responses:
+        '200':
+          description: Execution cancelled
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/ai/agents:
+    get:
+      summary: List agents
+      description: List all available AI agents
+      tags:
+        - Metadata
+      responses:
+        '200':
+          description: List of agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Agent'
+
+  /api/v1/ai/tools:
+    get:
+      summary: List tools
+      description: List all available tools
+      tags:
+        - Metadata
+      responses:
+        '200':
+          description: List of tools
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tools:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tool'
+
+  /health:
+    get:
+      summary: Health check
+      description: Liveness probe endpoint
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /ready:
+    get:
+      summary: Readiness check
+      description: Readiness probe endpoint (includes DB connectivity)
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ready
+        '503':
+          description: Service is not ready
+
+components:
+  parameters:
+    taskId:
+      name: taskId
+      in: path
+      required: true
+      description: Task ID
+      schema:
+        type: string
+        format: uuid
+    executionId:
+      name: executionId
+      in: path
+      required: true
+      description: Execution ID
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    ExecuteRequest:
+      type: object
+      required:
+        - intent
+        - org_id
+      properties:
+        intent:
+          type: string
+          description: Natural language description of what to do
+          example: "Fix drift on production web servers"
+        org_id:
+          type: string
+          description: Organization ID
+        environment:
+          type: string
+          description: Target environment
+          enum: [development, staging, production]
+          default: production
+        context:
+          type: object
+          description: Additional context for the task
+          additionalProperties: true
+
+    TaskResponse:
+      type: object
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending_approval, approved, rejected, executing, completed, failed]
+        task_spec:
+          $ref: '#/components/schemas/TaskSpec'
+        agent_result:
+          $ref: '#/components/schemas/AgentResult'
+        quality_score:
+          $ref: '#/components/schemas/QualityScore'
+        requires_hitl:
+          type: boolean
+        message:
+          type: string
+
+    TaskWithPlan:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+        user_intent:
+          type: string
+        task_spec:
+          type: object
+        state:
+          type: string
+          enum: [pending, planned, approved, rejected, executing, completed, failed]
+        source:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        plan:
+          $ref: '#/components/schemas/Plan'
+        risk_level:
+          type: string
+          enum: [low, medium, high, critical]
+        task_type:
+          type: string
+        hitl_required:
+          type: boolean
+
+    TaskSpec:
+      type: object
+      properties:
+        task_type:
+          type: string
+          description: Type of task
+          example: drift_remediation
+        goal:
+          type: string
+          description: Interpreted goal
+        risk_level:
+          type: string
+          enum: [low, medium, high, critical]
+        environment:
+          type: string
+
+    AgentResult:
+      type: object
+      properties:
+        agent_name:
+          type: string
+          example: drift_agent
+        plan:
+          type: string
+          description: Generated plan in markdown format
+        summary:
+          type: string
+          description: Brief summary of the plan
+        affected_assets:
+          type: integer
+        risk_level:
+          type: string
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/HITLAction'
+        evidence:
+          type: object
+        tokens_used:
+          type: integer
+
+    HITLAction:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [approve, modify, reject]
+        label:
+          type: string
+        description:
+          type: string
+
+    QualityScore:
+      type: object
+      properties:
+        total:
+          type: integer
+          minimum: 0
+          maximum: 100
+        structural:
+          type: integer
+        policy_compliance:
+          type: integer
+        test_coverage:
+          type: integer
+        operational_history:
+          type: integer
+        human_review:
+          type: integer
+        dimensions:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ScoreDimension'
+        allowed_environments:
+          type: array
+          items:
+            type: string
+        requires_approval:
+          type: boolean
+        computed_at:
+          type: string
+          format: date-time
+
+    ScoreDimension:
+      type: object
+      properties:
+        score:
+          type: integer
+        max_score:
+          type: integer
+        passed:
+          type: array
+          items:
+            type: string
+        failed:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+
+    Plan:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        state:
+          type: string
+          enum: [pending, awaiting_approval, approved, rejected, executing, completed, failed]
+        approved_by:
+          type: string
+        approved_at:
+          type: string
+          format: date-time
+        rejection_reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Execution:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        plan_id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, paused, completed, failed, rolled_back, cancelled]
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        started_by:
+          type: string
+        phases:
+          type: array
+          items:
+            $ref: '#/components/schemas/PhaseExecution'
+        current_phase:
+          type: integer
+        total_phases:
+          type: integer
+        error:
+          type: string
+        rollback_error:
+          type: string
+        metadata:
+          type: object
+
+    PhaseExecution:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, waiting, completed, failed, skipped]
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssetExecution'
+        wait_until:
+          type: string
+          format: date-time
+        error:
+          type: string
+        metrics:
+          type: object
+
+    AssetExecution:
+      type: object
+      properties:
+        asset_id:
+          type: string
+        asset_name:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed, skipped]
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+        output:
+          type: string
+
+    Agent:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        supported_tasks:
+          type: array
+          items:
+            type: string
+        required_tools:
+          type: array
+          items:
+            type: string
+
+    Tool:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        risk_level:
+          type: string
+          enum: [read_only, plan_only, state_change, state_change_prod]
+        requires_approval:
+          type: boolean
+        parameters:
+          type: object
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          type: object
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

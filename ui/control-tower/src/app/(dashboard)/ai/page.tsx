@@ -8,7 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StatusBadge } from "@/components/status/status-badge";
 import { GradientText } from "@/components/brand/gradient-text";
-import { useSendAIMessage, useAIContext, useProactiveInsights } from "@/hooks/use-ai";
+import { TaskApprovalCard } from "@/components/ai/task-approval-card";
+import { PendingTaskCard } from "@/components/ai/pending-task-card";
+import { useSendAIMessage, useAIContext, useProactiveInsights, usePendingTasks, AITask, TaskWithPlan } from "@/hooks/use-ai";
+import ReactMarkdown from "react-markdown";
 import {
   Sparkles,
   Send,
@@ -26,6 +29,7 @@ import {
   History,
   Zap,
   AlertCircle,
+  ClipboardList,
 } from "lucide-react";
 
 interface Message {
@@ -33,6 +37,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  task?: AITask;
 }
 
 // Suggested prompts for the user
@@ -54,6 +59,7 @@ export default function AICopilotPage() {
   const sendMessage = useSendAIMessage();
   const context = useAIContext();
   const proactiveInsights = useProactiveInsights();
+  const { data: pendingTasks, isLoading: tasksLoading } = usePendingTasks();
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -92,6 +98,7 @@ export default function AICopilotPage() {
         role: "assistant",
         content: response.content,
         timestamp: new Date(),
+        task: response.task,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -121,17 +128,25 @@ export default function AICopilotPage() {
       {/* Main Chat Area */}
       <div className="flex flex-1 flex-col">
         {/* Header */}
-        <div className="mb-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-6 w-6 text-brand-accent" />
-            <h1 className="text-2xl font-bold tracking-tight">
-              <GradientText variant="ai">AI Copilot</GradientText>
-            </h1>
-            <Badge variant="secondary" className="ml-2">Powered by Claude</Badge>
+        <div className="mb-4 flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-6 w-6 text-brand-accent" />
+              <h1 className="text-2xl font-bold tracking-tight">
+                <GradientText variant="ai">AI Copilot</GradientText>
+              </h1>
+              <Badge variant="secondary" className="ml-2">Powered by Claude</Badge>
+            </div>
+            <p className="text-muted-foreground">
+              Ask questions about your infrastructure and get AI-powered insights.
+            </p>
           </div>
-          <p className="text-muted-foreground">
-            Ask questions about your infrastructure and get AI-powered insights.
-          </p>
+          <a href="/ai/tasks">
+            <Button variant="outline" size="sm">
+              <History className="mr-2 h-4 w-4" />
+              Task History
+            </Button>
+          </a>
         </div>
 
         {/* Chat Area */}
@@ -176,16 +191,34 @@ export default function AICopilotPage() {
                       </div>
                     )}
                     <div
-                      className={`max-w-[80%] rounded-lg p-4 ${
+                      className={`rounded-lg p-4 ${
                         message.role === "user"
-                          ? "bg-brand-accent text-white"
-                          : "bg-muted"
+                          ? "max-w-[80%] bg-brand-accent text-white"
+                          : message.task ? "w-full" : "max-w-[80%] bg-muted"
                       }`}
                     >
-                      <div className="whitespace-pre-wrap text-sm prose prose-sm dark:prose-invert max-w-none">
-                        {message.content}
-                      </div>
-                      {message.role === "assistant" && (
+                      {message.task && message.task.requires_hitl ? (
+                        <TaskApprovalCard task={message.task} />
+                      ) : message.task ? (
+                        <div className="space-y-3">
+                          <div className="prose prose-sm dark:prose-invert max-w-none">
+                            <ReactMarkdown>{message.content}</ReactMarkdown>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Badge variant="outline">
+                              {message.task.task_spec.task_type.replace(/_/g, " ")}
+                            </Badge>
+                            {message.task.agent_result && (
+                              <span>{message.task.agent_result.affected_assets} assets</span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="whitespace-pre-wrap text-sm prose prose-sm dark:prose-invert max-w-none">
+                          <ReactMarkdown>{message.content}</ReactMarkdown>
+                        </div>
+                      )}
+                      {message.role === "assistant" && !message.task?.requires_hitl && (
                         <div className="mt-3 flex items-center gap-2">
                           <Button
                             variant="ghost"
@@ -259,8 +292,40 @@ export default function AICopilotPage() {
         </Card>
       </div>
 
-      {/* Sidebar - Proactive Insights */}
+      {/* Sidebar - Pending Tasks & Proactive Insights */}
       <div className="hidden w-80 space-y-4 lg:block">
+        {/* Pending Tasks */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ClipboardList className="h-4 w-4 text-brand-accent" />
+              Pending Tasks
+              {pendingTasks && pendingTasks.length > 0 && (
+                <Badge variant="secondary" className="ml-auto">
+                  {pendingTasks.length}
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 max-h-80 overflow-y-auto">
+            {tasksLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : pendingTasks && pendingTasks.length > 0 ? (
+              pendingTasks.map((task) => (
+                <PendingTaskCard key={task.id} task={task} />
+              ))
+            ) : (
+              <div className="text-center text-sm text-muted-foreground py-4">
+                <ClipboardList className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                <p>No pending tasks</p>
+                <p className="text-xs mt-1">Tasks requiring approval will appear here.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">

@@ -92,16 +92,33 @@ ql-rf/
 │   ├── connectors/        # Platform connectors
 │   │   ├── cmd/connectors/
 │   │   └── internal/      # AWS, Azure, GCP, vSphere
-│   └── drift/             # Drift detection engine
-│       ├── cmd/drift/
-│       └── internal/      # Engine, Kafka consumer
+│   ├── drift/             # Drift detection engine
+│   │   ├── cmd/drift/
+│   │   └── internal/      # Engine, Kafka consumer
+│   └── orchestrator/      # AI Orchestrator (LLM-first operations)
+│       ├── cmd/orchestrator/
+│       └── internal/
+│           ├── agents/    # Specialist AI agents (drift, patch, etc.)
+│           ├── handlers/  # HTTP handlers
+│           ├── llm/       # LLM clients (Anthropic, Azure OpenAI)
+│           ├── meta/      # Meta-prompt engine
+│           ├── temporal/  # Temporal workflows & activities
+│           ├── tools/     # AI tool registry
+│           └── validation/ # OPA policy validation
 ├── migrations/             # Database migrations
 ├── docs/                   # Documentation
 │   ├── PRD.md             # Product Requirements Document
-│   └── FRONTEND_DESIGN.md # Frontend Design System
-├── contracts/              # YAML contracts (coming)
-├── ui/control-tower/       # Next.js dashboard (coming)
-├── policy/                 # OPA/Rego policies (coming)
+│   ├── FRONTEND_DESIGN.md # Frontend Design System
+│   └── adr/               # Architectural Decision Records
+├── contracts/              # YAML contracts
+├── ui/control-tower/       # Next.js dashboard
+│   └── src/
+│       ├── app/           # Next.js App Router pages
+│       ├── components/    # React components (shadcn/ui)
+│       └── hooks/         # React Query hooks
+├── policy/                 # OPA/Rego policies
+├── infrastructure/         # Infrastructure configs
+│   └── temporal/          # Temporal dynamic config
 ├── go.mod                  # Go module definition
 ├── go.work                 # Go workspace (multi-module)
 ├── Makefile                # Build/test/run commands
@@ -151,18 +168,22 @@ ql-rf/
 
 | Layer | Technologies |
 |-------|-------------|
-| Backend | Go 1.23, chi router, sqlc |
+| Backend | Go 1.24, chi router, pgx |
 | Database | PostgreSQL 16, Redis 7 |
 | Messaging | Apache Kafka (Sarama client) |
-| Frontend | Next.js 14, Tailwind, shadcn/ui |
+| Workflows | Temporal (durable execution) |
+| Frontend | Next.js 16, Tailwind, shadcn/ui |
 | Auth | Clerk (OIDC/JWT) |
 | Cloud SDKs | AWS SDK v2, Azure SDK, GCP, govmomi (vSphere) |
 | IaC | Terraform + Helm + Kubernetes |
 | Contracts | YAML + JSONSchema + OPA (Rego policies) |
-| AI | OpenAI API / Anthropic Claude |
+| AI | Azure Anthropic (Claude) / OpenAI API |
+| Policy Engine | Open Policy Agent (OPA) |
 | Observability | Prometheus + Grafana + OpenTelemetry |
 
 ## API Endpoints
+
+### Core API (Port 8080)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -178,26 +199,51 @@ ql-rf/
 | GET | `/api/v1/drift/summary` | Drift summary by scope |
 | GET | `/api/v1/drift/trends` | Drift trends over time |
 
+### AI Orchestrator API (Port 8083)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Orchestrator health check |
+| POST | `/api/v1/ai/execute` | Execute AI task from natural language |
+| GET | `/api/v1/ai/tasks` | List pending/completed tasks |
+| GET | `/api/v1/ai/tasks/{id}` | Get task details |
+| POST | `/api/v1/ai/tasks/{id}/approve` | Approve task for execution |
+| POST | `/api/v1/ai/tasks/{id}/reject` | Reject task |
+| POST | `/api/v1/ai/tasks/{id}/modify` | Modify task plan |
+| GET | `/api/v1/ai/agents` | List available AI agents |
+| GET | `/api/v1/ai/tools` | List available tools |
+
 ## Roadmap
 
-### Phase 1: Foundation
+### Phase 1: Foundation ✅
 - [x] Repository setup
 - [x] Go backend services (API, Connectors, Drift)
 - [x] Database schema and migrations
 - [x] Kafka event streaming
-- [ ] Control Tower dashboard MVP
-- [ ] Contract format v1
+- [x] Control Tower dashboard MVP
+- [x] OPA policy engine integration
 
-### Phase 2: Expansion
-- [ ] AI Insight Engine
-- [ ] Event bridge to QuantumLayer
+### Phase 2: AI-First Operations ✅
+- [x] AI Orchestrator service
+- [x] Meta-prompt engine (natural language → TaskSpec)
+- [x] Specialist AI agents (drift, patch, compliance, DR, etc.)
+- [x] Tool registry with database queries
+- [x] OPA validation pipeline
+- [x] Human-in-the-loop (HITL) approval workflows
+- [x] Temporal workflow integration
+- [x] AI Copilot UI with task approval cards
+
+### Phase 3: Expansion (In Progress)
+- [ ] Azure/GCP connector improvements
 - [ ] RBAC and multi-tenancy
-- [ ] DR simulation hooks
+- [ ] DR drill execution
+- [ ] Event bridge to QuantumLayer
 
-### Phase 3: Automation
+### Phase 4: Full Automation
 - [ ] Patch-as-Code workflows
 - [ ] Predictive risk scoring
 - [ ] Full DR failover orchestration
+- [ ] Auto-remediation mode
 
 ## Contributing
 

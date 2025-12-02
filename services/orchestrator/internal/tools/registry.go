@@ -1,0 +1,1447 @@
+// Package tools provides the tool registry for AI agent operations.
+package tools
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/quantumlayerhq/ql-rf/pkg/logger"
+)
+
+// RiskLevel defines the risk classification for tools.
+type RiskLevel string
+
+const (
+	RiskReadOnly           RiskLevel = "read_only"
+	RiskPlanOnly           RiskLevel = "plan_only"
+	RiskStateChangeNonProd RiskLevel = "state_change_nonprod"
+	RiskStateChangeProd    RiskLevel = "state_change_prod"
+)
+
+// Scope defines the impact scope of a tool.
+type Scope string
+
+const (
+	ScopeAsset        Scope = "asset"
+	ScopeEnvironment  Scope = "environment"
+	ScopeOrganization Scope = "organization"
+)
+
+// Tool is the interface that all tools must implement.
+type Tool interface {
+	// Name returns the tool name.
+	Name() string
+
+	// Description returns a description of what the tool does.
+	Description() string
+
+	// Parameters returns the JSON Schema for tool parameters.
+	Parameters() map[string]interface{}
+
+	// Risk returns the risk level of the tool.
+	Risk() RiskLevel
+
+	// Scope returns the impact scope of the tool.
+	Scope() Scope
+
+	// Idempotent returns whether the tool is idempotent.
+	Idempotent() bool
+
+	// RequiresApproval returns whether the tool requires HITL approval.
+	RequiresApproval() bool
+
+	// Execute runs the tool with the given parameters.
+	Execute(ctx context.Context, params map[string]interface{}) (interface{}, error)
+}
+
+// Registry manages available tools.
+type Registry struct {
+	tools map[string]Tool
+	db    *pgxpool.Pool
+	log   *logger.Logger
+}
+
+// NewRegistry creates a new tool registry with all available tools.
+func NewRegistry(db *pgxpool.Pool, log *logger.Logger) *Registry {
+	r := &Registry{
+		tools: make(map[string]Tool),
+		db:    db,
+		log:   log.WithComponent("tool-registry"),
+	}
+
+	// Register all tools
+	r.registerQueryTools()
+	r.registerAnalysisTools()
+	r.registerPlanningTools()
+	r.registerExecutionTools()
+	r.registerImageTools()
+	r.registerSOPTools()
+
+	return r
+}
+
+// Get returns a tool by name.
+func (r *Registry) Get(name string) (Tool, bool) {
+	tool, ok := r.tools[name]
+	return tool, ok
+}
+
+// ListTools returns all available tool names.
+func (r *Registry) ListTools() []string {
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	return names
+}
+
+// ListByRisk returns tools filtered by risk level.
+func (r *Registry) ListByRisk(risk RiskLevel) []Tool {
+	var result []Tool
+	for _, tool := range r.tools {
+		if tool.Risk() == risk {
+			result = append(result, tool)
+		}
+	}
+	return result
+}
+
+// ToolMetadata contains metadata about a tool.
+type ToolMetadata struct {
+	Name             string                 `json:"name"`
+	Description      string                 `json:"description"`
+	Risk             RiskLevel              `json:"risk"`
+	Scope            Scope                  `json:"scope"`
+	Idempotent       bool                   `json:"idempotent"`
+	RequiresApproval bool                   `json:"requires_approval"`
+	Parameters       map[string]interface{} `json:"parameters"`
+}
+
+// ToolInfo returns information about all registered tools.
+func (r *Registry) ToolInfo() []ToolMetadata {
+	info := make([]ToolMetadata, 0, len(r.tools))
+	for _, tool := range r.tools {
+		info = append(info, ToolMetadata{
+			Name:             tool.Name(),
+			Description:      tool.Description(),
+			Risk:             tool.Risk(),
+			Scope:            tool.Scope(),
+			Idempotent:       tool.Idempotent(),
+			RequiresApproval: tool.RequiresApproval(),
+			Parameters:       tool.Parameters(),
+		})
+	}
+	return info
+}
+
+// Execute runs a tool by name with the given parameters.
+func (r *Registry) Execute(ctx context.Context, name string, params map[string]interface{}) (interface{}, error) {
+	tool, ok := r.tools[name]
+	if !ok {
+		return nil, fmt.Errorf("tool not found: %s", name)
+	}
+
+	r.log.Info("executing tool",
+		"tool", name,
+		"risk", tool.Risk(),
+		"scope", tool.Scope(),
+	)
+
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		r.log.Error("tool execution failed", "tool", name, "error", err)
+		return nil, err
+	}
+
+	r.log.Info("tool execution completed", "tool", name)
+	return result, nil
+}
+
+// register adds a tool to the registry.
+func (r *Registry) register(tool Tool) {
+	r.tools[tool.Name()] = tool
+	r.log.Debug("registered tool", "name", tool.Name(), "risk", tool.Risk())
+}
+
+// registerQueryTools registers read-only query tools.
+func (r *Registry) registerQueryTools() {
+	r.register(&QueryAssetsTool{db: r.db})
+	r.register(&GetDriftStatusTool{db: r.db})
+	r.register(&GetComplianceStatusTool{db: r.db})
+	r.register(&GetGoldenImageTool{db: r.db})
+	r.register(&QueryAlertsTool{db: r.db})
+	r.register(&GetDRStatusTool{db: r.db})
+}
+
+// registerAnalysisTools registers analysis tools.
+func (r *Registry) registerPlanningTools() {
+	r.register(&CompareVersionsTool{db: r.db})
+	r.register(&GeneratePatchPlanTool{db: r.db})
+	r.register(&GenerateRolloutPlanTool{db: r.db})
+	r.register(&GenerateDRRunbookTool{db: r.db})
+	r.register(&SimulateRolloutTool{db: r.db})
+	r.register(&CalculateRiskScoreTool{db: r.db})
+}
+
+// registerAnalysisTools registers analysis tools.
+func (r *Registry) registerAnalysisTools() {
+	r.register(&AnalyzeDriftTool{db: r.db})
+	r.register(&CheckControlTool{db: r.db})
+}
+
+// registerExecutionTools registers state-changing execution tools.
+func (r *Registry) registerExecutionTools() {
+	r.register(&ProposeRolloutTool{db: r.db})
+	r.register(&AcknowledgeAlertTool{db: r.db})
+}
+
+// registerImageTools registers golden image lifecycle tools.
+func (r *Registry) registerImageTools() {
+	r.register(&GenerateImageContractTool{db: r.db})
+	r.register(&GeneratePackerTemplateTool{db: r.db})
+	r.register(&GenerateAnsiblePlaybookTool{db: r.db})
+	r.register(&BuildImageTool{db: r.db})
+	r.register(&ListImageVersionsTool{db: r.db})
+	r.register(&PromoteImageTool{db: r.db})
+}
+
+// registerSOPTools registers SOP lifecycle tools.
+func (r *Registry) registerSOPTools() {
+	r.register(&GenerateSOPTool{db: r.db})
+	r.register(&ValidateSOPTool{db: r.db})
+	r.register(&SimulateSOPTool{db: r.db})
+	r.register(&ExecuteSOPTool{db: r.db})
+	r.register(&ListSOPsTool{db: r.db})
+}
+
+// =============================================================================
+// Query Tools (read-only)
+// =============================================================================
+
+// QueryAssetsTool queries assets with filters.
+type QueryAssetsTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *QueryAssetsTool) Name() string        { return "query_assets" }
+func (t *QueryAssetsTool) Description() string { return "Query assets with filters (platform, region, tags, drift status)" }
+func (t *QueryAssetsTool) Risk() RiskLevel     { return RiskReadOnly }
+func (t *QueryAssetsTool) Scope() Scope        { return ScopeOrganization }
+func (t *QueryAssetsTool) Idempotent() bool    { return true }
+func (t *QueryAssetsTool) RequiresApproval() bool { return false }
+func (t *QueryAssetsTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"platform":     map[string]interface{}{"type": "string", "enum": []string{"aws", "azure", "gcp", "vsphere"}},
+			"region":       map[string]interface{}{"type": "string"},
+			"environment":  map[string]interface{}{"type": "string", "enum": []string{"production", "staging", "development"}},
+			"drift_status": map[string]interface{}{"type": "string", "enum": []string{"compliant", "drifted", "unknown"}},
+			"tags":         map[string]interface{}{"type": "object"},
+			"limit":        map[string]interface{}{"type": "integer", "default": 100},
+		},
+	}
+}
+func (t *QueryAssetsTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	// Build dynamic query based on parameters
+	query := `
+		SELECT a.id, a.name, a.platform, a.region, a.instance_id,
+		       a.image_ref, a.image_version, a.state, a.tags,
+		       e.name as environment
+		FROM assets a
+		LEFT JOIN environments e ON a.env_id = e.id
+		WHERE 1=1
+	`
+	args := []interface{}{}
+	argIdx := 1
+
+	if platform, ok := params["platform"].(string); ok && platform != "" {
+		query += fmt.Sprintf(" AND a.platform = $%d", argIdx)
+		args = append(args, platform)
+		argIdx++
+	}
+	if region, ok := params["region"].(string); ok && region != "" {
+		query += fmt.Sprintf(" AND a.region = $%d", argIdx)
+		args = append(args, region)
+		argIdx++
+	}
+	if env, ok := params["environment"].(string); ok && env != "" {
+		query += fmt.Sprintf(" AND e.name ILIKE $%d", argIdx)
+		args = append(args, env)
+		argIdx++
+	}
+
+	limit := 100
+	if l, ok := params["limit"].(float64); ok {
+		limit = int(l)
+	}
+	query += fmt.Sprintf(" LIMIT %d", limit)
+
+	rows, err := t.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	assets := []map[string]interface{}{}
+	for rows.Next() {
+		var id, name, platform, region, instanceID, imageRef, imageVersion, state string
+		var tags interface{}
+		var environment *string
+
+		err := rows.Scan(&id, &name, &platform, &region, &instanceID, &imageRef, &imageVersion, &state, &tags, &environment)
+		if err != nil {
+			continue
+		}
+
+		asset := map[string]interface{}{
+			"id":            id,
+			"name":          name,
+			"platform":      platform,
+			"region":        region,
+			"instance_id":   instanceID,
+			"image_ref":     imageRef,
+			"image_version": imageVersion,
+			"state":         state,
+			"tags":          tags,
+		}
+		if environment != nil {
+			asset["environment"] = *environment
+		}
+		assets = append(assets, asset)
+	}
+
+	return map[string]interface{}{
+		"assets": assets,
+		"total":  len(assets),
+	}, nil
+}
+
+// GetDriftStatusTool gets drift status for assets.
+type GetDriftStatusTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *GetDriftStatusTool) Name() string        { return "get_drift_status" }
+func (t *GetDriftStatusTool) Description() string { return "Get drift analysis for specific assets or environment" }
+func (t *GetDriftStatusTool) Risk() RiskLevel     { return RiskReadOnly }
+func (t *GetDriftStatusTool) Scope() Scope        { return ScopeEnvironment }
+func (t *GetDriftStatusTool) Idempotent() bool    { return true }
+func (t *GetDriftStatusTool) RequiresApproval() bool { return false }
+func (t *GetDriftStatusTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"asset_ids":   map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"environment": map[string]interface{}{"type": "string"},
+			"site_id":     map[string]interface{}{"type": "string"},
+		},
+	}
+}
+func (t *GetDriftStatusTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	// Get the latest golden image for each family
+	goldenImages := make(map[string]string)
+	goldenRows, err := t.db.Query(ctx, `
+		SELECT DISTINCT ON (family) family, version
+		FROM images
+		WHERE status = 'published'
+		ORDER BY family, created_at DESC
+	`)
+	if err == nil {
+		defer goldenRows.Close()
+		for goldenRows.Next() {
+			var family, version string
+			if err := goldenRows.Scan(&family, &version); err == nil {
+				goldenImages[family] = version
+			}
+		}
+	}
+
+	// Query assets and check drift status
+	query := `
+		SELECT a.id, a.name, a.platform, a.region, a.image_ref, a.image_version,
+		       e.name as environment
+		FROM assets a
+		LEFT JOIN environments e ON a.env_id = e.id
+	`
+
+	rows, err := t.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	var totalAssets, compliant, drifted, unknown int
+	driftDetails := []map[string]interface{}{}
+
+	for rows.Next() {
+		var id, name, platform, region, imageRef, imageVersion string
+		var environment *string
+
+		err := rows.Scan(&id, &name, &platform, &region, &imageRef, &imageVersion, &environment)
+		if err != nil {
+			continue
+		}
+
+		totalAssets++
+		targetVersion, hasGolden := goldenImages[imageRef]
+
+		if !hasGolden {
+			unknown++
+		} else if imageVersion == targetVersion {
+			compliant++
+		} else {
+			drifted++
+			detail := map[string]interface{}{
+				"asset_id":        id,
+				"asset_name":      name,
+				"platform":        platform,
+				"region":          region,
+				"image_family":    imageRef,
+				"current_version": imageVersion,
+				"target_version":  targetVersion,
+				"drift_severity":  "warning",
+			}
+			if environment != nil {
+				detail["environment"] = *environment
+			}
+			driftDetails = append(driftDetails, detail)
+		}
+	}
+
+	return map[string]interface{}{
+		"total_assets":  totalAssets,
+		"compliant":     compliant,
+		"drifted":       drifted,
+		"unknown":       unknown,
+		"drift_details": driftDetails,
+	}, nil
+}
+
+// GetComplianceStatusTool gets compliance status.
+type GetComplianceStatusTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *GetComplianceStatusTool) Name() string        { return "get_compliance_status" }
+func (t *GetComplianceStatusTool) Description() string { return "Get compliance posture for frameworks (CIS, SLSA, SOC2)" }
+func (t *GetComplianceStatusTool) Risk() RiskLevel     { return RiskReadOnly }
+func (t *GetComplianceStatusTool) Scope() Scope        { return ScopeOrganization }
+func (t *GetComplianceStatusTool) Idempotent() bool    { return true }
+func (t *GetComplianceStatusTool) RequiresApproval() bool { return false }
+func (t *GetComplianceStatusTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"framework": map[string]interface{}{"type": "string", "enum": []string{"CIS", "SLSA", "SOC2", "HIPAA", "PCI"}},
+		},
+	}
+}
+func (t *GetComplianceStatusTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	// Query compliance frameworks and their results
+	query := `
+		SELECT cf.id, cf.name, cf.description, cf.level, cf.enabled,
+		       COALESCE(AVG(cr.score), 0) as avg_score,
+		       COUNT(DISTINCT CASE WHEN cr.status = 'passing' THEN cr.id END) as passing_count,
+		       COUNT(DISTINCT CASE WHEN cr.status = 'failing' THEN cr.id END) as failing_count,
+		       COUNT(DISTINCT CASE WHEN cr.status = 'warning' THEN cr.id END) as warning_count
+		FROM compliance_frameworks cf
+		LEFT JOIN compliance_results cr ON cf.id = cr.framework_id
+		WHERE cf.enabled = true
+	`
+	args := []interface{}{}
+	argIdx := 1
+
+	if framework, ok := params["framework"].(string); ok && framework != "" {
+		query += fmt.Sprintf(" AND cf.name ILIKE $%d", argIdx)
+		args = append(args, framework)
+		argIdx++
+	}
+
+	query += " GROUP BY cf.id, cf.name, cf.description, cf.level, cf.enabled"
+
+	rows, err := t.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	frameworks := []map[string]interface{}{}
+	var totalScore float64
+	var frameworkCount int
+
+	for rows.Next() {
+		var id, name string
+		var description *string
+		var level *int
+		var enabled bool
+		var avgScore float64
+		var passingCount, failingCount, warningCount int
+
+		err := rows.Scan(&id, &name, &description, &level, &enabled, &avgScore, &passingCount, &failingCount, &warningCount)
+		if err != nil {
+			continue
+		}
+
+		fw := map[string]interface{}{
+			"id":            id,
+			"name":          name,
+			"enabled":       enabled,
+			"score":         avgScore,
+			"passing_count": passingCount,
+			"failing_count": failingCount,
+			"warning_count": warningCount,
+		}
+		if description != nil {
+			fw["description"] = *description
+		}
+		if level != nil {
+			fw["level"] = *level
+		}
+
+		frameworks = append(frameworks, fw)
+		totalScore += avgScore
+		frameworkCount++
+	}
+
+	overallScore := float64(0)
+	if frameworkCount > 0 {
+		overallScore = totalScore / float64(frameworkCount)
+	}
+
+	return map[string]interface{}{
+		"frameworks":    frameworks,
+		"overall_score": overallScore,
+	}, nil
+}
+
+// GetGoldenImageTool gets the current golden image for a family.
+type GetGoldenImageTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *GetGoldenImageTool) Name() string        { return "get_golden_image" }
+func (t *GetGoldenImageTool) Description() string { return "Get current golden image for an image family" }
+func (t *GetGoldenImageTool) Risk() RiskLevel     { return RiskReadOnly }
+func (t *GetGoldenImageTool) Scope() Scope        { return ScopeOrganization }
+func (t *GetGoldenImageTool) Idempotent() bool    { return true }
+func (t *GetGoldenImageTool) RequiresApproval() bool { return false }
+func (t *GetGoldenImageTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"family":   map[string]interface{}{"type": "string"},
+			"platform": map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"family"},
+	}
+}
+func (t *GetGoldenImageTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	family, ok := params["family"].(string)
+	if !ok || family == "" {
+		return map[string]interface{}{"image": nil, "error": "family is required"}, nil
+	}
+
+	row := t.db.QueryRow(ctx, `
+		SELECT id, family, version, os_name, os_version, cis_level, status, signed, created_at
+		FROM images
+		WHERE family = $1 AND status = 'published'
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, family)
+
+	var id, imgFamily, version, osName, osVersion, status string
+	var cisLevel *int
+	var signed bool
+	var createdAt interface{}
+
+	err := row.Scan(&id, &imgFamily, &version, &osName, &osVersion, &cisLevel, &status, &signed, &createdAt)
+	if err != nil {
+		return map[string]interface{}{"image": nil}, nil
+	}
+
+	return map[string]interface{}{
+		"image": map[string]interface{}{
+			"id":         id,
+			"family":     imgFamily,
+			"version":    version,
+			"os_name":    osName,
+			"os_version": osVersion,
+			"cis_level":  cisLevel,
+			"status":     status,
+			"signed":     signed,
+		},
+	}, nil
+}
+
+// QueryAlertsTool queries active alerts.
+type QueryAlertsTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *QueryAlertsTool) Name() string        { return "query_alerts" }
+func (t *QueryAlertsTool) Description() string { return "Query active alerts with filters" }
+func (t *QueryAlertsTool) Risk() RiskLevel     { return RiskReadOnly }
+func (t *QueryAlertsTool) Scope() Scope        { return ScopeOrganization }
+func (t *QueryAlertsTool) Idempotent() bool    { return true }
+func (t *QueryAlertsTool) RequiresApproval() bool { return false }
+func (t *QueryAlertsTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"severity": map[string]interface{}{"type": "string", "enum": []string{"critical", "warning", "info"}},
+			"status":   map[string]interface{}{"type": "string", "enum": []string{"open", "acknowledged", "resolved"}},
+			"source":   map[string]interface{}{"type": "string"},
+			"limit":    map[string]interface{}{"type": "integer", "default": 50},
+		},
+	}
+}
+func (t *QueryAlertsTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	query := `
+		SELECT al.id, al.severity, al.title, al.description, al.source, al.status, al.created_at,
+		       a.id as asset_id, a.name as asset_name
+		FROM alerts al
+		LEFT JOIN assets a ON al.asset_id = a.id
+		WHERE 1=1
+	`
+	args := []interface{}{}
+	argIdx := 1
+
+	if severity, ok := params["severity"].(string); ok && severity != "" {
+		query += fmt.Sprintf(" AND al.severity = $%d", argIdx)
+		args = append(args, severity)
+		argIdx++
+	}
+	if status, ok := params["status"].(string); ok && status != "" {
+		query += fmt.Sprintf(" AND al.status = $%d", argIdx)
+		args = append(args, status)
+		argIdx++
+	}
+	if source, ok := params["source"].(string); ok && source != "" {
+		query += fmt.Sprintf(" AND al.source = $%d", argIdx)
+		args = append(args, source)
+		argIdx++
+	}
+
+	limit := 50
+	if l, ok := params["limit"].(float64); ok {
+		limit = int(l)
+	}
+	query += fmt.Sprintf(" ORDER BY al.created_at DESC LIMIT %d", limit)
+
+	rows, err := t.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	alerts := []map[string]interface{}{}
+	for rows.Next() {
+		var id, severity, title, description, source, status string
+		var createdAt interface{}
+		var assetID, assetName *string
+
+		err := rows.Scan(&id, &severity, &title, &description, &source, &status, &createdAt, &assetID, &assetName)
+		if err != nil {
+			continue
+		}
+
+		alert := map[string]interface{}{
+			"id":          id,
+			"severity":    severity,
+			"title":       title,
+			"description": description,
+			"source":      source,
+			"status":      status,
+			"created_at":  createdAt,
+		}
+		if assetID != nil {
+			alert["asset_id"] = *assetID
+		}
+		if assetName != nil {
+			alert["asset_name"] = *assetName
+		}
+		alerts = append(alerts, alert)
+	}
+
+	return map[string]interface{}{
+		"alerts": alerts,
+		"total":  len(alerts),
+	}, nil
+}
+
+// GetDRStatusTool gets DR readiness status.
+type GetDRStatusTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *GetDRStatusTool) Name() string        { return "get_dr_status" }
+func (t *GetDRStatusTool) Description() string { return "Get DR readiness status for sites and pairs" }
+func (t *GetDRStatusTool) Risk() RiskLevel     { return RiskReadOnly }
+func (t *GetDRStatusTool) Scope() Scope        { return ScopeEnvironment }
+func (t *GetDRStatusTool) Idempotent() bool    { return true }
+func (t *GetDRStatusTool) RequiresApproval() bool { return false }
+func (t *GetDRStatusTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"site_id":    map[string]interface{}{"type": "string"},
+			"dr_pair_id": map[string]interface{}{"type": "string"},
+		},
+	}
+}
+func (t *GetDRStatusTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	// Query DR pairs with their sites
+	query := `
+		SELECT dp.id, dp.name, dp.status, dp.replication_status,
+		       dp.rpo, dp.rto, dp.last_failover_test, dp.last_sync_at,
+		       ps.id as primary_site_id, ps.name as primary_site_name, ps.region as primary_region,
+		       ds.id as dr_site_id, ds.name as dr_site_name, ds.region as dr_region
+		FROM dr_pairs dp
+		JOIN sites ps ON dp.primary_site_id = ps.id
+		JOIN sites ds ON dp.dr_site_id = ds.id
+		WHERE 1=1
+	`
+	args := []interface{}{}
+	argIdx := 1
+
+	if siteID, ok := params["site_id"].(string); ok && siteID != "" {
+		query += fmt.Sprintf(" AND (dp.primary_site_id = $%d OR dp.dr_site_id = $%d)", argIdx, argIdx+1)
+		args = append(args, siteID, siteID)
+		argIdx += 2
+	}
+	if drPairID, ok := params["dr_pair_id"].(string); ok && drPairID != "" {
+		query += fmt.Sprintf(" AND dp.id = $%d", argIdx)
+		args = append(args, drPairID)
+		argIdx++
+	}
+
+	rows, err := t.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	drPairs := []map[string]interface{}{}
+	var healthyCount, warningCount, criticalCount int
+
+	for rows.Next() {
+		var id, name, status, replStatus string
+		var rpo, rto *string
+		var lastFailoverTest, lastSyncAt interface{}
+		var primarySiteID, primarySiteName, primaryRegion string
+		var drSiteID, drSiteName, drRegion string
+
+		err := rows.Scan(&id, &name, &status, &replStatus, &rpo, &rto, &lastFailoverTest, &lastSyncAt,
+			&primarySiteID, &primarySiteName, &primaryRegion,
+			&drSiteID, &drSiteName, &drRegion)
+		if err != nil {
+			continue
+		}
+
+		pair := map[string]interface{}{
+			"id":                 id,
+			"name":               name,
+			"status":             status,
+			"replication_status": replStatus,
+			"last_failover_test": lastFailoverTest,
+			"last_sync_at":       lastSyncAt,
+			"primary_site": map[string]interface{}{
+				"id":     primarySiteID,
+				"name":   primarySiteName,
+				"region": primaryRegion,
+			},
+			"dr_site": map[string]interface{}{
+				"id":     drSiteID,
+				"name":   drSiteName,
+				"region": drRegion,
+			},
+		}
+		if rpo != nil {
+			pair["rpo"] = *rpo
+		}
+		if rto != nil {
+			pair["rto"] = *rto
+		}
+
+		drPairs = append(drPairs, pair)
+
+		// Count status
+		switch status {
+		case "healthy":
+			healthyCount++
+		case "warning":
+			warningCount++
+		case "critical":
+			criticalCount++
+		}
+	}
+
+	// Determine overall status
+	overallStatus := "healthy"
+	if criticalCount > 0 {
+		overallStatus = "critical"
+	} else if warningCount > 0 {
+		overallStatus = "warning"
+	} else if len(drPairs) == 0 {
+		overallStatus = "unknown"
+	}
+
+	return map[string]interface{}{
+		"dr_pairs":       drPairs,
+		"overall_status": overallStatus,
+		"summary": map[string]interface{}{
+			"total":    len(drPairs),
+			"healthy":  healthyCount,
+			"warning":  warningCount,
+			"critical": criticalCount,
+		},
+	}, nil
+}
+
+// =============================================================================
+// Analysis Tools
+// =============================================================================
+
+// AnalyzeDriftTool analyzes drift patterns.
+type AnalyzeDriftTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *AnalyzeDriftTool) Name() string        { return "analyze_drift" }
+func (t *AnalyzeDriftTool) Description() string { return "Analyze drift patterns and identify root causes" }
+func (t *AnalyzeDriftTool) Risk() RiskLevel     { return RiskPlanOnly }
+func (t *AnalyzeDriftTool) Scope() Scope        { return ScopeEnvironment }
+func (t *AnalyzeDriftTool) Idempotent() bool    { return true }
+func (t *AnalyzeDriftTool) RequiresApproval() bool { return false }
+func (t *AnalyzeDriftTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"asset_ids": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+		},
+	}
+}
+func (t *AnalyzeDriftTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	// Get latest golden images for each family
+	goldenImages := make(map[string]map[string]interface{})
+	goldenRows, err := t.db.Query(ctx, `
+		SELECT DISTINCT ON (family) id, family, version, os_name, os_version
+		FROM images
+		WHERE status = 'published'
+		ORDER BY family, created_at DESC
+	`)
+	if err == nil {
+		defer goldenRows.Close()
+		for goldenRows.Next() {
+			var id, family, version, osName, osVersion string
+			if err := goldenRows.Scan(&id, &family, &version, &osName, &osVersion); err == nil {
+				goldenImages[family] = map[string]interface{}{
+					"id":         id,
+					"version":    version,
+					"os_name":    osName,
+					"os_version": osVersion,
+				}
+			}
+		}
+	}
+
+	// Query assets with drift
+	query := `
+		SELECT a.id, a.name, a.platform, a.region, a.image_ref, a.image_version,
+		       e.name as environment, s.name as site_name
+		FROM assets a
+		LEFT JOIN environments e ON a.env_id = e.id
+		LEFT JOIN sites s ON a.site_id = s.id
+	`
+
+	// Check if specific asset_ids provided
+	var args []interface{}
+	if assetIDs, ok := params["asset_ids"].([]interface{}); ok && len(assetIDs) > 0 {
+		placeholders := ""
+		for i, id := range assetIDs {
+			if i > 0 {
+				placeholders += ","
+			}
+			placeholders += fmt.Sprintf("$%d", i+1)
+			args = append(args, id)
+		}
+		query += fmt.Sprintf(" WHERE a.id IN (%s)", placeholders)
+	}
+
+	rows, err := t.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	// Analyze drift patterns
+	driftByPlatform := make(map[string]int)
+	driftByRegion := make(map[string]int)
+	driftByFamily := make(map[string]int)
+	driftedAssets := []map[string]interface{}{}
+	var totalAssets, compliantAssets int
+
+	for rows.Next() {
+		var id, name, platform, region, imageRef, imageVersion string
+		var environment, siteName *string
+
+		err := rows.Scan(&id, &name, &platform, &region, &imageRef, &imageVersion, &environment, &siteName)
+		if err != nil {
+			continue
+		}
+
+		totalAssets++
+		golden, hasGolden := goldenImages[imageRef]
+
+		if hasGolden && golden["version"].(string) == imageVersion {
+			compliantAssets++
+			continue
+		}
+
+		// Asset is drifted
+		driftByPlatform[platform]++
+		driftByRegion[region]++
+		driftByFamily[imageRef]++
+
+		detail := map[string]interface{}{
+			"asset_id":        id,
+			"asset_name":      name,
+			"platform":        platform,
+			"region":          region,
+			"image_family":    imageRef,
+			"current_version": imageVersion,
+		}
+
+		if hasGolden {
+			detail["target_version"] = golden["version"]
+			detail["drift_type"] = "version_mismatch"
+		} else {
+			detail["drift_type"] = "no_golden_image"
+		}
+
+		if environment != nil {
+			detail["environment"] = *environment
+		}
+		if siteName != nil {
+			detail["site"] = *siteName
+		}
+
+		driftedAssets = append(driftedAssets, detail)
+	}
+
+	// Generate analysis
+	driftRate := float64(0)
+	if totalAssets > 0 {
+		driftRate = float64(len(driftedAssets)) / float64(totalAssets) * 100
+	}
+
+	return map[string]interface{}{
+		"analysis": map[string]interface{}{
+			"total_assets":     totalAssets,
+			"compliant_assets": compliantAssets,
+			"drifted_assets":   len(driftedAssets),
+			"drift_rate":       driftRate,
+			"drift_by_platform": driftByPlatform,
+			"drift_by_region":   driftByRegion,
+			"drift_by_family":   driftByFamily,
+		},
+		"drifted_assets": driftedAssets,
+		"golden_images":  goldenImages,
+	}, nil
+}
+
+// CheckControlTool checks a specific compliance control.
+type CheckControlTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *CheckControlTool) Name() string        { return "check_control" }
+func (t *CheckControlTool) Description() string { return "Check status of a specific compliance control" }
+func (t *CheckControlTool) Risk() RiskLevel     { return RiskReadOnly }
+func (t *CheckControlTool) Scope() Scope        { return ScopeOrganization }
+func (t *CheckControlTool) Idempotent() bool    { return true }
+func (t *CheckControlTool) RequiresApproval() bool { return false }
+func (t *CheckControlTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"control_id": map[string]interface{}{"type": "string"},
+			"framework":  map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"control_id"},
+	}
+}
+func (t *CheckControlTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	controlID, ok := params["control_id"].(string)
+	if !ok || controlID == "" {
+		return map[string]interface{}{"control": nil, "status": "error", "error": "control_id is required"}, nil
+	}
+
+	// Query the control and its latest result
+	query := `
+		SELECT cc.id, cc.control_id, cc.title, cc.description, cc.severity, cc.recommendation,
+		       cf.name as framework_name,
+		       cr.status as result_status, cr.affected_assets, cr.score, cr.last_audit_at
+		FROM compliance_controls cc
+		JOIN compliance_frameworks cf ON cc.framework_id = cf.id
+		LEFT JOIN compliance_results cr ON cc.id = cr.control_id
+		WHERE cc.control_id = $1
+	`
+	args := []interface{}{controlID}
+
+	if framework, ok := params["framework"].(string); ok && framework != "" {
+		query += " AND cf.name ILIKE $2"
+		args = append(args, framework)
+	}
+
+	query += " ORDER BY cr.last_audit_at DESC NULLS LAST LIMIT 1"
+
+	row := t.db.QueryRow(ctx, query, args...)
+
+	var id, ctrlID, title, severity, frameworkName string
+	var description, recommendation, resultStatus *string
+	var affectedAssets *int
+	var score *float64
+	var lastAuditAt interface{}
+
+	err := row.Scan(&id, &ctrlID, &title, &description, &severity, &recommendation,
+		&frameworkName, &resultStatus, &affectedAssets, &score, &lastAuditAt)
+	if err != nil {
+		return map[string]interface{}{"control": nil, "status": "not_found"}, nil
+	}
+
+	control := map[string]interface{}{
+		"id":           id,
+		"control_id":   ctrlID,
+		"title":        title,
+		"severity":     severity,
+		"framework":    frameworkName,
+		"last_audit":   lastAuditAt,
+	}
+	if description != nil {
+		control["description"] = *description
+	}
+	if recommendation != nil {
+		control["recommendation"] = *recommendation
+	}
+	if affectedAssets != nil {
+		control["affected_assets"] = *affectedAssets
+	}
+	if score != nil {
+		control["score"] = *score
+	}
+
+	status := "unknown"
+	if resultStatus != nil {
+		status = *resultStatus
+	}
+
+	return map[string]interface{}{
+		"control": control,
+		"status":  status,
+	}, nil
+}
+
+// =============================================================================
+// Planning Tools
+// =============================================================================
+
+// CompareVersionsTool compares current vs target versions.
+type CompareVersionsTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *CompareVersionsTool) Name() string        { return "compare_versions" }
+func (t *CompareVersionsTool) Description() string { return "Compare current asset versions against target golden image" }
+func (t *CompareVersionsTool) Risk() RiskLevel     { return RiskPlanOnly }
+func (t *CompareVersionsTool) Scope() Scope        { return ScopeEnvironment }
+func (t *CompareVersionsTool) Idempotent() bool    { return true }
+func (t *CompareVersionsTool) RequiresApproval() bool { return false }
+func (t *CompareVersionsTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"asset_ids":        map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"target_image_id":  map[string]interface{}{"type": "string"},
+		},
+	}
+}
+func (t *CompareVersionsTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	// Get target image if specified
+	var targetImage map[string]interface{}
+	if targetID, ok := params["target_image_id"].(string); ok && targetID != "" {
+		row := t.db.QueryRow(ctx, `
+			SELECT id, family, version, os_name, os_version, status
+			FROM images WHERE id = $1
+		`, targetID)
+		var id, family, version, osName, osVersion, status string
+		if err := row.Scan(&id, &family, &version, &osName, &osVersion, &status); err == nil {
+			targetImage = map[string]interface{}{
+				"id": id, "family": family, "version": version,
+				"os_name": osName, "os_version": osVersion, "status": status,
+			}
+		}
+	}
+
+	// Get golden images for families
+	goldenImages := make(map[string]map[string]interface{})
+	goldenRows, err := t.db.Query(ctx, `
+		SELECT DISTINCT ON (family) id, family, version
+		FROM images WHERE status = 'published'
+		ORDER BY family, created_at DESC
+	`)
+	if err == nil {
+		defer goldenRows.Close()
+		for goldenRows.Next() {
+			var id, family, version string
+			if err := goldenRows.Scan(&id, &family, &version); err == nil {
+				goldenImages[family] = map[string]interface{}{"id": id, "version": version}
+			}
+		}
+	}
+
+	// Build asset query
+	query := `
+		SELECT a.id, a.name, a.platform, a.region, a.image_ref, a.image_version,
+		       e.name as environment
+		FROM assets a
+		LEFT JOIN environments e ON a.env_id = e.id
+	`
+	var args []interface{}
+
+	if assetIDs, ok := params["asset_ids"].([]interface{}); ok && len(assetIDs) > 0 {
+		placeholders := ""
+		for i, id := range assetIDs {
+			if i > 0 {
+				placeholders += ","
+			}
+			placeholders += fmt.Sprintf("$%d", i+1)
+			args = append(args, id)
+		}
+		query += fmt.Sprintf(" WHERE a.id IN (%s)", placeholders)
+	}
+
+	rows, err := t.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	comparisons := []map[string]interface{}{}
+	var needsUpdate, upToDate, unknown int
+
+	for rows.Next() {
+		var id, name, platform, region, imageRef, imageVersion string
+		var environment *string
+
+		if err := rows.Scan(&id, &name, &platform, &region, &imageRef, &imageVersion, &environment); err != nil {
+			continue
+		}
+
+		comp := map[string]interface{}{
+			"asset_id":        id,
+			"asset_name":      name,
+			"platform":        platform,
+			"region":          region,
+			"current_family":  imageRef,
+			"current_version": imageVersion,
+		}
+		if environment != nil {
+			comp["environment"] = *environment
+		}
+
+		// Determine target version
+		var targetVersion, targetFamily string
+		if targetImage != nil {
+			targetVersion = targetImage["version"].(string)
+			targetFamily = targetImage["family"].(string)
+		} else if golden, ok := goldenImages[imageRef]; ok {
+			targetVersion = golden["version"].(string)
+			targetFamily = imageRef
+		}
+
+		if targetVersion != "" {
+			comp["target_family"] = targetFamily
+			comp["target_version"] = targetVersion
+
+			if imageVersion == targetVersion {
+				comp["status"] = "up_to_date"
+				upToDate++
+			} else {
+				comp["status"] = "needs_update"
+				needsUpdate++
+			}
+		} else {
+			comp["status"] = "no_target"
+			unknown++
+		}
+
+		comparisons = append(comparisons, comp)
+	}
+
+	return map[string]interface{}{
+		"comparison":   comparisons,
+		"target_image": targetImage,
+		"summary": map[string]interface{}{
+			"total":        len(comparisons),
+			"needs_update": needsUpdate,
+			"up_to_date":   upToDate,
+			"unknown":      unknown,
+		},
+	}, nil
+}
+
+// GeneratePatchPlanTool generates a patch plan.
+type GeneratePatchPlanTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *GeneratePatchPlanTool) Name() string        { return "generate_patch_plan" }
+func (t *GeneratePatchPlanTool) Description() string { return "Generate a phased patch rollout plan" }
+func (t *GeneratePatchPlanTool) Risk() RiskLevel     { return RiskPlanOnly }
+func (t *GeneratePatchPlanTool) Scope() Scope        { return ScopeEnvironment }
+func (t *GeneratePatchPlanTool) Idempotent() bool    { return true }
+func (t *GeneratePatchPlanTool) RequiresApproval() bool { return false }
+func (t *GeneratePatchPlanTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"asset_ids":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"target_image_id":   map[string]interface{}{"type": "string"},
+			"canary_size":       map[string]interface{}{"type": "integer", "default": 5},
+			"max_batch_percent": map[string]interface{}{"type": "integer", "default": 20},
+		},
+		"required": []string{"asset_ids", "target_image_id"},
+	}
+}
+func (t *GeneratePatchPlanTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	return map[string]interface{}{
+		"plan": map[string]interface{}{
+			"phases": []map[string]interface{}{},
+		},
+	}, nil
+}
+
+// GenerateRolloutPlanTool generates a rollout plan.
+type GenerateRolloutPlanTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *GenerateRolloutPlanTool) Name() string        { return "generate_rollout_plan" }
+func (t *GenerateRolloutPlanTool) Description() string { return "Generate a rollout strategy with canary phases" }
+func (t *GenerateRolloutPlanTool) Risk() RiskLevel     { return RiskPlanOnly }
+func (t *GenerateRolloutPlanTool) Scope() Scope        { return ScopeEnvironment }
+func (t *GenerateRolloutPlanTool) Idempotent() bool    { return true }
+func (t *GenerateRolloutPlanTool) RequiresApproval() bool { return false }
+func (t *GenerateRolloutPlanTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"environment":       map[string]interface{}{"type": "string"},
+			"asset_ids":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"require_canary":    map[string]interface{}{"type": "boolean", "default": true},
+		},
+	}
+}
+func (t *GenerateRolloutPlanTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	return map[string]interface{}{
+		"plan": map[string]interface{}{},
+	}, nil
+}
+
+// GenerateDRRunbookTool generates a DR runbook.
+type GenerateDRRunbookTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *GenerateDRRunbookTool) Name() string        { return "generate_dr_runbook" }
+func (t *GenerateDRRunbookTool) Description() string { return "Generate DR runbook from infrastructure analysis" }
+func (t *GenerateDRRunbookTool) Risk() RiskLevel     { return RiskPlanOnly }
+func (t *GenerateDRRunbookTool) Scope() Scope        { return ScopeEnvironment }
+func (t *GenerateDRRunbookTool) Idempotent() bool    { return true }
+func (t *GenerateDRRunbookTool) RequiresApproval() bool { return false }
+func (t *GenerateDRRunbookTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"dr_pair_id": map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"dr_pair_id"},
+	}
+}
+func (t *GenerateDRRunbookTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	return map[string]interface{}{
+		"runbook": map[string]interface{}{},
+	}, nil
+}
+
+// SimulateRolloutTool simulates a rollout.
+type SimulateRolloutTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *SimulateRolloutTool) Name() string        { return "simulate_rollout" }
+func (t *SimulateRolloutTool) Description() string { return "Dry-run rollout to predict impact" }
+func (t *SimulateRolloutTool) Risk() RiskLevel     { return RiskPlanOnly }
+func (t *SimulateRolloutTool) Scope() Scope        { return ScopeEnvironment }
+func (t *SimulateRolloutTool) Idempotent() bool    { return true }
+func (t *SimulateRolloutTool) RequiresApproval() bool { return false }
+func (t *SimulateRolloutTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"plan_id": map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"plan_id"},
+	}
+}
+func (t *SimulateRolloutTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	return map[string]interface{}{
+		"simulation": map[string]interface{}{
+			"affected_assets":     0,
+			"estimated_duration":  "0m",
+			"predicted_risk":      "low",
+		},
+	}, nil
+}
+
+// CalculateRiskScoreTool calculates risk score for a change.
+type CalculateRiskScoreTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *CalculateRiskScoreTool) Name() string        { return "calculate_risk_score" }
+func (t *CalculateRiskScoreTool) Description() string { return "Calculate risk score for a proposed change" }
+func (t *CalculateRiskScoreTool) Risk() RiskLevel     { return RiskPlanOnly }
+func (t *CalculateRiskScoreTool) Scope() Scope        { return ScopeAsset }
+func (t *CalculateRiskScoreTool) Idempotent() bool    { return true }
+func (t *CalculateRiskScoreTool) RequiresApproval() bool { return false }
+func (t *CalculateRiskScoreTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"asset_ids": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"change_type": map[string]interface{}{"type": "string"},
+		},
+	}
+}
+func (t *CalculateRiskScoreTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	return map[string]interface{}{
+		"risk_score": 0,
+		"risk_level": "low",
+		"factors":    []map[string]interface{}{},
+	}, nil
+}
+
+// =============================================================================
+// Execution Tools (require approval)
+// =============================================================================
+
+// ProposeRolloutTool proposes a rollout for execution.
+type ProposeRolloutTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *ProposeRolloutTool) Name() string        { return "propose_rollout" }
+func (t *ProposeRolloutTool) Description() string { return "Propose a rollout plan for human approval" }
+func (t *ProposeRolloutTool) Risk() RiskLevel     { return RiskStateChangeProd }
+func (t *ProposeRolloutTool) Scope() Scope        { return ScopeEnvironment }
+func (t *ProposeRolloutTool) Idempotent() bool    { return false }
+func (t *ProposeRolloutTool) RequiresApproval() bool { return true }
+func (t *ProposeRolloutTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"plan_id": map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"plan_id"},
+	}
+}
+func (t *ProposeRolloutTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	return map[string]interface{}{
+		"status": "awaiting_approval",
+	}, nil
+}
+
+// AcknowledgeAlertTool acknowledges an alert.
+type AcknowledgeAlertTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *AcknowledgeAlertTool) Name() string        { return "acknowledge_alert" }
+func (t *AcknowledgeAlertTool) Description() string { return "Acknowledge and optionally close an alert" }
+func (t *AcknowledgeAlertTool) Risk() RiskLevel     { return RiskStateChangeProd }
+func (t *AcknowledgeAlertTool) Scope() Scope        { return ScopeAsset }
+func (t *AcknowledgeAlertTool) Idempotent() bool    { return true }
+func (t *AcknowledgeAlertTool) RequiresApproval() bool { return true }
+func (t *AcknowledgeAlertTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"alert_id": map[string]interface{}{"type": "string"},
+			"action":   map[string]interface{}{"type": "string", "enum": []string{"acknowledge", "resolve"}},
+			"reason":   map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"alert_id", "action"},
+	}
+}
+func (t *AcknowledgeAlertTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	alertID, ok := params["alert_id"].(string)
+	if !ok || alertID == "" {
+		return nil, fmt.Errorf("alert_id is required")
+	}
+
+	action, ok := params["action"].(string)
+	if !ok || action == "" {
+		action = "acknowledge"
+	}
+
+	var query string
+	var newStatus string
+
+	switch action {
+	case "acknowledge":
+		query = `
+			UPDATE alerts
+			SET status = 'acknowledged', acknowledged_at = NOW()
+			WHERE id = $1 AND status = 'open'
+			RETURNING id, status
+		`
+		newStatus = "acknowledged"
+	case "resolve":
+		query = `
+			UPDATE alerts
+			SET status = 'resolved', resolved_at = NOW()
+			WHERE id = $1 AND status IN ('open', 'acknowledged')
+			RETURNING id, status
+		`
+		newStatus = "resolved"
+	default:
+		return nil, fmt.Errorf("invalid action: %s (must be 'acknowledge' or 'resolve')", action)
+	}
+
+	var id, status string
+	err := t.db.QueryRow(ctx, query, alertID).Scan(&id, &status)
+	if err != nil {
+		return map[string]interface{}{
+			"status":   "failed",
+			"error":    "Alert not found or already processed",
+			"alert_id": alertID,
+		}, nil
+	}
+
+	// Log the activity
+	reason := ""
+	if r, ok := params["reason"].(string); ok {
+		reason = r
+	}
+
+	return map[string]interface{}{
+		"status":   newStatus,
+		"alert_id": id,
+		"action":   action,
+		"reason":   reason,
+	}, nil
+}

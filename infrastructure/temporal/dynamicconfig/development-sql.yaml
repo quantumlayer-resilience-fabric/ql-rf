@@ -1,0 +1,27 @@
+# Temporal Dynamic Configuration for Development
+# See: https://docs.temporal.io/references/dynamic-configuration
+
+# Limit the number of history events in a workflow execution
+limit.maxIDLength:
+  - value: 255
+    constraints: {}
+
+# Enable advanced visibility (search attributes)
+system.enableActivityEagerExecution:
+  - value: true
+    constraints: {}
+
+# Workflow execution history size limits
+history.maximumSignalsPerExecution:
+  - value: 10000
+    constraints: {}
+
+# Frontend configuration
+frontend.enableClientVersionCheck:
+  - value: false
+    constraints: {}
+
+# Worker configuration
+worker.enablePurgeStickyTaskQueue:
+  - value: true
+    constraints: {}

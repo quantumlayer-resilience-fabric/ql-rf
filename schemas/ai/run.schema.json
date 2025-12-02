@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ql-rf.io/schemas/ai/run.schema.json",
+  "title": "Run",
+  "description": "Execution record for an approved plan",
+  "type": "object",
+  "required": ["id", "plan_id", "task_id", "environment", "initiated_by", "status"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "plan_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Reference to approved Plan"
+    },
+    "task_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Reference to parent Task (denormalized for queries)"
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["production", "staging", "development", "sandbox"]
+    },
+    "initiated_by": {
+      "type": "string",
+      "format": "uuid",
+      "description": "User who approved/initiated the run"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "progress": {
+      "type": "object",
+      "properties": {
+        "current_phase": {
+          "type": "string",
+          "description": "Name of currently executing phase"
+        },
+        "phases_completed": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Names of completed phases"
+        },
+        "phases_remaining": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Names of remaining phases"
+        },
+        "percent_complete": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["queued", "executing", "paused", "completed", "rolled_back", "failed"]
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "error": {
+          "type": "string",
+          "description": "Error message if failed"
+        },
+        "pause_reason": {
+          "type": "string",
+          "description": "Reason for pause (health check failure, manual, etc.)"
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "duration_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total execution duration"
+        },
+        "assets_total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total assets in scope"
+        },
+        "assets_changed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Assets successfully changed"
+        },
+        "assets_failed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Assets that failed to change"
+        },
+        "assets_skipped": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Assets skipped (excluded or unavailable)"
+        },
+        "rollback_triggered": {
+          "type": "boolean",
+          "description": "Whether rollback was triggered"
+        },
+        "rollback_assets": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of assets rolled back"
+        },
+        "observed_error_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Observed error rate during execution (%)"
+        },
+        "health_check_failures": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of health check failures"
+        }
+      }
+    },
+    "audit_log": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/AuditEntry"
+      },
+      "description": "Ordered list of audit events"
+    }
+  },
+  "$defs": {
+    "AuditEntry": {
+      "type": "object",
+      "required": ["timestamp", "event"],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "event": {
+          "type": "string",
+          "enum": [
+            "run_started",
+            "phase_started",
+            "phase_completed",
+            "phase_failed",
+            "health_check_started",
+            "health_check_passed",
+            "health_check_failed",
+            "rollback_triggered",
+            "rollback_completed",
+            "run_paused",
+            "run_resumed",
+            "run_completed",
+            "run_failed",
+            "asset_changed",
+            "asset_failed",
+            "asset_skipped"
+          ]
+        },
+        "phase": {
+          "type": "string",
+          "description": "Phase name (if applicable)"
+        },
+        "asset_id": {
+          "type": "string",
+          "description": "Asset ID (if applicable)"
+        },
+        "details": {
+          "type": "object",
+          "description": "Additional event-specific details"
+        },
+        "error": {
+          "type": "string",
+          "description": "Error message (if applicable)"
+        }
+      }
+    }
+  }
+}

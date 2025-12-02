@@ -2,10 +2,11 @@
 # Build, test, and development commands
 
 .PHONY: all build test lint fmt clean dev dev-down \
-        build-api build-connectors build-drift \
-        run-api run-connectors run-drift \
+        build-api build-connectors build-drift build-orchestrator \
+        run-api run-connectors run-drift run-orchestrator \
         migrate-up migrate-down migrate-create sqlc-generate \
-        docker-build docker-push
+        docker-build docker-push \
+        opa-test opa-fmt
 
 # Variables
 BINARY_DIR := bin
@@ -51,7 +52,7 @@ dev-logs:
 # ============================================================================
 
 ## build: Build all services
-build: build-api build-connectors build-drift
+build: build-api build-connectors build-drift build-orchestrator
 
 ## build-api: Build API service
 build-api:
@@ -64,6 +65,10 @@ build-connectors:
 ## build-drift: Build drift service
 build-drift:
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BINARY_DIR)/drift ./services/drift/cmd/drift
+
+## build-orchestrator: Build AI orchestrator service
+build-orchestrator:
+	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BINARY_DIR)/orchestrator ./services/orchestrator/cmd/orchestrator
 
 # ============================================================================
 # Run (for local development)
@@ -80,6 +85,10 @@ run-connectors:
 ## run-drift: Run drift service locally
 run-drift:
 	$(GO) run ./services/drift/cmd/drift
+
+## run-orchestrator: Run AI orchestrator service locally
+run-orchestrator:
+	$(GO) run ./services/orchestrator/cmd/orchestrator
 
 # ============================================================================
 # Testing
@@ -130,6 +139,7 @@ tidy:
 	cd services/api && $(GO) mod tidy
 	cd services/connectors && $(GO) mod tidy
 	cd services/drift && $(GO) mod tidy
+	cd services/orchestrator && $(GO) mod tidy
 
 # ============================================================================
 # Database
@@ -165,7 +175,7 @@ sqlc-generate:
 # ============================================================================
 
 ## docker-build: Build all Docker images
-docker-build: docker-build-api docker-build-connectors docker-build-drift
+docker-build: docker-build-api docker-build-connectors docker-build-drift docker-build-orchestrator
 
 ## docker-build-api: Build API Docker image
 docker-build-api:
@@ -179,11 +189,32 @@ docker-build-connectors:
 docker-build-drift:
 	docker build -t $(DOCKER_REGISTRY)/ql-rf-drift:$(VERSION) -f services/drift/Dockerfile .
 
+## docker-build-orchestrator: Build AI orchestrator Docker image
+docker-build-orchestrator:
+	docker build -t $(DOCKER_REGISTRY)/ql-rf-orchestrator:$(VERSION) -f services/orchestrator/Dockerfile .
+
 ## docker-push: Push all Docker images to registry
 docker-push:
 	docker push $(DOCKER_REGISTRY)/ql-rf-api:$(VERSION)
 	docker push $(DOCKER_REGISTRY)/ql-rf-connectors:$(VERSION)
 	docker push $(DOCKER_REGISTRY)/ql-rf-drift:$(VERSION)
+	docker push $(DOCKER_REGISTRY)/ql-rf-orchestrator:$(VERSION)
+
+# ============================================================================
+# OPA Policy Management
+# ============================================================================
+
+## opa-test: Test OPA policies
+opa-test:
+	opa test policy/ -v
+
+## opa-fmt: Format OPA policies
+opa-fmt:
+	opa fmt -w policy/
+
+## opa-check: Check OPA policy syntax
+opa-check:
+	opa check policy/
 
 # ============================================================================
 # Tools Installation

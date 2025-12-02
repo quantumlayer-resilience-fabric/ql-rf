@@ -12,6 +12,9 @@ This directory contains Architecture Decision Records for QL-RF.
 | [ADR-004](ADR-004-temporal-workflows.md) | Temporal for Workflows | Accepted |
 | [ADR-005](ADR-005-opa-policy-engine.md) | OPA as Policy Engine | Accepted |
 | [ADR-006](ADR-006-sbom-spdx.md) | SPDX for SBOM Format | Accepted |
+| [ADR-007](ADR-007-llm-first-orchestration.md) | LLM-First Orchestration Architecture | Accepted |
+| [ADR-008](ADR-008-task-plan-run-lifecycle.md) | Task/Plan/Run Lifecycle & State Machine | Accepted |
+| [ADR-009](ADR-009-tool-risk-taxonomy-hitl.md) | Tool Risk Taxonomy & HITL Policy | Accepted |
 
 ## ADR Template
 
