@@ -140,6 +140,83 @@ export interface Activity {
   createdAt: string;
 }
 
+export interface ComplianceFramework {
+  id: string;
+  name: string;
+  description: string;
+  score: number;
+  passingControls: number;
+  totalControls: number;
+  status: "passing" | "warning" | "failing";
+  level?: number;
+}
+
+export interface FailingControl {
+  id: string;
+  framework: string;
+  title: string;
+  severity: "high" | "medium" | "low";
+  affectedAssets: number;
+  recommendation: string;
+}
+
+export interface ImageComplianceStatus {
+  familyId: string;
+  familyName: string;
+  version: string;
+  cis: boolean;
+  slsaLevel: number;
+  cosignSigned: boolean;
+  lastScanAt: string;
+  issueCount: number;
+}
+
+export interface ComplianceSummary {
+  overallScore: number;
+  cisCompliance: number;
+  slsaLevel: number;
+  sigstoreVerified: number;
+  lastAuditAt: string;
+  frameworks: ComplianceFramework[];
+  failingControls: FailingControl[];
+  imageCompliance: ImageComplianceStatus[];
+}
+
+export interface ResilienceSite {
+  id: string;
+  name: string;
+  region: string;
+  platform: "aws" | "azure" | "gcp" | "vsphere" | "k8s";
+  type: "primary" | "dr";
+  status: "healthy" | "warning" | "critical" | "syncing";
+  assetCount: number;
+  lastSyncAt: string;
+  rpo: string;
+  rto: string;
+  replicationLag?: string;
+}
+
+export interface DRPair {
+  id: string;
+  name: string;
+  primarySite: ResilienceSite;
+  drSite: ResilienceSite;
+  status: "healthy" | "warning" | "critical" | "syncing";
+  lastFailoverTest?: string;
+  replicationStatus: "in-sync" | "lagging" | "failed";
+}
+
+export interface ResilienceSummary {
+  drReadiness: number;
+  rpoCompliance: number;
+  rtoCompliance: number;
+  lastFailoverTest: string;
+  totalPairs: number;
+  healthyPairs: number;
+  drPairs: DRPair[];
+  unpairedSites: ResilienceSite[];
+}
+
 export interface OverviewMetrics {
   fleetSize: {
     value: number;
@@ -322,6 +399,34 @@ export const api = {
   activity: {
     list: (limit?: number) =>
       apiFetch<Activity[]>(`/activity${limit ? `?limit=${limit}` : ""}`),
+  },
+
+  // Compliance
+  compliance: {
+    getSummary: () => apiFetch<ComplianceSummary>("/compliance/summary"),
+    getFrameworks: () => apiFetch<ComplianceFramework[]>("/compliance/frameworks"),
+    getFailingControls: (framework?: string) => {
+      const query = framework ? `?framework=${framework}` : "";
+      return apiFetch<FailingControl[]>(`/compliance/controls/failing${query}`);
+    },
+    getImageCompliance: () => apiFetch<ImageComplianceStatus[]>("/compliance/images"),
+    runAudit: () =>
+      apiFetch<{ jobId: string }>("/compliance/audit", { method: "POST" }),
+  },
+
+  // Resilience
+  resilience: {
+    getSummary: () => apiFetch<ResilienceSummary>("/resilience/summary"),
+    getDRPairs: () => apiFetch<DRPair[]>("/resilience/dr-pairs"),
+    getDRPair: (id: string) => apiFetch<DRPair>(`/resilience/dr-pairs/${id}`),
+    triggerFailoverTest: (pairId: string) =>
+      apiFetch<{ jobId: string }>(`/resilience/dr-pairs/${pairId}/test`, {
+        method: "POST",
+      }),
+    triggerSync: (pairId: string) =>
+      apiFetch<{ jobId: string }>(`/resilience/dr-pairs/${pairId}/sync`, {
+        method: "POST",
+      }),
   },
 };
 
