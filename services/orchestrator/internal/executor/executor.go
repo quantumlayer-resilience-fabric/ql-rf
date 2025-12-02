@@ -487,16 +487,78 @@ func (e *Engine) GetExecution(ctx context.Context, execID string) (*Execution, e
 
 // ListExecutions lists executions for a task.
 func (e *Engine) ListExecutions(ctx context.Context, taskID string) ([]*Execution, error) {
-	// In real implementation, would query database
+	// First check in-memory executions
 	e.mu.RLock()
-	defer e.mu.RUnlock()
-
 	var result []*Execution
 	for _, exec := range e.executions {
 		if exec.TaskID == taskID {
 			result = append(result, exec)
 		}
 	}
+	e.mu.RUnlock()
+
+	// If we have in-memory results, return them
+	if len(result) > 0 {
+		return result, nil
+	}
+
+	// Query database
+	if e.db == nil {
+		return result, nil
+	}
+
+	query := `
+		SELECT id, plan_id, task_id, environment, initiated_by,
+		       current_phase, phases_completed, phases_remaining, percent_complete,
+		       state, error, started_at, completed_at
+		FROM ai_runs
+		WHERE task_id = $1
+		ORDER BY created_at DESC
+	`
+
+	rows, err := e.db.Pool.Query(ctx, query, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var exec Execution
+		var phasesCompletedJSON, phasesRemainingJSON []byte
+		var dbState, environment, currentPhase string
+		var errorStr *string
+
+		err := rows.Scan(
+			&exec.ID, &exec.PlanID, &exec.TaskID, &environment, &exec.StartedBy,
+			&currentPhase, &phasesCompletedJSON, &phasesRemainingJSON, &exec.CurrentPhase,
+			&dbState, &errorStr, &exec.StartedAt, &exec.CompletedAt,
+		)
+		if err != nil {
+			continue
+		}
+
+		exec.Status = mapDBStateToStatus(dbState)
+		if errorStr != nil {
+			exec.Error = *errorStr
+		}
+
+		// Parse phases
+		var phasesCompleted, phasesRemaining []string
+		_ = json.Unmarshal(phasesCompletedJSON, &phasesCompleted)
+		_ = json.Unmarshal(phasesRemainingJSON, &phasesRemaining)
+
+		exec.Phases = []PhaseExecution{}
+		for _, name := range phasesCompleted {
+			exec.Phases = append(exec.Phases, PhaseExecution{Name: name, Status: PhaseStatusCompleted})
+		}
+		for _, name := range phasesRemaining {
+			exec.Phases = append(exec.Phases, PhaseExecution{Name: name, Status: PhaseStatusPending})
+		}
+		exec.TotalPhases = len(exec.Phases)
+
+		result = append(result, &exec)
+	}
+
 	return result, nil
 }
 
@@ -563,31 +625,139 @@ func (e *Engine) saveExecution(ctx context.Context, exec *Execution) error {
 		return nil // No database configured
 	}
 
-	data, err := json.Marshal(exec)
-	if err != nil {
-		return err
+	// Build phases completed and remaining lists
+	phasesCompleted := []string{}
+	phasesRemaining := []string{}
+	for i, phase := range exec.Phases {
+		if phase.Status == PhaseStatusCompleted {
+			phasesCompleted = append(phasesCompleted, phase.Name)
+		} else if i >= exec.CurrentPhase {
+			phasesRemaining = append(phasesRemaining, phase.Name)
+		}
+	}
+
+	phasesCompletedJSON, _ := json.Marshal(phasesCompleted)
+	phasesRemainingJSON, _ := json.Marshal(phasesRemaining)
+
+	// Build metrics
+	var assetsTotal, assetsChanged, assetsFailed, assetsSkipped int
+	for _, phase := range exec.Phases {
+		for _, asset := range phase.Assets {
+			assetsTotal++
+			switch asset.Status {
+			case "completed":
+				assetsChanged++
+			case "failed":
+				assetsFailed++
+			case "skipped":
+				assetsSkipped++
+			}
+		}
+	}
+
+	metrics := map[string]interface{}{
+		"duration_seconds":      0,
+		"assets_total":          assetsTotal,
+		"assets_changed":        assetsChanged,
+		"assets_failed":         assetsFailed,
+		"assets_skipped":        assetsSkipped,
+		"rollback_triggered":    exec.Status == StatusRolledBack,
+		"rollback_assets":       0,
+		"observed_error_rate":   0,
+		"health_check_failures": 0,
+	}
+	if exec.CompletedAt != nil && exec.StartedAt.Before(*exec.CompletedAt) {
+		metrics["duration_seconds"] = int(exec.CompletedAt.Sub(exec.StartedAt).Seconds())
+	}
+	metricsJSON, _ := json.Marshal(metrics)
+
+	// Build audit log entry
+	auditEntry := map[string]interface{}{
+		"timestamp": time.Now().UTC(),
+		"event":     string(exec.Status),
+		"phase":     exec.CurrentPhase,
+	}
+	if exec.Error != "" {
+		auditEntry["error"] = exec.Error
+	}
+	auditEntryJSON, _ := json.Marshal([]interface{}{auditEntry})
+
+	// Calculate percent complete
+	percentComplete := 0
+	if exec.TotalPhases > 0 {
+		completedPhases := len(phasesCompleted)
+		percentComplete = (completedPhases * 100) / exec.TotalPhases
+	}
+
+	// Map our status to database state
+	dbState := mapStatusToDBState(exec.Status)
+
+	// Get current phase name
+	currentPhaseName := ""
+	if exec.CurrentPhase < len(exec.Phases) {
+		currentPhaseName = exec.Phases[exec.CurrentPhase].Name
 	}
 
 	query := `
-		INSERT INTO executions (id, task_id, org_id, status, data, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO ai_runs (
+			id, plan_id, task_id, environment, initiated_by,
+			current_phase, phases_completed, phases_remaining, percent_complete,
+			state, error, metrics, audit_log,
+			started_at, completed_at, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
 		ON CONFLICT (id) DO UPDATE SET
-			status = EXCLUDED.status,
-			data = EXCLUDED.data,
-			updated_at = EXCLUDED.updated_at
+			current_phase = EXCLUDED.current_phase,
+			phases_completed = EXCLUDED.phases_completed,
+			phases_remaining = EXCLUDED.phases_remaining,
+			percent_complete = EXCLUDED.percent_complete,
+			state = EXCLUDED.state,
+			error = EXCLUDED.error,
+			metrics = EXCLUDED.metrics,
+			audit_log = ai_runs.audit_log || EXCLUDED.audit_log,
+			completed_at = EXCLUDED.completed_at,
+			updated_at = NOW()
 	`
 
-	err = e.db.Exec(ctx, query,
+	return e.db.Exec(ctx, query,
 		exec.ID,
+		exec.PlanID,
 		exec.TaskID,
-		exec.OrgID,
-		string(exec.Status),
-		data,
+		"production", // default environment
+		exec.StartedBy,
+		currentPhaseName,
+		phasesCompletedJSON,
+		phasesRemainingJSON,
+		percentComplete,
+		dbState,
+		exec.Error,
+		metricsJSON,
+		auditEntryJSON,
 		exec.StartedAt,
-		time.Now(),
+		exec.CompletedAt,
 	)
+}
 
-	return err
+// mapStatusToDBState maps ExecutionStatus to database state.
+func mapStatusToDBState(status ExecutionStatus) string {
+	switch status {
+	case StatusPending:
+		return "queued"
+	case StatusRunning:
+		return "executing"
+	case StatusPaused:
+		return "paused"
+	case StatusCompleted:
+		return "completed"
+	case StatusRolledBack:
+		return "rolled_back"
+	case StatusFailed:
+		return "failed"
+	case StatusCancelled:
+		return "failed" // Map cancelled to failed in DB
+	default:
+		return "queued"
+	}
 }
 
 // loadExecution loads execution from database.
@@ -596,18 +766,73 @@ func (e *Engine) loadExecution(ctx context.Context, execID string) (*Execution, 
 		return nil, fmt.Errorf("execution not found: %s", execID)
 	}
 
-	query := `SELECT data FROM executions WHERE id = $1`
+	query := `
+		SELECT id, plan_id, task_id, environment, initiated_by,
+		       current_phase, phases_completed, phases_remaining, percent_complete,
+		       state, error, metrics, started_at, completed_at
+		FROM ai_runs WHERE id = $1
+	`
 
-	var data []byte
-	err := e.db.QueryRow(ctx, query, execID).Scan(&data)
+	var exec Execution
+	var phasesCompletedJSON, phasesRemainingJSON, metricsJSON []byte
+	var dbState, environment, currentPhase string
+	var errorStr *string
+
+	err := e.db.QueryRow(ctx, query, execID).Scan(
+		&exec.ID, &exec.PlanID, &exec.TaskID, &environment, &exec.StartedBy,
+		&currentPhase, &phasesCompletedJSON, &phasesRemainingJSON, &exec.CurrentPhase,
+		&dbState, &errorStr, &metricsJSON, &exec.StartedAt, &exec.CompletedAt,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	var exec Execution
-	if err := json.Unmarshal(data, &exec); err != nil {
-		return nil, err
+	// Map database state to ExecutionStatus
+	exec.Status = mapDBStateToStatus(dbState)
+	if errorStr != nil {
+		exec.Error = *errorStr
 	}
 
+	// Parse phases from JSON
+	var phasesCompleted, phasesRemaining []string
+	_ = json.Unmarshal(phasesCompletedJSON, &phasesCompleted)
+	_ = json.Unmarshal(phasesRemainingJSON, &phasesRemaining)
+
+	// Reconstruct phases
+	exec.Phases = []PhaseExecution{}
+	for _, name := range phasesCompleted {
+		exec.Phases = append(exec.Phases, PhaseExecution{
+			Name:   name,
+			Status: PhaseStatusCompleted,
+		})
+	}
+	for _, name := range phasesRemaining {
+		exec.Phases = append(exec.Phases, PhaseExecution{
+			Name:   name,
+			Status: PhaseStatusPending,
+		})
+	}
+	exec.TotalPhases = len(exec.Phases)
+
 	return &exec, nil
+}
+
+// mapDBStateToStatus maps database state to ExecutionStatus.
+func mapDBStateToStatus(dbState string) ExecutionStatus {
+	switch dbState {
+	case "queued":
+		return StatusPending
+	case "executing":
+		return StatusRunning
+	case "paused":
+		return StatusPaused
+	case "completed":
+		return StatusCompleted
+	case "rolled_back":
+		return StatusRolledBack
+	case "failed":
+		return StatusFailed
+	default:
+		return StatusPending
+	}
 }

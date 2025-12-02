@@ -6,6 +6,7 @@ toolchain go1.24.5
 
 require (
 	github.com/IBM/sarama v1.43.3
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/spf13/viper v1.19.0

@@ -133,6 +133,7 @@ type OrchestratorConfig struct {
 	Host    string `mapstructure:"host"`
 	Port    int    `mapstructure:"port"`
 	Enabled bool   `mapstructure:"enabled"`
+	DevMode bool   `mapstructure:"dev_mode"` // Skip auth in development
 }
 
 // LLMConfig holds LLM provider configuration.

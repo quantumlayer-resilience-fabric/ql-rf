@@ -23,8 +23,10 @@ type Connector struct {
 	cfg       Config
 	awsCfg    aws.Config
 	ec2Client *ec2.Client
+	stsClient *sts.Client
 	log       *logger.Logger
 	connected bool
+	accountID string // AWS Account ID
 }
 
 // Config holds AWS-specific configuration.
@@ -78,10 +80,20 @@ func (c *Connector) Connect(ctx context.Context) error {
 
 	c.awsCfg = awsCfg
 	c.ec2Client = ec2.NewFromConfig(awsCfg)
+	c.stsClient = sts.NewFromConfig(awsCfg)
 	c.connected = true
+
+	// Get caller identity to retrieve account ID
+	identity, err := c.stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		c.log.Warn("failed to get caller identity", "error", err)
+	} else {
+		c.accountID = aws.ToString(identity.Account)
+	}
 
 	c.log.Info("connected to AWS",
 		"region", c.cfg.Region,
+		"account_id", c.accountID,
 		"assume_role", c.cfg.AssumeRoleARN != "",
 	)
 
@@ -158,6 +170,10 @@ func (c *Connector) discoverAssetsInRegion(ctx context.Context, region string) (
 	var assets []models.NormalizedAsset
 	var nextToken *string
 
+	// Collect all unique AMI IDs for batch lookup
+	amiIDSet := make(map[string]bool)
+	var allInstances []ec2Types.Instance
+
 	for {
 		input := &ec2.DescribeInstancesInput{
 			NextToken: nextToken,
@@ -170,8 +186,10 @@ func (c *Connector) discoverAssetsInRegion(ctx context.Context, region string) (
 
 		for _, reservation := range output.Reservations {
 			for _, instance := range reservation.Instances {
-				asset := c.normalizeInstance(instance, region)
-				assets = append(assets, asset)
+				allInstances = append(allInstances, instance)
+				if instance.ImageId != nil {
+					amiIDSet[*instance.ImageId] = true
+				}
 			}
 		}
 
@@ -181,15 +199,57 @@ func (c *Connector) discoverAssetsInRegion(ctx context.Context, region string) (
 		nextToken = output.NextToken
 	}
 
+	// Batch lookup AMI information
+	amiInfo := make(map[string]*ec2Types.Image)
+	if len(amiIDSet) > 0 {
+		amiIDs := make([]string, 0, len(amiIDSet))
+		for id := range amiIDSet {
+			amiIDs = append(amiIDs, id)
+		}
+
+		// DescribeImages can handle up to 1000 image IDs per call
+		for i := 0; i < len(amiIDs); i += 500 {
+			end := i + 500
+			if end > len(amiIDs) {
+				end = len(amiIDs)
+			}
+
+			imagesOutput, err := regionalClient.DescribeImages(ctx, &ec2.DescribeImagesInput{
+				ImageIds: amiIDs[i:end],
+			})
+			if err != nil {
+				c.log.Warn("failed to describe images", "error", err, "region", region)
+			} else {
+				for j := range imagesOutput.Images {
+					img := &imagesOutput.Images[j]
+					if img.ImageId != nil {
+						amiInfo[*img.ImageId] = img
+					}
+				}
+			}
+		}
+	}
+
+	// Normalize instances with AMI info
+	for _, instance := range allInstances {
+		var ami *ec2Types.Image
+		if instance.ImageId != nil {
+			ami = amiInfo[*instance.ImageId]
+		}
+		asset := c.normalizeInstance(instance, region, ami)
+		assets = append(assets, asset)
+	}
+
 	c.log.Debug("discovered assets in region",
 		"region", region,
 		"count", len(assets),
+		"unique_amis", len(amiIDSet),
 	)
 
 	return assets, nil
 }
 
-func (c *Connector) normalizeInstance(instance ec2Types.Instance, region string) models.NormalizedAsset {
+func (c *Connector) normalizeInstance(instance ec2Types.Instance, region string, ami *ec2Types.Image) models.NormalizedAsset {
 	// Extract tags
 	tags := make(map[string]string)
 	var name string
@@ -217,14 +277,34 @@ func (c *Connector) normalizeInstance(instance ec2Types.Instance, region string)
 		}
 	}
 
-	// Extract version from AMI name/tags if available
+	// Extract image version from AMI metadata
 	imageVersion := ""
-	// This would typically come from querying the AMI details
-	// For now, we leave it empty
+	imageName := ""
+	if ami != nil {
+		imageName = aws.ToString(ami.Name)
+		// Try to extract version from AMI tags
+		for _, tag := range ami.Tags {
+			key := aws.ToString(tag.Key)
+			value := aws.ToString(tag.Value)
+			if key == "Version" || key == "version" {
+				imageVersion = value
+				break
+			}
+		}
+		// Fall back to creation date as version if no version tag
+		if imageVersion == "" && ami.CreationDate != nil {
+			imageVersion = aws.ToString(ami.CreationDate)
+		}
+	}
+
+	// Add image name to tags for reference
+	if imageName != "" {
+		tags["aws:ami:name"] = imageName
+	}
 
 	return models.NormalizedAsset{
 		Platform:     models.PlatformAWS,
-		Account:      "", // Would come from STS GetCallerIdentity
+		Account:      c.accountID,
 		Region:       region,
 		InstanceID:   aws.ToString(instance.InstanceId),
 		Name:         name,

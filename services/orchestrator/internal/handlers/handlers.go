@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/quantumlayerhq/ql-rf/pkg/config"
 	"github.com/quantumlayerhq/ql-rf/pkg/database"
@@ -18,6 +18,7 @@ import (
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/executor"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/llm"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/meta"
+	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/middleware"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/notifier"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/temporal/worker"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/temporal/workflows"
@@ -86,21 +87,33 @@ func New(cfg Config) *Handler {
 func (h *Handler) Router() http.Handler {
 	r := chi.NewRouter()
 
-	// Middleware
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Recoverer)
+	// Global middleware
+	r.Use(chimw.RequestID)
+	r.Use(chimw.RealIP)
+	r.Use(chimw.Recoverer)
 	r.Use(h.loggingMiddleware)
-	r.Use(middleware.Timeout(60 * time.Second))
+	r.Use(chimw.Timeout(60 * time.Second))
 
-	// Health routes
+	// CORS for frontend
+	r.Use(h.corsMiddleware)
+
+	// Health routes (no auth required)
 	r.Get("/health", h.healthCheck)
 	r.Get("/ready", h.readyCheck)
 
+	// Auth middleware config
+	authCfg := middleware.AuthConfig{
+		ClerkPublishableKey: h.cfg.Clerk.PublishableKey,
+		DevMode:             h.cfg.Orchestrator.DevMode,
+	}
+
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// AI execution routes
+		// AI execution routes - require auth (optional in dev mode)
 		r.Route("/ai", func(r chi.Router) {
+			// Use optional auth - allows dev mode without tokens
+			r.Use(middleware.OptionalAuth(authCfg, h.log))
+
 			r.Post("/execute", h.executeTask)
 			r.Get("/tasks", h.listTasks)
 			r.Get("/tasks/{taskID}", h.getTask)
@@ -125,11 +138,35 @@ func (h *Handler) Router() http.Handler {
 	return r
 }
 
+// corsMiddleware adds CORS headers for frontend access.
+func (h *Handler) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Allow requests from frontend
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-Request-ID")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Max-Age", "300")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // loggingMiddleware logs HTTP requests.
 func (h *Handler) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
 
 		h.log.Debug("http request",
@@ -137,7 +174,7 @@ func (h *Handler) loggingMiddleware(next http.Handler) http.Handler {
 			"path", r.URL.Path,
 			"status", ww.Status(),
 			"duration", time.Since(start),
-			"request_id", middleware.GetReqID(r.Context()),
+			"request_id", chimw.GetReqID(r.Context()),
 		)
 	})
 }
@@ -227,10 +264,16 @@ func (h *Handler) executeTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user ID from context (would come from auth middleware)
-	userID := r.Header.Get("X-User-ID")
+	// Get user/org from auth middleware context
+	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
-		userID = uuid.New().String() // Fallback for development
+		userID = "dev-user" // Fallback for development
+	}
+
+	// Override org_id from auth context if not provided in request
+	orgID := middleware.GetOrgID(r.Context())
+	if orgID != "" && req.OrgID == "" {
+		req.OrgID = orgID
 	}
 
 	ctx := r.Context()
@@ -387,8 +430,11 @@ type PlanResponse struct {
 func (h *Handler) listTasks(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Query parameters
+	// Query parameters - prefer auth context org_id
 	orgID := r.URL.Query().Get("org_id")
+	if orgID == "" {
+		orgID = middleware.GetOrgID(ctx)
+	}
 	state := r.URL.Query().Get("state")
 	limit := 50 // Default limit
 
@@ -579,8 +625,8 @@ func (h *Handler) approveTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user ID from context
-	userID := r.Header.Get("X-User-ID")
+	// Get user ID from auth middleware context
+	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
 		userID = "anonymous"
 	}
@@ -680,7 +726,7 @@ func (h *Handler) rejectTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := r.Header.Get("X-User-ID")
+	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
 		userID = "anonymous"
 	}

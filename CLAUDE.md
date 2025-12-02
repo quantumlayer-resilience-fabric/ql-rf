@@ -36,6 +36,7 @@ ql-rf/
 ├── Makefile            # Build/test/lint commands
 ├── docker-compose.yml  # Local dev environment
 ├── pkg/                # Shared libraries
+│   ├── auth/          # Clerk JWT verification
 │   ├── config/        # Viper-based configuration
 │   ├── database/      # PostgreSQL connection
 │   ├── logger/        # Structured logging (slog)
@@ -48,9 +49,20 @@ ql-rf/
 │   ├── connectors/    # Platform connectors
 │   │   ├── cmd/connectors/
 │   │   └── internal/aws|azure|gcp|vsphere/
-│   └── drift/         # Drift detection engine
-│       ├── cmd/drift/
-│       └── internal/engine/
+│   ├── drift/         # Drift detection engine
+│   │   ├── cmd/drift/
+│   │   └── internal/engine/
+│   └── orchestrator/  # AI orchestrator service
+│       ├── cmd/orchestrator/
+│       └── internal/
+│           ├── agents/     # 8 specialist AI agents
+│           ├── tools/      # Tool registry (query, analyze, plan)
+│           ├── meta/       # Meta-prompt engine
+│           ├── executor/   # Phased execution engine
+│           ├── validation/ # OPA + schema validation
+│           ├── llm/        # LLM clients (Anthropic, Azure, OpenAI)
+│           ├── notifier/   # Slack, email, webhook notifications
+│           └── temporal/   # Temporal workflows & activities
 ├── migrations/         # PostgreSQL migrations
 ├── ui/control-tower/   # Next.js dashboard
 ├── contracts/          # YAML contracts
@@ -96,6 +108,15 @@ make docker-push      # Push to registry
 make run-api          # Run API service locally
 make run-connectors   # Run connectors service locally
 make run-drift        # Run drift service locally
+
+# Run orchestrator
+go run ./services/orchestrator/cmd/orchestrator
+
+# Test AI endpoint
+curl -X POST http://localhost:8083/api/v1/ai/execute \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer dev-token" \
+  -d '{"intent": "What is the current drift situation?", "org_id": "test-org"}'
 ```
 
 ## Architecture
@@ -113,21 +134,34 @@ make run-drift        # Run drift service locally
 | api | 8080 | Main REST API, handles all client requests |
 | connectors | 8081 | Discovers assets from cloud platforms |
 | drift | 8082 | Calculates patch drift, publishes events |
+| orchestrator | 8083 | AI orchestrator with LLM agents |
 
 ### Key API Endpoints
 
 ```
+# Health & Status
 GET  /healthz                      # Liveness probe
 GET  /readyz                       # Readiness probe
 GET  /version                      # Build info
 
+# Images
 GET  /api/v1/images                # List golden images
 POST /api/v1/images                # Register image
 GET  /api/v1/images/{family}/latest # Get latest version
 
+# Assets & Drift
 GET  /api/v1/assets                # List assets (with filters)
 GET  /api/v1/drift                 # Get drift report
 GET  /api/v1/drift?env=prod        # Filtered by environment
+
+# AI Orchestrator (port 8083)
+POST /api/v1/ai/execute            # Submit natural language task
+GET  /api/v1/ai/tasks              # List tasks
+GET  /api/v1/ai/tasks/{id}         # Get task details
+POST /api/v1/ai/tasks/{id}/approve # Approve task plan
+POST /api/v1/ai/tasks/{id}/reject  # Reject task plan
+GET  /api/v1/ai/agents             # List available agents
+GET  /api/v1/ai/tools              # List available tools
 ```
 
 ### Event Bus (Kafka Topics)
@@ -171,7 +205,14 @@ Environment variables with `RF_` prefix:
 - `RF_DATABASE_URL` - PostgreSQL connection string
 - `RF_KAFKA_BROKERS` - Comma-separated Kafka brokers
 - `RF_REDIS_URL` - Redis connection string
-- `RF_CLERK_SECRET_KEY` - Clerk authentication key
+- `RF_CLERK_SECRET_KEY` - Clerk authentication secret key
+- `RF_CLERK_PUBLISHABLE_KEY` - Clerk publishable key (for JWT verification)
+- `RF_ORCHESTRATOR_DEV_MODE` - Enable dev mode (skip JWT validation)
+- `RF_LLM_PROVIDER` - LLM provider (anthropic, azure_openai, openai)
+- `RF_LLM_API_KEY` - LLM API key
+- `RF_LLM_MODEL` - LLM model name (e.g., claude-3-5-sonnet-20241022)
+- `RF_TEMPORAL_HOST` - Temporal server host
+- `RF_TEMPORAL_PORT` - Temporal server port
 
 ## Database
 
@@ -180,6 +221,9 @@ PostgreSQL with these core tables:
 - `images`, `image_coordinates` - Golden image registry
 - `assets` - Fleet inventory
 - `drift_reports` - Drift snapshots
+- `ai_tasks`, `ai_plans`, `ai_runs` - AI orchestration (task lifecycle)
+- `ai_tool_invocations` - Tool usage audit trail
+- `org_ai_settings` - Per-org AI configuration
 
 Run migrations: `make migrate-up`
 

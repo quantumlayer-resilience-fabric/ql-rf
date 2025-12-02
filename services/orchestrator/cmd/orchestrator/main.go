@@ -135,7 +135,7 @@ func run() error {
 		"webhook_enabled", cfg.Notifications.WebhookEnabled,
 	)
 
-	// Set execution callbacks for notifications
+	// Set execution callbacks for notifications and task state updates
 	execEngine.SetCallbacks(
 		// On phase start
 		func(exec *executor.Execution, phase *executor.PhaseExecution) {
@@ -153,6 +153,20 @@ func run() error {
 		func(exec *executor.Execution) {
 			if err := notify.NotifyExecutionCompleted(context.Background(), exec); err != nil {
 				log.Error("failed to send execution complete notification", "error", err)
+			}
+			// Update task state in database
+			taskState := "completed"
+			if exec.Status == executor.StatusFailed {
+				taskState = "failed"
+			} else if exec.Status == executor.StatusRolledBack {
+				taskState = "rolled_back"
+			}
+			_, err := db.Pool.Exec(context.Background(),
+				`UPDATE ai_tasks SET state = $1, updated_at = NOW() WHERE id = $2`,
+				taskState, exec.TaskID,
+			)
+			if err != nil {
+				log.Error("failed to update task state", "error", err, "task_id", exec.TaskID)
 			}
 		},
 	)

@@ -171,14 +171,36 @@ This document tracks the implementation progress of QL-RF.
 
 ## Phase 3: Expansion 🚧 In Progress
 
+### Authentication & Security
+- [x] **Clerk JWT Validation** (`pkg/auth/`)
+  - JWKS-based JWT verification
+  - Token caching with 1-hour expiry
+  - RSA public key extraction
+- [x] **Backend Auth Middleware**
+  - API service auth middleware (`services/api/internal/middleware/auth.go`)
+  - Orchestrator auth middleware (`services/orchestrator/internal/middleware/auth.go`)
+  - DevMode support for local development
+  - User/Org context propagation
+- [x] **Database Persistence**
+  - Orchestrator handlers wired to PostgreSQL
+  - Tasks persisted to `ai_tasks` table
+  - Plans persisted to `ai_plans` table
+  - Runs persisted to `ai_runs` table
+  - Execution state tracking with audit log
+
 ### Connectors
-- [ ] AWS connector improvements (multi-region, auto-scaling groups)
+- [x] AWS connector with real API calls
+  - Multi-region EC2 discovery
+  - AMI metadata batch lookup
+  - AWS Account ID from STS
+  - Image version extraction from tags
 - [ ] Azure connector full implementation
 - [ ] GCP connector full implementation
 - [ ] vSphere connector full implementation
 
 ### Multi-Tenancy
-- [ ] Clerk authentication integration
+- [x] Frontend Clerk authentication (login/signup pages)
+- [x] Backend JWT validation for API requests
 - [ ] Organization/Project/Environment RBAC
 - [ ] Row-level security in database
 
@@ -275,17 +297,29 @@ curl -X POST http://localhost:8083/api/v1/ai/execute \
 
 ## Key Files Reference
 
+### Authentication
+- `pkg/auth/clerk.go` - Clerk JWT verification using JWKS
+- `services/api/internal/middleware/auth.go` - API service auth middleware
+- `services/orchestrator/internal/middleware/auth.go` - Orchestrator auth middleware
+
 ### Orchestrator
 - `services/orchestrator/cmd/orchestrator/main.go` - Entry point
-- `services/orchestrator/internal/handlers/handlers.go` - HTTP handlers
+- `services/orchestrator/internal/handlers/handlers.go` - HTTP handlers with DB persistence
 - `services/orchestrator/internal/agents/registry.go` - Agent definitions
 - `services/orchestrator/internal/tools/registry.go` - Tool implementations
-- `services/orchestrator/internal/executor/executor.go` - Execution engine
+- `services/orchestrator/internal/executor/executor.go` - Execution engine with `ai_runs` persistence
 - `services/orchestrator/internal/notifier/notifier.go` - Notification system
 - `services/orchestrator/internal/temporal/workflows/task_workflow.go` - Main workflow
 - `services/orchestrator/internal/validation/pipeline.go` - Validation pipeline
 - `services/orchestrator/README.md` - Service documentation
 - `services/orchestrator/api/openapi.yaml` - OpenAPI specification
+
+### Connectors
+- `services/connectors/internal/aws/client.go` - AWS connector with real API calls
+- `services/connectors/internal/azure/client.go` - Azure connector (stub)
+- `services/connectors/internal/gcp/client.go` - GCP connector (stub)
+- `services/connectors/internal/vsphere/client.go` - vSphere connector (stub)
+- `services/connectors/internal/sync/service.go` - Asset sync service
 
 ### OPA Policies
 - `policy/plan_safety.rego` - Production safety policies
@@ -304,7 +338,13 @@ curl -X POST http://localhost:8083/api/v1/ai/execute \
 - `ui/control-tower/src/hooks/use-ai.ts` - AI hooks
 
 ### Configuration
-- `pkg/config/config.go` - Centralized configuration
+- `pkg/config/config.go` - Centralized configuration (includes DevMode for orchestrator)
 - `docker-compose.yml` - Local development setup
 - `.env.example` - Environment variables template
 - `policy/*.rego` - OPA policies
+
+### Database Migrations
+- `migrations/000001_initial_schema.up.sql` - Core tables
+- `migrations/000002_add_indexes.up.sql` - Performance indexes
+- `migrations/000003_add_compliance_dr.up.sql` - Compliance & DR tables
+- `migrations/000004_add_ai_orchestration.up.sql` - AI orchestration tables (ai_tasks, ai_plans, ai_runs)
