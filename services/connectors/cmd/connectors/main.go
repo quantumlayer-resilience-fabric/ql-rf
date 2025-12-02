@@ -17,7 +17,10 @@ import (
 	"github.com/quantumlayerhq/ql-rf/pkg/kafka"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/aws"
+	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/azure"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/connector"
+	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/gcp"
+	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/vsphere"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/repository"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/sync"
 )
@@ -140,16 +143,29 @@ func initializeConnectors(cfg *config.Config, log *logger.Logger) []connector.Co
 			connectors = append(connectors, awsConnector)
 
 		case "azure":
-			// TODO: Initialize Azure connector
-			log.Info("Azure connector not yet implemented")
+			azureConnector := azure.New(azure.Config{
+				TenantID:       cfg.Connectors.Azure.TenantID,
+				ClientID:       cfg.Connectors.Azure.ClientID,
+				ClientSecret:   cfg.Connectors.Azure.ClientSecret,
+				SubscriptionID: cfg.Connectors.Azure.SubscriptionID,
+			}, log)
+			connectors = append(connectors, azureConnector)
 
 		case "gcp":
-			// TODO: Initialize GCP connector
-			log.Info("GCP connector not yet implemented")
+			gcpConnector := gcp.New(gcp.Config{
+				ProjectID:       cfg.Connectors.GCP.ProjectID,
+				CredentialsFile: cfg.Connectors.GCP.CredentialsFile,
+			}, log)
+			connectors = append(connectors, gcpConnector)
 
 		case "vsphere":
-			// TODO: Initialize vSphere connector
-			log.Info("vSphere connector not yet implemented")
+			vsphereConnector := vsphere.New(vsphere.Config{
+				URL:      cfg.Connectors.VSphere.URL,
+				User:     cfg.Connectors.VSphere.User,
+				Password: cfg.Connectors.VSphere.Password,
+				Insecure: cfg.Connectors.VSphere.Insecure,
+			}, log)
+			connectors = append(connectors, vsphereConnector)
 
 		default:
 			log.Warn("unknown connector", "name", name)
