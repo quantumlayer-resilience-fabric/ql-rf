@@ -15,6 +15,8 @@ This directory contains Architecture Decision Records for QL-RF.
 | [ADR-007](ADR-007-llm-first-orchestration.md) | LLM-First Orchestration Architecture | Accepted |
 | [ADR-008](ADR-008-task-plan-run-lifecycle.md) | Task/Plan/Run Lifecycle & State Machine | Accepted |
 | [ADR-009](ADR-009-tool-risk-taxonomy-hitl.md) | Tool Risk Taxonomy & HITL Policy | Accepted |
+| [ADR-010](ADR-010-rbac-permission-authorization.md) | RBAC with Permission-Based Authorization | Accepted |
+| [ADR-011](ADR-011-row-level-security.md) | Row-Level Security for Multi-Tenancy | Accepted |
 
 ## ADR Template
 

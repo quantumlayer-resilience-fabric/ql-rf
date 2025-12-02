@@ -370,9 +370,9 @@ platform_coords:
 - [ ] GH Actions CI/CD + Helm deploy
 
 ### Phase 2: Expansion (Month 2–3)
-- [ ] AI Insight Engine (LLM-based summarisation)
+- [x] AI Insight Engine (LLM-based summarisation) — AI Orchestrator with 8 specialist agents
 - [ ] Event bridge to QuantumLayer
-- [ ] RBAC and org-level multi-tenancy
+- [x] RBAC and org-level multi-tenancy — Permission-based auth + Row-Level Security
 - [ ] SBOM + Compliance attestations
 - [ ] Basic DR simulation hooks
 - [ ] Cosign signature verification
@@ -658,11 +658,11 @@ Auto-generated evidence bundles:
 ## 23. Execution Plan
 
 ### Week 1–2: Skeleton & AWS
-- [ ] Contracts + ADRs committed
-- [ ] API + Inventory model + AWS connector
-- [ ] UI stub: env/region cards
-- [ ] Lock ADRs 001–006
-- [ ] RBAC skeleton (org/project/env)
+- [x] Contracts + ADRs committed
+- [x] API + Inventory model + AWS connector
+- [x] UI stub: env/region cards
+- [x] Lock ADRs 001–006
+- [x] RBAC skeleton (org/project/env)
 
 ### Week 3–4: Azure + GCP + vSphere
 - [ ] Azure SIG + VMSS inventory
@@ -680,7 +680,7 @@ Auto-generated evidence bundles:
 
 ### Week 7–8: Hardening & Launch
 - [ ] Caching, rate-limits, error budgets
-- [ ] RBAC enforcement
+- [x] RBAC enforcement (permission-based middleware + RLS)
 - [ ] RAG status + exportable reports
 - [ ] Trend charts
 - [ ] Helm install docs
