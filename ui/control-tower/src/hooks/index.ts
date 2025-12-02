@@ -6,3 +6,4 @@ export * from "./use-sites";
 export * from "./use-alerts";
 export * from "./use-compliance";
 export * from "./use-resilience";
+export * from "./use-ai";

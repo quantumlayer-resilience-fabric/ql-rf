@@ -1,8 +1,8 @@
 import { ReactNode } from "react";
-import { Inbox, Search, Plus, Filter, Settings } from "lucide-react";
+import { Inbox, Search, Plus, Filter, Settings, Database, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type EmptyStateVariant = "default" | "search" | "filter" | "no-data";
+export type EmptyStateVariant = "default" | "search" | "filter" | "no-data" | "data" | "success";
 
 interface EmptyStateProps {
   /** Variant determines the icon and default messaging */
@@ -31,6 +31,8 @@ const variantIcons: Record<EmptyStateVariant, ReactNode> = {
   search: <Search className="h-10 w-10" />,
   filter: <Filter className="h-10 w-10" />,
   "no-data": <Settings className="h-10 w-10" />,
+  data: <Database className="h-10 w-10" />,
+  success: <CheckCircle className="h-10 w-10 text-status-green" />,
 };
 
 export function EmptyState({
