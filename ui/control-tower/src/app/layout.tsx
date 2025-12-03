@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
+import { ConditionalClerkProvider } from "@/providers/conditional-clerk-provider";
 import { QueryProvider } from "@/providers/query-provider";
 import "./globals.css";
 
@@ -68,12 +68,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
+    <ConditionalClerkProvider>
       <html lang="en" suppressHydrationWarning>
         <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
           <QueryProvider>{children}</QueryProvider>
         </body>
       </html>
-    </ClerkProvider>
+    </ConditionalClerkProvider>
   );
 }

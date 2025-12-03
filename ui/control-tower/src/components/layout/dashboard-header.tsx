@@ -2,8 +2,40 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { UserButton } from "@clerk/nextjs";
+import dynamic from "next/dynamic";
 import { cn } from "@/lib/utils";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+
+// Check if Clerk is configured
+const hasClerkKey =
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_") &&
+  !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.includes("xxxxx");
+
+// Only load UserButton if Clerk is configured
+const UserButton = hasClerkKey
+  ? dynamic(
+      () => import("@clerk/nextjs").then((mod) => mod.UserButton),
+      {
+        loading: () => (
+          <Avatar className="h-8 w-8">
+            <AvatarFallback>U</AvatarFallback>
+          </Avatar>
+        ),
+      }
+    )
+  : null;
+
+// Fallback avatar for dev mode
+function DevModeAvatar() {
+  return (
+    <Avatar className="h-8 w-8 cursor-pointer">
+      <AvatarFallback className="bg-primary text-primary-foreground">
+        D
+      </AvatarFallback>
+    </Avatar>
+  );
+}
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -135,14 +167,18 @@ export function DashboardHeader({ className }: DashboardHeaderProps) {
         </DropdownMenu>
 
         {/* User Menu */}
-        <UserButton
-          afterSignOutUrl="/"
-          appearance={{
-            elements: {
-              avatarBox: "h-8 w-8",
-            },
-          }}
-        />
+        {UserButton ? (
+          <UserButton
+            afterSignOutUrl="/"
+            appearance={{
+              elements: {
+                avatarBox: "h-8 w-8",
+              },
+            }}
+          />
+        ) : (
+          <DevModeAvatar />
+        )}
       </div>
     </header>
   );

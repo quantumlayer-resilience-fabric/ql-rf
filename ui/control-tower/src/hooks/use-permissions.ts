@@ -4,7 +4,28 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@clerk/nextjs";
+
+// Check if Clerk is configured
+const hasClerkKey =
+  typeof process !== "undefined" &&
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_") &&
+  !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.includes("xxxxx");
+
+// Conditionally import Clerk
+let useAuth: () => { getToken: () => Promise<string | null>; isSignedIn: boolean };
+if (hasClerkKey) {
+  try {
+    const clerk = require("@clerk/nextjs");
+    useAuth = clerk.useAuth;
+  } catch {
+    // Clerk not available
+    useAuth = () => ({ getToken: async () => "dev-token", isSignedIn: true });
+  }
+} else {
+  // Dev mode: always "signed in" with dev token
+  useAuth = () => ({ getToken: async () => "dev-token", isSignedIn: true });
+}
 
 // Permission constants - mirrors backend PermXxx constants
 export const Permissions = {

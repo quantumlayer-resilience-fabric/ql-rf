@@ -8,7 +8,31 @@ import { useOverviewMetrics } from "./use-overview";
 import { useDriftSummary } from "./use-drift";
 import { useComplianceSummary } from "./use-compliance";
 import { useResilienceSummary } from "./use-resilience";
-import { useAuth } from "@clerk/nextjs";
+
+// Check if Clerk is configured
+const hasClerkKey =
+  typeof process !== "undefined" &&
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_") &&
+  !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.includes("xxxxx");
+
+// Conditionally import Clerk
+type UseAuthReturn = {
+  getToken: () => Promise<string | null>;
+  orgId?: string;
+};
+let useAuth: () => UseAuthReturn;
+if (hasClerkKey) {
+  try {
+    const clerk = require("@clerk/nextjs");
+    useAuth = clerk.useAuth;
+  } catch {
+    useAuth = () => ({ getToken: async () => "dev-token", orgId: "dev-org" });
+  }
+} else {
+  // Dev mode: return dev token
+  useAuth = () => ({ getToken: async () => "dev-token", orgId: "dev-org" });
+}
 
 // Types for AI messages
 export interface AIMessage {

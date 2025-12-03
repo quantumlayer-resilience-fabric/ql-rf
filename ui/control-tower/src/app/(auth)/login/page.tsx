@@ -1,10 +1,54 @@
 "use client";
 
-import { SignIn } from "@clerk/nextjs";
+import dynamic from "next/dynamic";
+
+// Force dynamic rendering to skip prerendering
+export const dynamic_rendering = "force-dynamic";
+
+// Check if Clerk is configured (at module level for tree-shaking)
+const hasClerkKey =
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_") &&
+  !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.includes("xxxxx");
+
+// Only load Clerk SignIn component if we have a valid key
+const ClerkSignIn = hasClerkKey
+  ? dynamic(() => import("@clerk/nextjs").then((mod) => mod.SignIn), {
+      loading: () => (
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-pulse">Loading...</div>
+        </div>
+      ),
+    })
+  : null;
+
+function DevModeLogin() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-background">
+      <div className="p-8 border rounded-lg shadow-lg max-w-md text-center">
+        <h1 className="text-2xl font-bold mb-4">Development Mode</h1>
+        <p className="text-muted-foreground mb-6">
+          Authentication is disabled. To enable Clerk authentication, add a
+          valid NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY to your environment.
+        </p>
+        <a
+          href="/overview"
+          className="inline-block px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity"
+        >
+          Continue to Dashboard
+        </a>
+      </div>
+    </div>
+  );
+}
 
 export default function LoginPage() {
+  if (!ClerkSignIn) {
+    return <DevModeLogin />;
+  }
+
   return (
-    <SignIn
+    <ClerkSignIn
       appearance={{
         elements: {
           rootBox: "mx-auto",
