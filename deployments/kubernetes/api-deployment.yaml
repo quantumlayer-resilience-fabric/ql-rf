@@ -1,0 +1,134 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ql-rf-api
+  namespace: ql-rf
+  labels:
+    app.kubernetes.io/name: ql-rf-api
+    app.kubernetes.io/component: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ql-rf-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ql-rf-api
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: ql-rf-api
+      containers:
+        - name: api
+          image: ghcr.io/quantumlayerhq/ql-rf-api:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: RF_ENV
+              value: production
+            - name: RF_LOG_LEVEL
+              value: info
+            - name: RF_HTTP_PORT
+              value: "8080"
+            - name: RF_METRICS_ENABLED
+              value: "true"
+            - name: RF_METRICS_PORT
+              value: "9090"
+            - name: RF_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ql-rf-secrets
+                  key: database-url
+            - name: RF_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ql-rf-secrets
+                  key: redis-url
+            - name: RF_KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: ql-rf-config
+                  key: kafka-brokers
+            - name: RF_CLERK_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ql-rf-secrets
+                  key: clerk-secret-key
+            - name: RF_CLERK_PUBLISHABLE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ql-rf-secrets
+                  key: clerk-publishable-key
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: ql-rf-api
+                topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ql-rf-api
+  namespace: ql-rf
+  labels:
+    app.kubernetes.io/name: ql-rf-api
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: ql-rf-api
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ql-rf-api
+  namespace: ql-rf
+  labels:
+    app.kubernetes.io/name: ql-rf-api

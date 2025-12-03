@@ -22,6 +22,7 @@ type MockImageRepository struct {
 	GetLatestImageByFamilyFunc    func(ctx context.Context, orgID uuid.UUID, family string) (*service.Image, error)
 	ListImagesFunc                func(ctx context.Context, params service.ListImagesParams) ([]service.Image, error)
 	CreateImageFunc               func(ctx context.Context, params service.CreateImageParams) (*service.Image, error)
+	UpdateImageFunc               func(ctx context.Context, id uuid.UUID, params service.UpdateImageParams) (*service.Image, error)
 	UpdateImageStatusFunc         func(ctx context.Context, id uuid.UUID, status string) (*service.Image, error)
 	CountImagesByOrgFunc          func(ctx context.Context, orgID uuid.UUID) (int64, error)
 	GetImageCoordinatesFunc       func(ctx context.Context, imageID uuid.UUID) ([]service.ImageCoordinate, error)
@@ -154,6 +155,45 @@ func (m *MockImageRepository) UpdateImageStatus(ctx context.Context, id uuid.UUI
 	}
 
 	img.Status = status
+	img.UpdatedAt = time.Now()
+	return img, nil
+}
+
+// UpdateImage updates an image's metadata.
+func (m *MockImageRepository) UpdateImage(ctx context.Context, id uuid.UUID, params service.UpdateImageParams) (*service.Image, error) {
+	if m.UpdateImageFunc != nil {
+		return m.UpdateImageFunc(ctx, id, params)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	img, ok := m.images[id]
+	if !ok {
+		return nil, service.ErrNotFound
+	}
+
+	if params.Version != nil {
+		img.Version = *params.Version
+	}
+	if params.OSName != nil {
+		img.OSName = params.OSName
+	}
+	if params.OSVersion != nil {
+		img.OSVersion = params.OSVersion
+	}
+	if params.CISLevel != nil {
+		img.CISLevel = params.CISLevel
+	}
+	if params.SBOMUrl != nil {
+		img.SBOMUrl = params.SBOMUrl
+	}
+	if params.Signed != nil {
+		img.Signed = *params.Signed
+	}
+	if params.Status != nil {
+		img.Status = *params.Status
+	}
 	img.UpdatedAt = time.Now()
 	return img, nil
 }

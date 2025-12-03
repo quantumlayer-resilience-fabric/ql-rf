@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/quantumlayerhq/ql-rf/pkg/database"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
+	"github.com/quantumlayerhq/ql-rf/pkg/models"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/tools"
 )
 
@@ -131,11 +132,13 @@ type RollbackPlan struct {
 
 // Engine is the execution engine that runs approved plans.
 type Engine struct {
-	db         *database.DB
-	tools      *tools.Registry
-	log        *logger.Logger
-	executions map[string]*Execution
-	mu         sync.RWMutex
+	db             *database.DB
+	tools          *tools.Registry
+	log            *logger.Logger
+	executions     map[string]*Execution
+	mu             sync.RWMutex
+	healthChecker  *HealthChecker
+	assetProcessor *AssetProcessor
 
 	// Callbacks for notifications
 	onPhaseStart    func(exec *Execution, phase *PhaseExecution)
@@ -145,12 +148,49 @@ type Engine struct {
 
 // NewEngine creates a new execution engine.
 func NewEngine(db *database.DB, toolReg *tools.Registry, log *logger.Logger) *Engine {
-	return &Engine{
+	var pool *database.DB
+	if db != nil {
+		pool = db
+	}
+
+	e := &Engine{
 		db:         db,
 		tools:      toolReg,
 		log:        log.WithComponent("executor"),
 		executions: make(map[string]*Execution),
 	}
+
+	// Initialize health checker
+	e.healthChecker = NewHealthChecker(log)
+
+	// Initialize asset processor with database pool
+	if pool != nil {
+		e.assetProcessor = NewAssetProcessor(pool.Pool, log)
+	} else {
+		e.assetProcessor = NewAssetProcessor(nil, log)
+	}
+
+	return e
+}
+
+// RegisterPlatformClient registers a platform client for asset operations.
+func (e *Engine) RegisterPlatformClient(platform string, client PlatformClient) {
+	// Convert string to Platform type
+	var p models.Platform
+	switch platform {
+	case "aws":
+		p = models.PlatformAWS
+	case "azure":
+		p = models.PlatformAzure
+	case "gcp":
+		p = models.PlatformGCP
+	case "vsphere":
+		p = models.PlatformVSphere
+	default:
+		e.log.Warn("unknown platform", "platform", platform)
+		return
+	}
+	e.assetProcessor.RegisterPlatformClient(p, client)
 }
 
 // SetCallbacks sets the notification callbacks.
@@ -380,15 +420,8 @@ func (e *Engine) executeAction(ctx context.Context, exec *Execution, action *Pha
 	return nil
 }
 
-// processAsset processes a single asset (simulated for now).
+// processAsset processes a single asset using the asset processor.
 func (e *Engine) processAsset(ctx context.Context, exec *Execution, asset *AssetExecution, phase *ExecutionPhase) error {
-	// In a real implementation, this would:
-	// 1. Call the drift service to apply changes
-	// 2. Call the patch service to apply patches
-	// 3. Call Terraform to apply infrastructure changes
-	// 4. etc.
-
-	// For now, simulate processing
 	e.log.Info("processing asset",
 		"asset_id", asset.AssetID,
 		"asset_name", asset.AssetName,
@@ -396,14 +429,82 @@ func (e *Engine) processAsset(ctx context.Context, exec *Execution, asset *Asset
 		"execution_id", exec.ID,
 	)
 
-	// Simulate some work
-	select {
-	case <-time.After(100 * time.Millisecond):
-		asset.Output = "Simulated execution completed successfully"
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	// Get asset details from database
+	assetInfo, err := e.getAssetInfo(ctx, asset.AssetID)
+	if err != nil {
+		return fmt.Errorf("failed to get asset info: %w", err)
 	}
+
+	// Determine action based on phase actions or default to validate
+	action := ActionValidate
+	var actionParams map[string]interface{}
+
+	for _, phaseAction := range phase.Actions {
+		if phaseAction.Type == "reimage" || phaseAction.Tool == "reimage_asset" {
+			action = ActionReimage
+			actionParams = phaseAction.Parameters
+			break
+		} else if phaseAction.Type == "reboot" || phaseAction.Tool == "reboot_asset" {
+			action = ActionReboot
+			actionParams = phaseAction.Parameters
+			break
+		} else if phaseAction.Type == "patch" || phaseAction.Tool == "patch_asset" {
+			action = ActionPatch
+			actionParams = phaseAction.Parameters
+			break
+		} else if phaseAction.Type == "terminate" || phaseAction.Tool == "terminate_asset" {
+			action = ActionTerminate
+			actionParams = phaseAction.Parameters
+			break
+		}
+	}
+
+	// Process the asset
+	result, err := e.assetProcessor.ProcessAsset(ctx, assetInfo, action, actionParams)
+	if err != nil {
+		return err
+	}
+
+	asset.Output = result.Output
+	return nil
+}
+
+// getAssetInfo retrieves asset information from the database.
+func (e *Engine) getAssetInfo(ctx context.Context, assetID string) (*AssetInfo, error) {
+	if e.db == nil {
+		// Return minimal info if no database
+		return &AssetInfo{
+			ID:       assetID,
+			Platform: models.PlatformAWS, // Default
+		}, nil
+	}
+
+	query := `
+		SELECT id, name, platform, region, instance_id, image_ref, image_version
+		FROM assets
+		WHERE id = $1
+	`
+
+	var info AssetInfo
+	var name, imageRef, imageVersion *string
+	err := e.db.QueryRow(ctx, query, assetID).Scan(
+		&info.ID, &name, &info.Platform, &info.Region, &info.InstanceID, &imageRef, &imageVersion,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("asset not found: %w", err)
+	}
+
+	if name != nil {
+		info.Name = *name
+	}
+	if imageRef != nil {
+		info.CurrentImage = *imageRef
+	}
+	if imageVersion != nil {
+		info.TargetImage = *imageVersion
+	}
+
+	return &info, nil
 }
 
 // runHealthCheck executes a health check.
@@ -447,27 +548,138 @@ func (e *Engine) runHealthCheck(ctx context.Context, hc *HealthCheck) error {
 	return fmt.Errorf("health check failed after %d retries: %w", retries, lastErr)
 }
 
-// performHealthCheck performs the actual health check.
+// performHealthCheck performs the actual health check using the health checker.
 func (e *Engine) performHealthCheck(ctx context.Context, hc *HealthCheck) error {
-	// In real implementation, would perform HTTP/TCP/command checks
-	// For now, simulate success
+	result, err := e.healthChecker.Check(ctx, hc)
+	if err != nil {
+		e.log.Error("health check failed",
+			"name", hc.Name,
+			"type", hc.Type,
+			"target", hc.Target,
+			"error", err,
+			"duration", result.Duration,
+		)
+		return err
+	}
+
+	e.log.Info("health check passed",
+		"name", hc.Name,
+		"type", hc.Type,
+		"target", hc.Target,
+		"duration", result.Duration,
+	)
 	return nil
 }
 
 // rollback executes the rollback plan.
 func (e *Engine) rollback(ctx context.Context, exec *Execution, rollback *RollbackPlan) error {
-	e.log.Info("executing rollback", "execution_id", exec.ID)
+	e.log.Info("executing rollback", "execution_id", exec.ID, "strategy", rollback.Strategy)
+
+	// Parse rollback timeout
+	timeout := 30 * time.Minute
+	if rollback.Timeout != "" {
+		if d, err := time.ParseDuration(rollback.Timeout); err == nil {
+			timeout = d
+		}
+	}
+
+	rollbackCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	// Execute rollback phases in reverse order
 	for i := len(rollback.Phases) - 1; i >= 0; i-- {
 		phase := &rollback.Phases[i]
-		e.log.Info("rollback phase", "phase", phase.Name, "execution_id", exec.ID)
+		e.log.Info("executing rollback phase",
+			"phase", phase.Name,
+			"phase_index", i,
+			"execution_id", exec.ID,
+		)
 
-		// In real implementation, would execute rollback actions
-		// For now, simulate rollback
-		time.Sleep(100 * time.Millisecond)
+		// Execute rollback actions for each asset in the phase
+		for _, assetData := range phase.Assets {
+			assetID, _ := assetData["id"].(string)
+			assetName, _ := assetData["name"].(string)
+
+			if assetID == "" {
+				continue
+			}
+
+			e.log.Info("rolling back asset",
+				"asset_id", assetID,
+				"asset_name", assetName,
+				"phase", phase.Name,
+			)
+
+			// Get asset info
+			assetInfo, err := e.getAssetInfo(rollbackCtx, assetID)
+			if err != nil {
+				e.log.Error("failed to get asset info for rollback",
+					"asset_id", assetID,
+					"error", err,
+				)
+				continue // Try to rollback other assets
+			}
+
+			// Determine rollback action
+			// Default is to reimage with previous image version
+			action := ActionReimage
+			actionParams := map[string]interface{}{}
+
+			// Check if previous image is specified in asset data
+			if prevImage, ok := assetData["previous_image"].(string); ok {
+				actionParams["target_image"] = prevImage
+			}
+
+			// Execute rollback action for this asset
+			result, err := e.assetProcessor.ProcessAsset(rollbackCtx, assetInfo, action, actionParams)
+			if err != nil {
+				e.log.Error("rollback failed for asset",
+					"asset_id", assetID,
+					"error", err,
+				)
+				// Continue with other assets even if one fails
+				continue
+			}
+
+			e.log.Info("asset rollback completed",
+				"asset_id", assetID,
+				"result", result.Output,
+			)
+		}
+
+		// Execute phase-level rollback actions
+		for _, action := range phase.Actions {
+			if action.Tool == "" {
+				continue
+			}
+
+			e.log.Info("executing rollback action",
+				"tool", action.Tool,
+				"phase", phase.Name,
+			)
+
+			if err := e.executeAction(rollbackCtx, exec, &action); err != nil {
+				e.log.Error("rollback action failed",
+					"tool", action.Tool,
+					"error", err,
+				)
+				// Continue with other actions
+			}
+		}
+
+		// Run health checks after rollback phase
+		for _, hc := range phase.HealthChecks {
+			if err := e.runHealthCheck(rollbackCtx, &hc); err != nil {
+				e.log.Warn("rollback health check failed",
+					"name", hc.Name,
+					"error", err,
+				)
+				// Don't fail rollback on health check failure
+			}
+		}
 	}
 
+	e.log.Info("rollback completed", "execution_id", exec.ID)
 	return nil
 }
 

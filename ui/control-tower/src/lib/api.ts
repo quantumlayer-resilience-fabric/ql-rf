@@ -425,6 +425,149 @@ export interface ResilienceSummary {
   unpairedSites: ResilienceSite[];
 }
 
+// Risk Scoring Types
+export type RiskLevel = "critical" | "high" | "medium" | "low";
+
+export interface RiskFactor {
+  name: string;
+  description: string;
+  weight: number;
+  score: number;
+  impact: string;
+}
+
+export interface AssetRiskScore {
+  assetId: string;
+  assetName: string;
+  platform: string;
+  environment: string;
+  site: string;
+  riskScore: number;
+  riskLevel: RiskLevel;
+  factors: RiskFactor[];
+  driftAge: number;
+  vulnCount: number;
+  criticalVulns: number;
+  isCompliant: boolean;
+  lastUpdated: string;
+}
+
+export interface RiskByScope {
+  scope: string;
+  riskScore: number;
+  riskLevel: RiskLevel;
+  assetCount: number;
+  criticalRisk: number;
+  highRisk: number;
+}
+
+export interface RiskTrendPoint {
+  date: string;
+  riskScore: number;
+  riskLevel: RiskLevel;
+}
+
+export interface RiskSummary {
+  orgId: string;
+  overallRiskScore: number;
+  riskLevel: RiskLevel;
+  totalAssets: number;
+  criticalRisk: number;
+  highRisk: number;
+  mediumRisk: number;
+  lowRisk: number;
+  topRisks: AssetRiskScore[];
+  byEnvironment: RiskByScope[];
+  byPlatform: RiskByScope[];
+  bySite: RiskByScope[];
+  trend: RiskTrendPoint[];
+  calculatedAt: string;
+}
+
+// Predictive Risk Types
+export type RiskVelocity = "rapid_increase" | "increasing" | "stable" | "decreasing" | "rapid_decrease";
+
+export interface RiskPrediction {
+  assetId?: string;
+  scope?: string;
+  currentScore: number;
+  predictedScore: number;
+  predictedLevel: RiskLevel;
+  confidence: number;
+  predictionHorizon: number;
+  velocity: RiskVelocity;
+  velocityValue: number;
+  factors: string[];
+  recommendedAction?: string;
+  predictedAt: string;
+}
+
+export interface RiskAnomaly {
+  id: string;
+  assetId?: string;
+  scope?: string;
+  anomalyType: "spike" | "drop" | "pattern_break";
+  severity: RiskLevel;
+  description: string;
+  expectedScore: number;
+  actualScore: number;
+  deviation: number;
+  detectedAt: string;
+  isActive: boolean;
+}
+
+export interface RiskRecommendation {
+  id: string;
+  priority: number;
+  category: "patch" | "compliance" | "vulnerability" | "drift";
+  title: string;
+  description: string;
+  impact: string;
+  effort: "low" | "medium" | "high";
+  affectedAssets: number;
+  autoRemediable: boolean;
+  actionType: "ai_task" | "manual" | "scheduled";
+}
+
+export interface RiskForecast {
+  orgId: string;
+  currentScore: number;
+  predictions: RiskPrediction[];
+  velocity: RiskVelocity;
+  velocityValue: number;
+  anomalies: RiskAnomaly[];
+  atRiskAssets: AssetRiskScore[];
+  improvingAssets: AssetRiskScore[];
+  topRecommendations: RiskRecommendation[];
+  generatedAt: string;
+}
+
+// Auto-Remediation Types
+export interface MaintenanceWindow {
+  dayOfWeek: number;
+  startHour: number;
+  endHour: number;
+  timezone: string;
+}
+
+export interface AutoRemediationPolicy {
+  id: string;
+  orgId: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  maxRiskLevel: RiskLevel;
+  environments: string[];
+  platforms: string[];
+  categories: string[];
+  requireApproval: boolean;
+  notifyOnAction: boolean;
+  maxActionsPerDay: number;
+  allowedWindows: MaintenanceWindow[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface OverviewMetrics {
   fleetSize: {
     value: number;
@@ -669,6 +812,19 @@ export const api = {
       apiFetch<{ jobId: string }>(`/resilience/dr-pairs/${pairId}/sync`, {
         method: "POST",
       }),
+  },
+
+  // Risk Scoring
+  risk: {
+    getSummary: () => apiFetch<RiskSummary>("/risk/summary"),
+    getTopRisks: (limit?: number) =>
+      apiFetch<AssetRiskScore[]>(`/risk/top${limit ? `?limit=${limit}` : ""}`),
+    // Predictive risk endpoints
+    getForecast: () => apiFetch<RiskForecast>("/risk/forecast"),
+    getRecommendations: () => apiFetch<RiskRecommendation[]>("/risk/recommendations"),
+    getAnomalies: () => apiFetch<RiskAnomaly[]>("/risk/anomalies"),
+    getAssetPrediction: (assetId: string) =>
+      apiFetch<RiskPrediction>(`/risk/assets/${assetId}/prediction`),
   },
 };
 

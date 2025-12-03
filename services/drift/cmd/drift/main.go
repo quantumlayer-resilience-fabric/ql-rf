@@ -153,9 +153,55 @@ func runDriftCalculation(
 	log.Info("starting drift calculation")
 	startTime := time.Now()
 
-	// Get all organizations (in production, query from database)
-	// For now, use a placeholder org ID
-	orgID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	// Get all active organizations from database
+	rows, err := db.Pool.Query(ctx, `SELECT id FROM organizations WHERE status = 'active'`)
+	if err != nil {
+		log.Error("failed to query organizations", "error", err)
+		return
+	}
+	defer rows.Close()
+
+	var orgIDs []uuid.UUID
+	for rows.Next() {
+		var orgID uuid.UUID
+		if err := rows.Scan(&orgID); err != nil {
+			log.Warn("failed to scan org ID", "error", err)
+			continue
+		}
+		orgIDs = append(orgIDs, orgID)
+	}
+	if err := rows.Err(); err != nil {
+		log.Error("error iterating organizations", "error", err)
+		return
+	}
+
+	// Fallback to default org if none found (for development)
+	if len(orgIDs) == 0 {
+		log.Warn("no active organizations found, using default org ID")
+		orgIDs = append(orgIDs, uuid.MustParse("00000000-0000-0000-0000-000000000001"))
+	}
+
+	// Calculate drift for each organization
+	for _, orgID := range orgIDs {
+		calculateDriftForOrg(ctx, orgID, driftEngine, db, producer, cfg, log)
+	}
+
+	log.Info("drift calculation complete for all organizations",
+		"org_count", len(orgIDs),
+		"duration", time.Since(startTime),
+	)
+}
+
+func calculateDriftForOrg(
+	ctx context.Context,
+	orgID uuid.UUID,
+	driftEngine *engine.Engine,
+	db *database.DB,
+	producer *kafka.Producer,
+	cfg *config.Config,
+	log *logger.Logger,
+) {
+	startTime := time.Now()
 
 	// Calculate drift summary
 	summary, err := driftEngine.CalculateSummary(ctx, orgID)
@@ -173,7 +219,16 @@ func runDriftCalculation(
 	)
 
 	// Store drift report in database
-	// TODO: Insert into drift_reports table
+	reportID := uuid.New()
+	_, err = db.Pool.Exec(ctx, `
+		INSERT INTO drift_reports (id, org_id, total_assets, compliant_assets, coverage_pct, status, calculated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, reportID, orgID, summary.TotalAssets, summary.CompliantAssets, summary.CoveragePct, summary.Status, summary.CalculatedAt)
+	if err != nil {
+		log.Error("failed to store drift report", "error", err)
+	} else {
+		log.Info("drift report stored", "report_id", reportID, "duration", time.Since(startTime))
+	}
 
 	// Check if drift exceeds thresholds and publish event
 	if summary.Status == models.DriftStatusWarning || summary.Status == models.DriftStatusCritical {

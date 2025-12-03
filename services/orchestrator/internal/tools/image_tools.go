@@ -48,9 +48,20 @@ func (t *GenerateImageContractTool) Parameters() map[string]interface{} {
 }
 
 func (t *GenerateImageContractTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
-	name := params["name"].(string)
-	os := params["os"].(string)
-	purpose := params["purpose"].(string)
+	name, ok := params["name"].(string)
+	if !ok || name == "" {
+		return nil, fmt.Errorf("name is required and must be a string")
+	}
+
+	os, ok := params["os"].(string)
+	if !ok || os == "" {
+		return nil, fmt.Errorf("os is required and must be a string")
+	}
+
+	purpose, ok := params["purpose"].(string)
+	if !ok || purpose == "" {
+		return nil, fmt.Errorf("purpose is required and must be a string")
+	}
 
 	osVersion := "latest"
 	if v, ok := params["os_version"].(string); ok {
@@ -66,12 +77,17 @@ func (t *GenerateImageContractTool) Execute(ctx context.Context, params map[stri
 	platforms := []map[string]interface{}{}
 	if p, ok := params["platforms"].([]interface{}); ok {
 		for _, platform := range p {
+			platformStr, ok := platform.(string)
+			if !ok {
+				continue // skip invalid platform entries
+			}
 			platforms = append(platforms, map[string]interface{}{
-				"platform": platform.(string),
+				"platform": platformStr,
 				"regions":  []string{"us-east-1", "us-west-2", "eu-west-1"},
 			})
 		}
-	} else {
+	}
+	if len(platforms) == 0 {
 		// Default to AWS
 		platforms = append(platforms, map[string]interface{}{
 			"platform": "aws",
@@ -83,7 +99,10 @@ func (t *GenerateImageContractTool) Execute(ctx context.Context, params map[stri
 	runtimes := []map[string]interface{}{}
 	if r, ok := params["runtimes"].([]interface{}); ok {
 		for _, runtime := range r {
-			runtimeStr := runtime.(string)
+			runtimeStr, ok := runtime.(string)
+			if !ok {
+				continue // skip invalid runtime entries
+			}
 			parts := strings.Split(runtimeStr, ":")
 			rt := map[string]interface{}{"name": parts[0]}
 			if len(parts) > 1 {
@@ -97,7 +116,11 @@ func (t *GenerateImageContractTool) Execute(ctx context.Context, params map[stri
 	packages := []string{}
 	if p, ok := params["packages"].([]interface{}); ok {
 		for _, pkg := range p {
-			packages = append(packages, pkg.(string))
+			pkgStr, ok := pkg.(string)
+			if !ok {
+				continue // skip invalid package entries
+			}
+			packages = append(packages, pkgStr)
 		}
 	}
 
@@ -106,7 +129,14 @@ func (t *GenerateImageContractTool) Execute(ctx context.Context, params map[stri
 	if c, ok := params["compliance"].([]interface{}); ok {
 		frameworks = []string{}
 		for _, framework := range c {
-			frameworks = append(frameworks, framework.(string))
+			frameworkStr, ok := framework.(string)
+			if !ok {
+				continue // skip invalid framework entries
+			}
+			frameworks = append(frameworks, frameworkStr)
+		}
+		if len(frameworks) == 0 {
+			frameworks = []string{"CIS"} // restore default if no valid entries
 		}
 	}
 
@@ -239,7 +269,7 @@ func (t *GeneratePackerTemplateTool) Parameters() map[string]interface{} {
 func (t *GeneratePackerTemplateTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
 	contract, ok := params["contract"].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("contract is required")
+		return nil, fmt.Errorf("contract is required and must be an object")
 	}
 
 	platform := "aws"
@@ -247,10 +277,26 @@ func (t *GeneratePackerTemplateTool) Execute(ctx context.Context, params map[str
 		platform = p
 	}
 
-	name := contract["name"].(string)
-	base := contract["base"].(map[string]interface{})
-	osType := base["os"].(string)
-	osVersion := base["version"].(string)
+	name, ok := contract["name"].(string)
+	if !ok || name == "" {
+		return nil, fmt.Errorf("contract.name is required and must be a string")
+	}
+
+	base, ok := contract["base"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("contract.base is required and must be an object")
+	}
+
+	osType, ok := base["os"].(string)
+	if !ok || osType == "" {
+		return nil, fmt.Errorf("contract.base.os is required and must be a string")
+	}
+
+	osVersion, ok := base["version"].(string)
+	if !ok || osVersion == "" {
+		return nil, fmt.Errorf("contract.base.version is required and must be a string")
+	}
+
 	arch := "amd64"
 	if a, ok := base["architecture"].(string); ok {
 		arch = a

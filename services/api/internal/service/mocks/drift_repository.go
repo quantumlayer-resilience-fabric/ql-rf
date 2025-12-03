@@ -20,6 +20,7 @@ type MockDriftRepository struct {
 	trends           map[uuid.UUID][]service.DriftTrendPoint
 
 	// Control behavior for testing
+	GetDriftReportFunc        func(ctx context.Context, id uuid.UUID) (*service.DriftReport, error)
 	GetLatestDriftReportFunc  func(ctx context.Context, orgID uuid.UUID) (*service.DriftReport, error)
 	GetDriftByEnvironmentFunc func(ctx context.Context, orgID uuid.UUID) ([]service.DriftByScope, error)
 	GetDriftByPlatformFunc    func(ctx context.Context, orgID uuid.UUID) ([]service.DriftByScope, error)
@@ -38,6 +39,24 @@ func NewMockDriftRepository() *MockDriftRepository {
 		siteScope:        make([]service.DriftByScope, 0),
 		trends:           make(map[uuid.UUID][]service.DriftTrendPoint),
 	}
+}
+
+// GetDriftReport returns a drift report by ID.
+func (m *MockDriftRepository) GetDriftReport(ctx context.Context, id uuid.UUID) (*service.DriftReport, error) {
+	if m.GetDriftReportFunc != nil {
+		return m.GetDriftReportFunc(ctx, id)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for i := range m.reports {
+		if m.reports[i].ID == id {
+			return &m.reports[i], nil
+		}
+	}
+
+	return nil, service.ErrNotFound
 }
 
 // GetLatestDriftReport returns the latest drift report for an org.

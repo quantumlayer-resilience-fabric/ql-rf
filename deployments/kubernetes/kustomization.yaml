@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ql-rf
+
+resources:
+  - namespace.yaml
+  - config.yaml
+  - api-deployment.yaml
+  - orchestrator-deployment.yaml
+  - ui-deployment.yaml
+  - ingress.yaml
+  - hpa.yaml
+
+commonLabels:
+  app.kubernetes.io/managed-by: kustomize
+  app.kubernetes.io/part-of: ql-rf
+
+images:
+  - name: ghcr.io/quantumlayerhq/ql-rf-api
+    newTag: latest
+  - name: ghcr.io/quantumlayerhq/ql-rf-orchestrator
+    newTag: latest
+  - name: ghcr.io/quantumlayerhq/ql-rf-ui
+    newTag: latest

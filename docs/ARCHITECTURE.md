@@ -169,11 +169,105 @@ Real-time drift detection engine using Kafka event streaming.
 
 **Components:**
 - Kafka consumer for asset change events
-- Drift calculation engine
-- Trend analysis
+- Drift calculation engine (real database queries)
+- Trend analysis with scope-based grouping
 - Alert generation
 
-### 5. Temporal Workflows
+**Drift Engine Queries:**
+- `getGoldenImageBaselines()` - Queries `images` table for production status baselines
+- `getFleetAssets()` - Queries `assets` table with platform/site/environment filters
+- `calculateByScope()` - Aggregates drift metrics grouped by environment/platform/site
+
+### 5. Compliance Service (`services/api/internal/service/`)
+
+Compliance tracking with database-backed framework and control queries.
+
+**Database Queries:**
+- `getFrameworks()` - Queries `compliance_frameworks` with control pass/fail counts
+- `getFailingControls()` - Queries `compliance_controls` joined with results, sorted by severity
+- `getImageCompliance()` - Queries `images` with `image_compliance` for CIS/SLSA/Cosign status
+
+**Key Features:**
+- Weighted score calculation across enabled frameworks
+- Severity-sorted failing controls (critical → low)
+- Image compliance aggregation (CIS, SLSA level, Cosign signing)
+- Sigstore verification percentage
+
+### 6. Health Checks (`services/api/internal/handlers/health.go`)
+
+Production-ready health check endpoints with dependency status.
+
+**Endpoints:**
+- `/healthz` - Liveness probe (returns 200 if service is running)
+- `/readyz` - Readiness probe (checks all dependencies)
+- `/version` - Build info and git commit
+- `/metrics` - Prometheus metrics (if enabled)
+
+**Readiness Checks:**
+- **Database** - PostgreSQL connection health (critical)
+- **Kafka** - Kafka broker connectivity (non-critical)
+- **Redis** - Redis ping/pong (non-critical)
+
+**Response Statuses:**
+- `ok` - All critical checks passing
+- `degraded` - Non-critical checks failing (returns 503)
+
+### 7. Multi-Tenant Middleware (`services/api/internal/middleware/auth.go`)
+
+Database-backed organization resolution for multi-tenancy.
+
+**Resolution Order:**
+1. User's organization (from authenticated claims)
+2. Claims-based organization ID
+3. Database lookup by external ID
+4. Development mode fallback (first org in database)
+
+**Context Values:**
+- `orgIDKey` - Organization UUID
+- `userIDKey` - User UUID
+- `claimsKey` - JWT claims
+
+### 8. Risk Scoring Service (`services/api/internal/service/risk_service.go`)
+
+AI-powered risk scoring with weighted factors for prioritizing remediation efforts.
+
+**Risk Calculation Model:**
+```
+Risk Score = Σ(Factor Weight × Factor Score) × Environment Multiplier
+```
+
+**Risk Factors (Weights):**
+
+| Factor | Weight | Scoring Logic |
+|--------|--------|---------------|
+| Drift Age | 25% | 2 points per day of drift (max 100) |
+| Vulnerability Count | 20% | 5 points per open vulnerability (max 100) |
+| Critical Vulnerabilities | 25% | 25 points per critical CVE (max 100) |
+| Compliance Status | 15% | 100 if non-compliant, 0 if compliant |
+| Environment Impact | 15% | Multiplied by environment factor |
+
+**Environment Multipliers:**
+
+| Environment | Multiplier |
+|-------------|------------|
+| Production | 1.5x |
+| DR | 1.2x |
+| Staging | 1.0x |
+| Development | 0.5x |
+
+**Risk Levels:**
+- **Critical** (≥80): Immediate action required
+- **High** (≥60): Priority remediation
+- **Medium** (≥40): Scheduled remediation
+- **Low** (<40): Monitor
+
+**Key Functions:**
+```go
+func (s *RiskService) GetRiskSummary(ctx context.Context, orgID uuid.UUID) (*models.RiskSummary, error)
+func (s *RiskService) GetTopRisks(ctx context.Context, orgID uuid.UUID, limit int) ([]models.AssetRiskScore, error)
+```
+
+### 9. Temporal Workflows
 
 Durable workflow execution for long-running operations.
 
@@ -221,6 +315,7 @@ ui/control-tower/src/
 │   │   │   └── [id]/lineage/ # Image lineage detail
 │   │   ├── drift/            # Drift analysis
 │   │   ├── compliance/       # Compliance dashboard
+│   │   ├── risk/             # Risk scoring dashboard
 │   │   └── resilience/       # DR management
 │   └── (marketing)/          # Public pages
 ├── components/
@@ -239,6 +334,7 @@ ui/control-tower/src/
 └── hooks/
     ├── use-ai.ts             # AI task hooks
     ├── use-lineage.ts        # Image lineage hooks
+    ├── use-risk.ts           # Risk scoring hooks
     └── use-permissions.ts    # RBAC hooks
 ```
 
@@ -325,6 +421,22 @@ v_image_deployment_summary -- Deployment statistics
 - OPA policies for fine-grained authorization
 - Permission gates in UI
 
+### Production Configuration Validation
+
+The platform validates critical configuration at startup in production environments:
+
+**Required Settings (Production):**
+- `RF_DATABASE_URL` - Must not be localhost
+- `RF_CLERK_SECRET_KEY` - Must be configured
+- `RF_CLERK_PUBLISHABLE_KEY` - Must be configured
+- `RF_ANTHROPIC_API_KEY` - Required for AI features
+
+**Optional but Recommended:**
+- `RF_KAFKA_BROKERS` - For event streaming
+- `RF_REDIS_URL` - For caching
+
+The validation fails fast at startup if production environment is missing required configuration, preventing deployment with insecure defaults.
+
 ### Policy Validation
 ```
 AI Plan → Schema Validation → OPA Policy → Safety Check → HITL → Execute
@@ -354,11 +466,64 @@ make run-orchestrator          # Run AI orchestrator
 - Apache Kafka
 - Temporal Server
 
-### Production (Target)
-- Kubernetes (AKS/EKS/GKE)
-- Istio service mesh
-- Prometheus + Grafana
-- OpenTelemetry
+### Kubernetes Deployment (`deployments/kubernetes/`)
+
+Production-ready Kubernetes manifests using Kustomize.
+
+**Directory Structure:**
+```
+deployments/kubernetes/
+├── kustomization.yaml      # Kustomize config
+├── namespace.yaml          # ql-rf namespace
+├── config.yaml             # ConfigMap + Secrets
+├── api-deployment.yaml     # API service (3 replicas)
+├── orchestrator-deployment.yaml  # Orchestrator (2 replicas)
+├── ui-deployment.yaml      # UI service (2 replicas)
+├── ingress.yaml            # NGINX ingress with TLS
+└── hpa.yaml                # HorizontalPodAutoscaler
+```
+
+**Deployment Specs:**
+
+| Service | Replicas | CPU Request | Memory Request | HPA Max |
+|---------|----------|-------------|----------------|---------|
+| API | 3 | 100m | 128Mi | 10 |
+| Orchestrator | 2 | 200m | 256Mi | 5 |
+| UI | 2 | 50m | 128Mi | 6 |
+
+**Ingress Routing:**
+```
+control-tower.quantumlayer.dev → ql-rf-ui:80
+api.quantumlayer.dev/api/v1    → ql-rf-api:80
+api.quantumlayer.dev/api/v1/ai → ql-rf-orchestrator:80
+```
+
+**HPA Configuration:**
+- Scale on CPU (70% threshold) and Memory (80% threshold)
+- Scale-down stabilization: 300 seconds
+- Scale-up: aggressive (Max of 100% increase or +4 pods per 15s)
+
+**Deployment Commands:**
+```bash
+# Deploy with Kustomize
+kubectl apply -k deployments/kubernetes/
+
+# Check deployment status
+kubectl get pods -n ql-rf
+
+# View logs
+kubectl logs -f deployment/ql-rf-api -n ql-rf
+
+# Scale manually (if needed)
+kubectl scale deployment/ql-rf-api --replicas=5 -n ql-rf
+```
+
+**Security Features:**
+- Non-root containers (runAsNonRoot: true)
+- Read-only root filesystem
+- No privilege escalation
+- Service accounts per deployment
+- TLS termination at ingress (cert-manager/letsencrypt)
 
 ---
 
@@ -381,7 +546,10 @@ make run-orchestrator          # Run AI orchestrator
 | GET | `/api/v1/images/{id}/components` | SBOM |
 | POST | `/api/v1/images/{id}/sbom` | Import SBOM |
 | GET | `/api/v1/drift` | Drift report |
+| GET | `/api/v1/drift/summary` | Drift summary |
 | GET | `/api/v1/compliance` | Compliance status |
+| GET | `/api/v1/risk/summary` | Organization risk summary |
+| GET | `/api/v1/risk/top` | Top risk assets |
 | GET | `/api/v1/resilience/dr-pairs` | DR pairs |
 
 ### AI Orchestrator (Port 8083)

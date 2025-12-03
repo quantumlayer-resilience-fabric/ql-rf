@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Menu,
   X,
+  AlertTriangle,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -31,6 +32,7 @@ interface NavItem {
 
 const mainNavItems: NavItem[] = [
   { label: "Overview", href: "/overview", icon: LayoutDashboard },
+  { label: "Risk", href: "/risk", icon: AlertTriangle },
   { label: "Images", href: "/images", icon: Image },
   { label: "Drift", href: "/drift", icon: TrendingDown, badge: "3" },
   { label: "Sites", href: "/sites", icon: MapPin },

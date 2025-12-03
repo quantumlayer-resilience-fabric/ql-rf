@@ -137,6 +137,27 @@ func (s *DriftService) GetDriftTrends(ctx context.Context, input GetDriftTrendsI
 	return trends, nil
 }
 
+// GetDriftReportInput contains input for getting a single drift report.
+type GetDriftReportInput struct {
+	ID    uuid.UUID
+	OrgID uuid.UUID
+}
+
+// GetDriftReport retrieves a single drift report by ID.
+func (s *DriftService) GetDriftReport(ctx context.Context, input GetDriftReportInput) (*DriftReport, error) {
+	report, err := s.driftRepo.GetDriftReport(ctx, input.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify organization ownership
+	if report.OrgID != input.OrgID {
+		return nil, ErrNotFound
+	}
+
+	return report, nil
+}
+
 // ListDriftReportsInput contains input for listing drift reports.
 type ListDriftReportsInput struct {
 	OrgID    uuid.UUID

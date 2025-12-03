@@ -19,6 +19,7 @@ type ImageRepository interface {
 	GetLatestImageByFamily(ctx context.Context, orgID uuid.UUID, family string) (*Image, error)
 	ListImages(ctx context.Context, params ListImagesParams) ([]Image, error)
 	CreateImage(ctx context.Context, params CreateImageParams) (*Image, error)
+	UpdateImage(ctx context.Context, id uuid.UUID, params UpdateImageParams) (*Image, error)
 	UpdateImageStatus(ctx context.Context, id uuid.UUID, status string) (*Image, error)
 	CountImagesByOrg(ctx context.Context, orgID uuid.UUID) (int64, error)
 	GetImageCoordinates(ctx context.Context, imageID uuid.UUID) ([]ImageCoordinate, error)
@@ -39,6 +40,7 @@ type AssetRepository interface {
 
 // DriftRepository defines the interface for drift data access.
 type DriftRepository interface {
+	GetDriftReport(ctx context.Context, id uuid.UUID) (*DriftReport, error)
 	GetLatestDriftReport(ctx context.Context, orgID uuid.UUID) (*DriftReport, error)
 	ListDriftReports(ctx context.Context, orgID uuid.UUID, limit, offset int32) ([]DriftReport, error)
 	CreateDriftReport(ctx context.Context, params CreateDriftReportParams) (*DriftReport, error)
@@ -168,6 +170,17 @@ type CreateImageParams struct {
 	SBOMUrl   *string
 	Signed    bool
 	Status    string
+}
+
+// UpdateImageParams contains parameters for updating an image.
+type UpdateImageParams struct {
+	Version   *string
+	OSName    *string
+	OSVersion *string
+	CISLevel  *int
+	SBOMUrl   *string
+	Signed    *bool
+	Status    *string
 }
 
 // CreateImageCoordinateParams contains parameters for creating an image coordinate.

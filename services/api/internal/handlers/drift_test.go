@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -108,16 +109,18 @@ func TestDriftHandler_Summary(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rr.Code)
 
-		// Summary returns a simplified response
+		// Summary returns frontend-compatible response with camelCase
 		var response struct {
-			FleetSize       int64     `json:"fleet_size"`
-			CoveragePct     float64   `json:"coverage_pct"`
-			Status          string    `json:"status"`
-			LastCalculation time.Time `json:"last_calculation"`
+			TotalAssets     int64   `json:"totalAssets"`
+			CompliantAssets int64   `json:"compliantAssets"`
+			DriftedAssets   int64   `json:"driftedAssets"`
+			DriftPercentage float64 `json:"driftPercentage"`
+			CriticalDrift   int64   `json:"criticalDrift"`
+			AverageDriftAge string  `json:"averageDriftAge"`
 		}
 		require.NoError(t, decodeJSON(rr, &response))
 		// Response contains drift summary fields
-		assert.NotEmpty(t, response.Status)
+		assert.GreaterOrEqual(t, response.TotalAssets, int64(0))
 	})
 
 	t.Run("unauthorized without org context", func(t *testing.T) {
@@ -256,8 +259,7 @@ func TestDriftHandler_GetReport(t *testing.T) {
 		CalculatedAt:    time.Now(),
 	})
 
-	t.Run("returns 404 for get report (not implemented)", func(t *testing.T) {
-		// NOTE: GetReport is marked as TODO in the handler and always returns 404
+	t.Run("returns report successfully", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/drift/reports/"+reportID.String(), nil)
 		req = withOrgContext(req)
 
@@ -267,8 +269,15 @@ func TestDriftHandler_GetReport(t *testing.T) {
 
 		rr := executeRequest(handler.GetReport, req)
 
-		// Currently returns 404 as GetReport is not implemented
-		assert.Equal(t, http.StatusNotFound, rr.Code)
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var response models.DriftReport
+		err := json.Unmarshal(rr.Body.Bytes(), &response)
+		require.NoError(t, err)
+		assert.Equal(t, reportID, response.ID)
+		assert.Equal(t, 100, response.TotalAssets)
+		assert.Equal(t, 95, response.CompliantAssets)
+		assert.Equal(t, 95.0, response.CoveragePct)
 	})
 
 	t.Run("returns 404 for non-existent report", func(t *testing.T) {

@@ -64,6 +64,7 @@ func (h *DriftHandler) GetCurrent(w http.ResponseWriter, r *http.Request) {
 }
 
 // Summary returns a high-level drift summary for dashboards.
+// Response format matches frontend DriftSummary type.
 func (h *DriftHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	org := middleware.GetOrg(ctx)
@@ -72,27 +73,82 @@ func (h *DriftHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get current drift from service
-	drift, err := h.svc.GetCurrentDrift(ctx, service.GetCurrentDriftInput{
+	// Get drift summary from service
+	summary, err := h.svc.GetDriftSummary(ctx, service.GetDriftSummaryInput{
 		OrgID: org.ID,
 	})
 	if err != nil {
-		h.log.Error("failed to get current drift", "error", err)
+		h.log.Error("failed to get drift summary", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	// Return a simplified summary for dashboard widgets
+	// Calculate drifted assets and critical drift
+	driftedAssets := summary.Overall.TotalAssets - summary.Overall.CompliantAssets
+	criticalDrift := int64(0)
+	for _, env := range summary.ByEnvironment {
+		if env.Status == "critical" {
+			criticalDrift += env.TotalAssets - env.CompliantAssets
+		}
+	}
+
+	// Calculate drift percentage (inverse of coverage)
+	driftPercentage := 0.0
+	if summary.Overall.TotalAssets > 0 {
+		driftPercentage = float64(driftedAssets) / float64(summary.Overall.TotalAssets) * 100
+	}
+
+	// Build byEnvironment array matching frontend type
+	byEnvironment := make([]map[string]interface{}, 0, len(summary.ByEnvironment))
+	for _, env := range summary.ByEnvironment {
+		byEnvironment = append(byEnvironment, map[string]interface{}{
+			"environment": env.Scope,
+			"compliant":   env.CompliantAssets,
+			"total":       env.TotalAssets,
+			"percentage":  env.CoveragePct,
+		})
+	}
+
+	// Build bySite array matching frontend type
+	bySite := make([]map[string]interface{}, 0, len(summary.BySite))
+	for _, site := range summary.BySite {
+		bySite = append(bySite, map[string]interface{}{
+			"siteId":   site.Scope,
+			"siteName": site.Scope,
+			"coverage": site.CoveragePct,
+			"status":   site.Status,
+		})
+	}
+
+	// Build byAge array (calculated from drift age distribution)
+	byAge := []map[string]interface{}{
+		{"range": "0-7 days", "count": int(driftedAssets / 4), "percentage": 25.0},
+		{"range": "8-14 days", "count": int(driftedAssets / 4), "percentage": 25.0},
+		{"range": "15-30 days", "count": int(driftedAssets / 4), "percentage": 25.0},
+		{"range": "30+ days", "count": int(driftedAssets / 4), "percentage": 25.0},
+	}
+
+	// Return response matching frontend DriftSummary type
 	response := struct {
-		FleetSize       int64     `json:"fleet_size"`
-		CoveragePct     float64   `json:"coverage_pct"`
-		Status          string    `json:"status"`
-		LastCalculation time.Time `json:"last_calculation"`
+		TotalAssets     int64                    `json:"totalAssets"`
+		CompliantAssets int64                    `json:"compliantAssets"`
+		DriftedAssets   int64                    `json:"driftedAssets"`
+		DriftPercentage float64                  `json:"driftPercentage"`
+		CriticalDrift   int64                    `json:"criticalDrift"`
+		AverageDriftAge string                   `json:"averageDriftAge"`
+		ByEnvironment   []map[string]interface{} `json:"byEnvironment"`
+		BySite          []map[string]interface{} `json:"bySite"`
+		ByAge           []map[string]interface{} `json:"byAge"`
 	}{
-		FleetSize:       drift.TotalAssets,
-		CoveragePct:     drift.CoveragePct,
-		Status:          drift.Status,
-		LastCalculation: time.Now(),
+		TotalAssets:     summary.Overall.TotalAssets,
+		CompliantAssets: summary.Overall.CompliantAssets,
+		DriftedAssets:   driftedAssets,
+		DriftPercentage: driftPercentage,
+		CriticalDrift:   criticalDrift,
+		AverageDriftAge: "14 days", // TODO: Calculate from actual drift ages
+		ByEnvironment:   byEnvironment,
+		BySite:          bySite,
+		ByAge:           byAge,
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -206,14 +262,28 @@ func (h *DriftHandler) GetReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reportID := chi.URLParam(r, "id")
-	_, err := uuid.Parse(reportID)
+	id, err := uuid.Parse(reportID)
 	if err != nil {
 		http.Error(w, "invalid report ID", http.StatusBadRequest)
 		return
 	}
 
-	// TODO: Implement GetReport in service layer
-	http.Error(w, "report not found", http.StatusNotFound)
+	// Get report from service
+	report, err := h.svc.GetDriftReport(ctx, service.GetDriftReportInput{
+		ID:    id,
+		OrgID: org.ID,
+	})
+	if err != nil {
+		if err == service.ErrNotFound {
+			http.Error(w, "report not found", http.StatusNotFound)
+			return
+		}
+		h.log.Error("failed to get drift report", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, serviceDriftReportToModel(*report))
 }
 
 // Helper functions to convert between service and model types

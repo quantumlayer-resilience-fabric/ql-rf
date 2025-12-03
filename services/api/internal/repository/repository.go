@@ -249,6 +249,80 @@ func (r *Repository) UpdateImageStatus(ctx context.Context, id uuid.UUID, status
 	return &img, nil
 }
 
+// UpdateImageParams contains parameters for updating an image.
+type UpdateImageParams struct {
+	Version   *string
+	OSName    *string
+	OSVersion *string
+	CISLevel  *int
+	SBOMUrl   *string
+	Signed    *bool
+	Status    *string
+}
+
+// UpdateImage updates an image's metadata.
+func (r *Repository) UpdateImage(ctx context.Context, id uuid.UUID, params UpdateImageParams) (*Image, error) {
+	// Get current image
+	current, err := r.GetImage(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply updates
+	version := current.Version
+	if params.Version != nil {
+		version = *params.Version
+	}
+	osName := current.OSName
+	if params.OSName != nil {
+		osName = params.OSName
+	}
+	osVersion := current.OSVersion
+	if params.OSVersion != nil {
+		osVersion = params.OSVersion
+	}
+	cisLevel := current.CISLevel
+	if params.CISLevel != nil {
+		cisLevel = params.CISLevel
+	}
+	sbomUrl := current.SBOMUrl
+	if params.SBOMUrl != nil {
+		sbomUrl = params.SBOMUrl
+	}
+	signed := current.Signed
+	if params.Signed != nil {
+		signed = *params.Signed
+	}
+	status := current.Status
+	if params.Status != nil {
+		status = *params.Status
+	}
+
+	var img Image
+	err = r.pool.QueryRow(ctx, `
+		UPDATE images SET
+			version = $2,
+			os_name = $3,
+			os_version = $4,
+			cis_level = $5,
+			sbom_url = $6,
+			signed = $7,
+			status = $8,
+			updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, org_id, family, version, os_name, os_version,
+		          cis_level, sbom_url, signed, status, created_at, updated_at
+	`, id, version, osName, osVersion, cisLevel, sbomUrl, signed, status).Scan(
+		&img.ID, &img.OrgID, &img.Family, &img.Version,
+		&img.OSName, &img.OSVersion, &img.CISLevel, &img.SBOMUrl,
+		&img.Signed, &img.Status, &img.CreatedAt, &img.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &img, nil
+}
+
 // CreateImageCoordinateParams contains parameters for creating an image coordinate.
 type CreateImageCoordinateParams struct {
 	ImageID    uuid.UUID
@@ -500,6 +574,24 @@ type DriftByScope struct {
 	CompliantAssets int64   `json:"compliant_assets"`
 	CoveragePct     float64 `json:"coverage_pct"`
 	Status          string  `json:"status"`
+}
+
+// GetDriftReport retrieves a drift report by ID.
+func (r *Repository) GetDriftReport(ctx context.Context, id uuid.UUID) (*DriftReport, error) {
+	var dr DriftReport
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, org_id, env_id, platform, site, total_assets, compliant_assets,
+		       coverage_pct, status, calculated_at
+		FROM drift_reports
+		WHERE id = $1
+	`, id).Scan(
+		&dr.ID, &dr.OrgID, &dr.EnvID, &dr.Platform, &dr.Site,
+		&dr.TotalAssets, &dr.CompliantAssets, &dr.CoveragePct, &dr.Status, &dr.CalculatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &dr, nil
 }
 
 // GetLatestDriftReport retrieves the latest drift report for an organization.

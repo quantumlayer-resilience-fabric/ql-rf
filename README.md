@@ -187,9 +187,10 @@ ql-rf/
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/healthz` | Liveness probe |
-| GET | `/readyz` | Readiness probe |
-| GET | `/version` | Build info |
+| GET | `/healthz` | Liveness probe (always returns 200 if running) |
+| GET | `/readyz` | Readiness probe (checks DB, Kafka, Redis) |
+| GET | `/version` | Build info and git commit |
+| GET | `/metrics` | Prometheus metrics (if enabled) |
 | GET | `/api/v1/images` | List golden images |
 | POST | `/api/v1/images` | Register new image |
 | GET | `/api/v1/images/{family}/latest` | Get latest version |
@@ -206,6 +207,8 @@ ql-rf/
 | GET | `/api/v1/drift` | Current drift report |
 | GET | `/api/v1/drift/summary` | Drift summary by scope |
 | GET | `/api/v1/drift/trends` | Drift trends over time |
+| GET | `/api/v1/risk/summary` | Organization-wide risk summary |
+| GET | `/api/v1/risk/top` | Top risk assets |
 
 ### AI Orchestrator API (Port 8083)
 
@@ -262,11 +265,86 @@ ql-rf/
 - [x] Scanner integration API (Trivy, Grype, Snyk, Clair, Anchore, Aqua, Twistlock, Qualys)
 - [x] SBOM import API (SPDX, CycloneDX, Syft formats)
 
-### Phase 5: Full Automation (Next)
+### Phase 5: Production Readiness ✅
+- [x] Real database queries for drift engine (baselines, fleet assets, scope aggregation)
+- [x] Real database queries for compliance service (frameworks, controls, image compliance)
+- [x] Production configuration validation (fail-fast for missing required config)
+- [x] Multi-tenant middleware with database-backed org lookup
+- [x] Health check endpoints with Kafka/Redis status
+- [x] Task modification/cancellation with proper state validation
+
+### Phase 6: Risk Scoring & Kubernetes ✅
+- [x] AI-powered risk scoring with weighted factors (drift age, vulns, compliance, environment)
+- [x] Risk summary and top risks API endpoints
+- [x] Risk dashboard UI with gauge, tables, and trend charts
+- [x] Kubernetes deployment manifests (Kustomize)
+- [x] HorizontalPodAutoscaler configuration
+- [x] Ingress with TLS termination
+- [x] Security contexts (non-root, read-only FS)
+
+### Phase 7: Full Automation (Next)
 - [ ] Predictive risk scoring
 - [ ] Full DR failover orchestration
 - [ ] Auto-remediation mode
 - [ ] Event bridge to QuantumLayer
+
+## Kubernetes Deployment
+
+Production deployment uses Kustomize with manifests in `deployments/kubernetes/`.
+
+### Quick Deploy
+
+```bash
+# Deploy to Kubernetes cluster
+kubectl apply -k deployments/kubernetes/
+
+# Verify deployment
+kubectl get pods -n ql-rf
+
+# Check services
+kubectl get svc -n ql-rf
+```
+
+### Components
+
+| Component | Replicas | Description |
+|-----------|----------|-------------|
+| ql-rf-api | 3 | Core REST API |
+| ql-rf-orchestrator | 2 | AI Orchestrator |
+| ql-rf-ui | 2 | Control Tower UI |
+
+### Scaling
+
+HorizontalPodAutoscaler is configured for all services:
+- CPU target: 70%
+- Memory target: 80%
+- Scale-down stabilization: 5 minutes
+
+```bash
+# Manual scaling
+kubectl scale deployment/ql-rf-api --replicas=5 -n ql-rf
+```
+
+### Configuration
+
+Update secrets before production deployment:
+
+```bash
+# Edit secrets (use sealed-secrets or external-secrets in production)
+kubectl edit secret ql-rf-secrets -n ql-rf
+```
+
+Required secrets:
+- `database-url` - PostgreSQL connection string
+- `redis-url` - Redis connection string
+- `clerk-secret-key` - Clerk authentication
+- `anthropic-api-key` - AI features
+
+### Ingress
+
+TLS-enabled ingress with cert-manager:
+- `control-tower.quantumlayer.dev` → UI
+- `api.quantumlayer.dev` → API + Orchestrator
 
 ## Contributing
 

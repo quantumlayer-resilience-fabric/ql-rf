@@ -71,6 +71,8 @@ func New(cfg Config) http.Handler {
 	overviewSvc := service.NewOverviewService(assetRepo, driftRepo, siteRepo, alertRepo, activityRepo)
 	complianceSvc := service.NewComplianceService(cfg.DB, cfg.Logger)
 	resilienceSvc := service.NewResilienceService(siteRepo)
+	riskSvc := service.NewRiskService(cfg.DB, cfg.Logger)
+	predictionSvc := service.NewPredictionService(cfg.DB, cfg.Logger)
 
 	// Initialize handlers
 	healthHandler := handlers.NewHealthHandler(cfg.DB, cfg.BuildInfo.Version, cfg.BuildInfo.GitCommit)
@@ -83,6 +85,8 @@ func New(cfg Config) http.Handler {
 	complianceHandler := handlers.NewComplianceHandler(complianceSvc, cfg.Logger)
 	resilienceHandler := handlers.NewResilienceHandler(resilienceSvc, cfg.Logger)
 	lineageHandler := handlers.NewLineageHandler(cfg.DB.Pool, cfg.Logger)
+	riskHandler := handlers.NewRiskHandler(riskSvc, cfg.Logger)
+	predictionHandler := handlers.NewPredictionHandler(predictionSvc, cfg.Logger)
 
 	// Health endpoints (no auth required)
 	r.Get("/healthz", healthHandler.Liveness)
@@ -227,6 +231,18 @@ func New(cfg Config) http.Handler {
 				r.Post("/dr-pairs/{id}/test", resilienceHandler.TriggerFailoverTest)
 				r.Post("/dr-pairs/{id}/sync", resilienceHandler.TriggerSync)
 			})
+		})
+
+		// Risk Scoring
+		r.Route("/risk", func(r chi.Router) {
+			r.Get("/summary", riskHandler.Summary)
+			r.Get("/top", riskHandler.TopRisks)
+
+			// Predictive risk endpoints
+			r.Get("/forecast", predictionHandler.GetForecast)
+			r.Get("/recommendations", predictionHandler.GetRecommendations)
+			r.Get("/anomalies", predictionHandler.GetAnomalies)
+			r.Get("/assets/{id}/prediction", predictionHandler.GetAssetPrediction)
 		})
 
 		// Organizations (admin only)

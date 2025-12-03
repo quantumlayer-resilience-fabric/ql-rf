@@ -90,6 +90,24 @@ func (a *ImageRepositoryAdapter) UpdateImageStatus(ctx context.Context, id uuid.
 	return repoImageToService(img), nil
 }
 
+// UpdateImage updates an image's metadata.
+func (a *ImageRepositoryAdapter) UpdateImage(ctx context.Context, id uuid.UUID, params service.UpdateImageParams) (*service.Image, error) {
+	repoParams := UpdateImageParams{
+		Version:   params.Version,
+		OSName:    params.OSName,
+		OSVersion: params.OSVersion,
+		CISLevel:  params.CISLevel,
+		SBOMUrl:   params.SBOMUrl,
+		Signed:    params.Signed,
+		Status:    params.Status,
+	}
+	img, err := a.repo.UpdateImage(ctx, id, repoParams)
+	if err != nil {
+		return nil, err
+	}
+	return repoImageToService(img), nil
+}
+
 // CountImagesByOrg counts images for an organization.
 func (a *ImageRepositoryAdapter) CountImagesByOrg(ctx context.Context, orgID uuid.UUID) (int64, error) {
 	return a.repo.CountImagesByOrg(ctx, orgID)
@@ -226,6 +244,15 @@ type DriftRepositoryAdapter struct {
 // NewDriftRepositoryAdapter creates a new DriftRepositoryAdapter.
 func NewDriftRepositoryAdapter(pool *pgxpool.Pool) *DriftRepositoryAdapter {
 	return &DriftRepositoryAdapter{repo: New(pool)}
+}
+
+// GetDriftReport returns a drift report by ID.
+func (a *DriftRepositoryAdapter) GetDriftReport(ctx context.Context, id uuid.UUID) (*service.DriftReport, error) {
+	report, err := a.repo.GetDriftReport(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return repoDriftReportToService(report), nil
 }
 
 // GetLatestDriftReport returns the latest drift report for an org.

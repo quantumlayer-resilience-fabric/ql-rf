@@ -11,6 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// setupEngineWithMockPlatform creates an engine with a mock platform client for testing.
+func setupEngineWithMockPlatform(t *testing.T) *Engine {
+	log := logger.New("debug", "json")
+	toolReg := tools.NewRegistry(nil, log)
+	engine := NewEngine(nil, toolReg, log)
+
+	// Register a mock platform client for AWS (the default platform)
+	mockClient := NewMockPlatformClient()
+	engine.RegisterPlatformClient("aws", mockClient)
+
+	return engine
+}
+
 func TestNewEngine(t *testing.T) {
 	log := logger.New("debug", "json")
 	toolReg := tools.NewRegistry(nil, log)
@@ -23,10 +36,7 @@ func TestNewEngine(t *testing.T) {
 }
 
 func TestExecute(t *testing.T) {
-	log := logger.New("debug", "json")
-	toolReg := tools.NewRegistry(nil, log)
-	engine := NewEngine(nil, toolReg, log)
-
+	engine := setupEngineWithMockPlatform(t)
 	ctx := context.Background()
 
 	plan := &ExecutionPlan{
@@ -75,9 +85,7 @@ func TestExecute(t *testing.T) {
 }
 
 func TestExecuteWithCallbacks(t *testing.T) {
-	log := logger.New("debug", "json")
-	toolReg := tools.NewRegistry(nil, log)
-	engine := NewEngine(nil, toolReg, log)
+	engine := setupEngineWithMockPlatform(t)
 
 	var phaseStartCount, phaseCompleteCount int
 	var executionDone bool
@@ -121,10 +129,7 @@ func TestExecuteWithCallbacks(t *testing.T) {
 }
 
 func TestGetExecution(t *testing.T) {
-	log := logger.New("debug", "json")
-	toolReg := tools.NewRegistry(nil, log)
-	engine := NewEngine(nil, toolReg, log)
-
+	engine := setupEngineWithMockPlatform(t)
 	ctx := context.Background()
 
 	plan := &ExecutionPlan{
@@ -150,10 +155,7 @@ func TestGetExecution(t *testing.T) {
 }
 
 func TestGetExecution_NotFound(t *testing.T) {
-	log := logger.New("debug", "json")
-	toolReg := tools.NewRegistry(nil, log)
-	engine := NewEngine(nil, toolReg, log)
-
+	engine := setupEngineWithMockPlatform(t)
 	ctx := context.Background()
 
 	_, err := engine.GetExecution(ctx, "nonexistent-id")
@@ -161,10 +163,7 @@ func TestGetExecution_NotFound(t *testing.T) {
 }
 
 func TestListExecutions(t *testing.T) {
-	log := logger.New("debug", "json")
-	toolReg := tools.NewRegistry(nil, log)
-	engine := NewEngine(nil, toolReg, log)
-
+	engine := setupEngineWithMockPlatform(t)
 	ctx := context.Background()
 
 	// Create multiple executions for the same task
@@ -203,10 +202,7 @@ func TestListExecutions(t *testing.T) {
 }
 
 func TestCancelExecution(t *testing.T) {
-	log := logger.New("debug", "json")
-	toolReg := tools.NewRegistry(nil, log)
-	engine := NewEngine(nil, toolReg, log)
-
+	engine := setupEngineWithMockPlatform(t)
 	ctx := context.Background()
 
 	// Create a long-running execution with multiple phases and wait time between them
@@ -251,10 +247,7 @@ func TestCancelExecution(t *testing.T) {
 }
 
 func TestPauseAndResumeExecution(t *testing.T) {
-	log := logger.New("debug", "json")
-	toolReg := tools.NewRegistry(nil, log)
-	engine := NewEngine(nil, toolReg, log)
-
+	engine := setupEngineWithMockPlatform(t)
 	ctx := context.Background()
 
 	plan := &ExecutionPlan{
@@ -292,10 +285,7 @@ func TestPauseAndResumeExecution(t *testing.T) {
 }
 
 func TestExecutionPlan_WithRollback(t *testing.T) {
-	log := logger.New("debug", "json")
-	toolReg := tools.NewRegistry(nil, log)
-	engine := NewEngine(nil, toolReg, log)
-
+	engine := setupEngineWithMockPlatform(t)
 	ctx := context.Background()
 
 	plan := &ExecutionPlan{
@@ -333,10 +323,7 @@ func TestExecutionPlan_WithRollback(t *testing.T) {
 }
 
 func TestPhaseExecution_AssetTracking(t *testing.T) {
-	log := logger.New("debug", "json")
-	toolReg := tools.NewRegistry(nil, log)
-	engine := NewEngine(nil, toolReg, log)
-
+	engine := setupEngineWithMockPlatform(t)
 	ctx := context.Background()
 
 	plan := &ExecutionPlan{

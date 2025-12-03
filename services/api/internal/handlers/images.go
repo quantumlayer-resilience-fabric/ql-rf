@@ -223,26 +223,43 @@ func (h *ImageHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify image exists and belongs to org
-	_, err = h.svc.GetImage(ctx, service.GetImageInput{
-		ID:    id,
-		OrgID: org.ID,
+	// Build update params
+	var updateParams service.UpdateImageParams
+	if req.SBOMUrl != nil {
+		updateParams.SBOMUrl = req.SBOMUrl
+	}
+	if req.Signed != nil {
+		updateParams.Signed = req.Signed
+	}
+	if req.Status != nil {
+		status := string(*req.Status)
+		updateParams.Status = &status
+	}
+
+	// Update the image
+	updated, err := h.svc.UpdateImage(ctx, service.UpdateImageInput{
+		ID:     id,
+		OrgID:  org.ID,
+		Params: updateParams,
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrNotFound) {
 			http.Error(w, "image not found", http.StatusNotFound)
 			return
 		}
-		h.log.Error("failed to get image", "error", err)
+		if errors.Is(err, service.ErrInvalidInput) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		h.log.Error("failed to update image", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	// TODO: Implement full update in service layer
-	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	writeJSON(w, http.StatusOK, serviceImageToModel(*updated))
 }
 
-// Delete deletes an image.
+// Delete deletes an image (soft-delete by setting status to deprecated).
 func (h *ImageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	org := middleware.GetOrg(ctx)
@@ -258,8 +275,8 @@ func (h *ImageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify image exists and belongs to org
-	_, err = h.svc.GetImage(ctx, service.GetImageInput{
+	// Soft delete the image (sets status to deprecated)
+	err = h.svc.DeleteImage(ctx, service.DeleteImageInput{
 		ID:    id,
 		OrgID: org.ID,
 	})
@@ -268,12 +285,11 @@ func (h *ImageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "image not found", http.StatusNotFound)
 			return
 		}
-		h.log.Error("failed to get image", "error", err)
+		h.log.Error("failed to delete image", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	// TODO: Implement soft delete (set status to deprecated) in service layer
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -8,19 +8,26 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/quantumlayerhq/ql-rf/pkg/config"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
+	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
 // Pipeline is the validation pipeline that checks AI outputs.
 type Pipeline struct {
-	opaClient   *OPAClient
-	schemas     map[string]interface{}
-	enabled     bool
-	log         *logger.Logger
+	opaClient         *OPAClient
+	schemas           map[string]interface{}           // Raw schema definitions
+	compiledSchemas   map[string]*jsonschema.Schema    // Compiled schemas for validation
+	schemaCompiler    *jsonschema.Compiler             // Schema compiler
+	schemaMu          sync.RWMutex                     // Mutex for schema operations
+	enabled           bool
+	log               *logger.Logger
 }
 
 // NewPipeline creates a new validation pipeline.
@@ -35,11 +42,17 @@ func NewPipeline(cfg config.OPAConfig, log *logger.Logger) (*Pipeline, error) {
 		}
 	}
 
+	// Create the JSON Schema compiler with draft-07 support
+	compiler := jsonschema.NewCompiler()
+	compiler.Draft = jsonschema.Draft7
+
 	return &Pipeline{
-		opaClient: opaClient,
-		schemas:   make(map[string]interface{}),
-		enabled:   cfg.Enabled,
-		log:       log.WithComponent("validation-pipeline"),
+		opaClient:       opaClient,
+		schemas:         make(map[string]interface{}),
+		compiledSchemas: make(map[string]*jsonschema.Schema),
+		schemaCompiler:  compiler,
+		enabled:         cfg.Enabled,
+		log:             log.WithComponent("validation-pipeline"),
 	}, nil
 }
 
@@ -230,12 +243,77 @@ type ToolContext struct {
 
 // validateSchema validates data against a JSON schema.
 func (p *Pipeline) validateSchema(data interface{}, schemaName string) error {
-	// TODO: Implement actual JSON Schema validation
-	// For now, just check that schema exists
-	if _, ok := p.schemas[schemaName]; !ok {
+	p.schemaMu.RLock()
+	schema, ok := p.compiledSchemas[schemaName]
+	p.schemaMu.RUnlock()
+
+	if !ok {
 		p.log.Debug("schema not found, skipping validation", "schema", schemaName)
+		return nil
 	}
+
+	// The jsonschema library expects the actual value, not JSON bytes
+	// Convert data to JSON and back to ensure proper types
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal data: %w", err)
+	}
+
+	var decoded interface{}
+	if err := json.Unmarshal(jsonData, &decoded); err != nil {
+		return fmt.Errorf("failed to unmarshal data: %w", err)
+	}
+
+	// Validate against the schema
+	if err := schema.Validate(decoded); err != nil {
+		// Extract detailed validation errors
+		if validationErr, ok := err.(*jsonschema.ValidationError); ok {
+			return p.formatValidationErrors(validationErr)
+		}
+		return fmt.Errorf("schema validation failed: %w", err)
+	}
+
+	p.log.Debug("schema validation passed", "schema", schemaName)
 	return nil
+}
+
+// formatValidationErrors formats JSON Schema validation errors into a readable message.
+func (p *Pipeline) formatValidationErrors(err *jsonschema.ValidationError) error {
+	var messages []string
+	p.collectValidationErrors(err, "", &messages)
+
+	if len(messages) == 0 {
+		return fmt.Errorf("schema validation failed: %s", err.Error())
+	}
+
+	return fmt.Errorf("schema validation failed: %s", strings.Join(messages, "; "))
+}
+
+// collectValidationErrors recursively collects validation error messages.
+func (p *Pipeline) collectValidationErrors(err *jsonschema.ValidationError, path string, messages *[]string) {
+	// Build the path
+	currentPath := path
+	if err.InstanceLocation != "" {
+		if currentPath != "" {
+			currentPath = currentPath + "/" + err.InstanceLocation
+		} else {
+			currentPath = err.InstanceLocation
+		}
+	}
+
+	// Add this error's message if it has one
+	if err.Message != "" {
+		msg := err.Message
+		if currentPath != "" {
+			msg = fmt.Sprintf("at %s: %s", currentPath, msg)
+		}
+		*messages = append(*messages, msg)
+	}
+
+	// Recursively collect child errors
+	for _, cause := range err.Causes {
+		p.collectValidationErrors(cause, currentPath, messages)
+	}
 }
 
 // validatePolicies validates data against OPA policies.
@@ -879,32 +957,277 @@ func hasRequiredFields(data interface{}, artifactType string) bool {
 // Schema Registry
 // =============================================================================
 
-// RegisterSchema adds a schema to the registry.
-func (p *Pipeline) RegisterSchema(name string, schema interface{}) {
+// RegisterSchema adds a raw schema to the registry and compiles it.
+func (p *Pipeline) RegisterSchema(name string, schema interface{}) error {
+	p.schemaMu.Lock()
+	defer p.schemaMu.Unlock()
+
+	// Store the raw schema
 	p.schemas[name] = schema
-	p.log.Debug("registered schema", "name", name)
+
+	// Compile the schema
+	schemaJSON, err := json.Marshal(schema)
+	if err != nil {
+		return fmt.Errorf("failed to marshal schema %s: %w", name, err)
+	}
+
+	// Create a unique resource URI for this schema
+	resourceURI := fmt.Sprintf("schema://%s", name)
+
+	// Add the schema to the compiler
+	if err := p.schemaCompiler.AddResource(resourceURI, bytes.NewReader(schemaJSON)); err != nil {
+		return fmt.Errorf("failed to add schema %s to compiler: %w", name, err)
+	}
+
+	// Compile the schema
+	compiled, err := p.schemaCompiler.Compile(resourceURI)
+	if err != nil {
+		return fmt.Errorf("failed to compile schema %s: %w", name, err)
+	}
+
+	p.compiledSchemas[name] = compiled
+	p.log.Debug("registered and compiled schema", "name", name)
+	return nil
+}
+
+// RegisterSchemaFromJSON registers a schema from a JSON string.
+func (p *Pipeline) RegisterSchemaFromJSON(name string, schemaJSON string) error {
+	var schema interface{}
+	if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil {
+		return fmt.Errorf("failed to parse schema JSON: %w", err)
+	}
+	return p.RegisterSchema(name, schema)
 }
 
 // LoadSchemas loads schemas from the filesystem.
 func (p *Pipeline) LoadSchemas(dir string) error {
-	// TODO: Implement schema loading from directory
-	// For now, register some default schemas
-	p.RegisterSchema("drift_remediation_v1", map[string]interface{}{
-		"type": "object",
-		"required": []string{"summary", "phases"},
-	})
-	p.RegisterSchema("patch_rollout_v1", map[string]interface{}{
-		"type": "object",
-		"required": []string{"summary", "patches", "schedule"},
-	})
-	p.RegisterSchema("compliance_report_v1", map[string]interface{}{
-		"type": "object",
-		"required": []string{"summary", "controls", "findings"},
-	})
-	p.RegisterSchema("dr_runbook_v1", map[string]interface{}{
-		"type": "object",
-		"required": []string{"summary", "steps", "recovery_objectives"},
+	// If directory doesn't exist, load default schemas
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		p.log.Info("schema directory not found, loading default schemas", "dir", dir)
+		return p.loadDefaultSchemas()
+	}
+
+	// Walk the directory and load all .json schema files
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Only process .json files
+		if !strings.HasSuffix(info.Name(), ".json") {
+			return nil
+		}
+
+		// Read the schema file
+		data, err := os.ReadFile(path)
+		if err != nil {
+			p.log.Warn("failed to read schema file", "path", path, "error", err)
+			return nil // Continue with other files
+		}
+
+		// Parse the schema
+		var schema interface{}
+		if err := json.Unmarshal(data, &schema); err != nil {
+			p.log.Warn("failed to parse schema file", "path", path, "error", err)
+			return nil // Continue with other files
+		}
+
+		// Use filename (without extension) as schema name
+		name := strings.TrimSuffix(info.Name(), ".json")
+
+		if err := p.RegisterSchema(name, schema); err != nil {
+			p.log.Warn("failed to register schema", "name", name, "error", err)
+			return nil // Continue with other files
+		}
+
+		p.log.Info("loaded schema from file", "name", name, "path", path)
+		return nil
 	})
 
+	if err != nil {
+		return fmt.Errorf("failed to walk schema directory: %w", err)
+	}
+
+	// Also load default schemas to ensure they're always available
+	return p.loadDefaultSchemas()
+}
+
+// loadDefaultSchemas loads the built-in default schemas.
+func (p *Pipeline) loadDefaultSchemas() error {
+	defaultSchemas := map[string]map[string]interface{}{
+		"drift_remediation_v1": {
+			"$schema":     "http://json-schema.org/draft-07/schema#",
+			"type":        "object",
+			"required":    []interface{}{"summary", "phases"},
+			"properties": map[string]interface{}{
+				"summary": map[string]interface{}{
+					"type": "string",
+					"minLength": 1,
+				},
+				"phases": map[string]interface{}{
+					"type": "array",
+					"minItems": 1,
+					"items": map[string]interface{}{
+						"type": "object",
+						"required": []interface{}{"name", "assets"},
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{"type": "string"},
+							"assets": map[string]interface{}{"type": "array"},
+						},
+					},
+				},
+				"rollback": map[string]interface{}{"type": "object"},
+				"risk_score": map[string]interface{}{"type": "number", "minimum": float64(0), "maximum": float64(100)},
+			},
+		},
+		"patch_rollout_v1": {
+			"$schema":     "http://json-schema.org/draft-07/schema#",
+			"type":        "object",
+			"required":    []interface{}{"summary", "patches", "schedule"},
+			"properties": map[string]interface{}{
+				"summary": map[string]interface{}{"type": "string", "minLength": 1},
+				"patches": map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "object",
+						"required": []interface{}{"id", "name"},
+						"properties": map[string]interface{}{
+							"id": map[string]interface{}{"type": "string"},
+							"name": map[string]interface{}{"type": "string"},
+							"severity": map[string]interface{}{"type": "string"},
+						},
+					},
+				},
+				"schedule": map[string]interface{}{"type": "object"},
+			},
+		},
+		"compliance_report_v1": {
+			"$schema":     "http://json-schema.org/draft-07/schema#",
+			"type":        "object",
+			"required":    []interface{}{"summary", "controls", "findings"},
+			"properties": map[string]interface{}{
+				"summary": map[string]interface{}{"type": "string", "minLength": 1},
+				"controls": map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "object",
+						"required": []interface{}{"id", "status"},
+						"properties": map[string]interface{}{
+							"id": map[string]interface{}{"type": "string"},
+							"name": map[string]interface{}{"type": "string"},
+							"status": map[string]interface{}{
+								"type": "string",
+								"enum": []interface{}{"passed", "failed", "not_applicable"},
+							},
+						},
+					},
+				},
+				"findings": map[string]interface{}{"type": "array"},
+				"overall_status": map[string]interface{}{
+					"type": "string",
+					"enum": []interface{}{"compliant", "non_compliant", "partial"},
+				},
+			},
+		},
+		"dr_runbook_v1": {
+			"$schema":     "http://json-schema.org/draft-07/schema#",
+			"type":        "object",
+			"required":    []interface{}{"summary", "steps", "recovery_objectives"},
+			"properties": map[string]interface{}{
+				"summary": map[string]interface{}{"type": "string", "minLength": 1},
+				"steps": map[string]interface{}{
+					"type": "array",
+					"minItems": 1,
+					"items": map[string]interface{}{
+						"type": "object",
+						"required": []interface{}{"order", "action"},
+						"properties": map[string]interface{}{
+							"order": map[string]interface{}{"type": "integer", "minimum": float64(1)},
+							"action": map[string]interface{}{"type": "string"},
+							"responsible": map[string]interface{}{"type": "string"},
+							"estimated_duration": map[string]interface{}{"type": "string"},
+						},
+					},
+				},
+				"recovery_objectives": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"rto": map[string]interface{}{"type": "string"},
+						"rpo": map[string]interface{}{"type": "string"},
+					},
+				},
+			},
+		},
+		"execution_plan_v1": {
+			"$schema":     "http://json-schema.org/draft-07/schema#",
+			"type":        "object",
+			"required":    []interface{}{"task_id", "phases"},
+			"properties": map[string]interface{}{
+				"task_id": map[string]interface{}{"type": "string"},
+				"plan_id": map[string]interface{}{"type": "string"},
+				"task_type": map[string]interface{}{"type": "string"},
+				"environment": map[string]interface{}{
+					"type": "string",
+					"enum": []interface{}{"development", "staging", "production"},
+				},
+				"phases": map[string]interface{}{
+					"type": "array",
+					"minItems": 1,
+					"items": map[string]interface{}{
+						"type": "object",
+						"required": []interface{}{"name"},
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{"type": "string"},
+							"assets": map[string]interface{}{"type": "array"},
+							"wait_time": map[string]interface{}{"type": "string"},
+							"health_checks": map[string]interface{}{"type": "array"},
+						},
+					},
+				},
+				"rollback": map[string]interface{}{"type": "object"},
+			},
+		},
+	}
+
+	for name, schema := range defaultSchemas {
+		// Skip if already registered (from file)
+		p.schemaMu.RLock()
+		_, exists := p.compiledSchemas[name]
+		p.schemaMu.RUnlock()
+
+		if exists {
+			continue
+		}
+
+		if err := p.RegisterSchema(name, schema); err != nil {
+			p.log.Warn("failed to register default schema", "name", name, "error", err)
+		}
+	}
+
 	return nil
+}
+
+// GetSchema returns a compiled schema by name.
+func (p *Pipeline) GetSchema(name string) (*jsonschema.Schema, bool) {
+	p.schemaMu.RLock()
+	defer p.schemaMu.RUnlock()
+	schema, ok := p.compiledSchemas[name]
+	return schema, ok
+}
+
+// ListSchemas returns the names of all registered schemas.
+func (p *Pipeline) ListSchemas() []string {
+	p.schemaMu.RLock()
+	defer p.schemaMu.RUnlock()
+
+	names := make([]string, 0, len(p.compiledSchemas))
+	for name := range p.compiledSchemas {
+		names = append(names, name)
+	}
+	return names
 }

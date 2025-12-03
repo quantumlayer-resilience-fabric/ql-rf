@@ -265,6 +265,73 @@ func (i AddCoordinateInput) Validate() error {
 	return nil
 }
 
+// UpdateImageInput contains input for updating an image.
+type UpdateImageInput struct {
+	ID     uuid.UUID
+	OrgID  uuid.UUID
+	Params UpdateImageParams
+}
+
+// UpdateImage updates an image's metadata.
+func (s *ImageService) UpdateImage(ctx context.Context, input UpdateImageInput) (*Image, error) {
+	// Verify ownership
+	img, err := s.repo.GetImage(ctx, input.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get image: %w", err)
+	}
+	if img.OrgID != input.OrgID {
+		return nil, ErrNotFound
+	}
+
+	// Validate status if provided
+	if input.Params.Status != nil {
+		validStatuses := map[string]bool{
+			"draft":      true,
+			"testing":    true,
+			"production": true,
+			"deprecated": true,
+			"retired":    true,
+		}
+		if !validStatuses[*input.Params.Status] {
+			return nil, fmt.Errorf("%w: invalid status %s", ErrInvalidInput, *input.Params.Status)
+		}
+	}
+
+	// Update image
+	updated, err := s.repo.UpdateImage(ctx, input.ID, input.Params)
+	if err != nil {
+		return nil, fmt.Errorf("update image: %w", err)
+	}
+
+	return updated, nil
+}
+
+// DeleteImageInput contains input for deleting (deprecating) an image.
+type DeleteImageInput struct {
+	ID    uuid.UUID
+	OrgID uuid.UUID
+}
+
+// DeleteImage soft-deletes an image by setting its status to deprecated.
+func (s *ImageService) DeleteImage(ctx context.Context, input DeleteImageInput) error {
+	// Verify ownership
+	img, err := s.repo.GetImage(ctx, input.ID)
+	if err != nil {
+		return fmt.Errorf("get image: %w", err)
+	}
+	if img.OrgID != input.OrgID {
+		return ErrNotFound
+	}
+
+	// Soft delete by setting status to deprecated
+	_, err = s.repo.UpdateImageStatus(ctx, input.ID, "deprecated")
+	if err != nil {
+		return fmt.Errorf("deprecate image: %w", err)
+	}
+
+	return nil
+}
+
 // AddCoordinate adds a platform coordinate to an image.
 func (s *ImageService) AddCoordinate(ctx context.Context, input AddCoordinateInput) (*ImageCoordinate, error) {
 	if err := input.Validate(); err != nil {

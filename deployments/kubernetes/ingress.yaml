@@ -1,0 +1,65 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ql-rf-ingress
+  namespace: ql-rf
+  labels:
+    app.kubernetes.io/name: ql-rf
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts:
+        - control-tower.quantumlayer.dev
+        - api.quantumlayer.dev
+      secretName: ql-rf-tls
+  rules:
+    # Control Tower UI
+    - host: control-tower.quantumlayer.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ql-rf-ui
+                port:
+                  number: 80
+    # API Gateway
+    - host: api.quantumlayer.dev
+      http:
+        paths:
+          # Main API
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: ql-rf-api
+                port:
+                  number: 80
+          # AI Orchestrator API
+          - path: /api/v1/ai
+            pathType: Prefix
+            backend:
+              service:
+                name: ql-rf-orchestrator
+                port:
+                  number: 80
+          # Health checks (for external monitoring)
+          - path: /healthz
+            pathType: Exact
+            backend:
+              service:
+                name: ql-rf-api
+                port:
+                  number: 80
+          - path: /readyz
+            pathType: Exact
+            backend:
+              service:
+                name: ql-rf-api
+                port:
+                  number: 80

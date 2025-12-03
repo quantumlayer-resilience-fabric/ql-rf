@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ql-rf-config
+  namespace: ql-rf
+  labels:
+    app.kubernetes.io/name: ql-rf
+data:
+  # Kafka
+  kafka-brokers: "kafka-0.kafka.ql-rf.svc.cluster.local:9092,kafka-1.kafka.ql-rf.svc.cluster.local:9092,kafka-2.kafka.ql-rf.svc.cluster.local:9092"
+  kafka-consumer-group: "ql-rf-consumers"
+
+  # Temporal
+  temporal-host: "temporal.ql-rf.svc.cluster.local:7233"
+  temporal-namespace: "ql-rf"
+
+  # OPA
+  opa-url: "http://opa.ql-rf.svc.cluster.local:8181"
+
+  # API URLs (internal)
+  api-url: "http://ql-rf-api.ql-rf.svc.cluster.local"
+  orchestrator-url: "http://ql-rf-orchestrator.ql-rf.svc.cluster.local"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ql-rf-secrets
+  namespace: ql-rf
+  labels:
+    app.kubernetes.io/name: ql-rf
+type: Opaque
+stringData:
+  # Replace these with actual secrets in production
+  # Use external secrets operator or sealed secrets
+  database-url: "postgres://qlrf:CHANGE_ME@postgres.ql-rf.svc.cluster.local:5432/qlrf?sslmode=require"
+  redis-url: "redis://:CHANGE_ME@redis.ql-rf.svc.cluster.local:6379/0"
+  clerk-secret-key: "CHANGE_ME"
+  clerk-publishable-key: "CHANGE_ME"
+  anthropic-api-key: "CHANGE_ME"
