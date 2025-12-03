@@ -60,25 +60,22 @@ func New(cfg Config) http.Handler {
 		MaxAge:           300,
 	}
 	if cfg.Config.Env == "development" {
-		// In development, allow any localhost port
+		// In development, allow any localhost port and local network IPs
 		corsOptions.AllowedOrigins = []string{
 			"http://localhost:*",
 			"http://127.0.0.1:*",
+			"http://192.168.*:*",
 		}
 		corsOptions.AllowOriginFunc = func(r *http.Request, origin string) bool {
 			// Allow any localhost origin in development
-			return len(origin) > 0 && (
-				origin == "http://localhost:3000" ||
-				origin == "http://localhost:3001" ||
-				origin == "http://localhost:3002" ||
-				origin == "http://localhost:3003" ||
-				origin == "http://127.0.0.1:3000" ||
-				origin == "http://127.0.0.1:3001" ||
-				origin == "http://127.0.0.1:3002" ||
-				origin == "http://127.0.0.1:3003" ||
-				// Allow any localhost port
+			if len(origin) > 0 && (
 				(len(origin) > 17 && origin[:17] == "http://localhost:") ||
-				(len(origin) > 18 && origin[:18] == "http://127.0.0.1:"))
+				(len(origin) > 18 && origin[:18] == "http://127.0.0.1:") ||
+				// Allow local network IPs (192.168.x.x)
+				(len(origin) > 15 && origin[:15] == "http://192.168.")) {
+				return true
+			}
+			return false
 		}
 	} else {
 		// In production, only allow specific origins
@@ -96,6 +93,7 @@ func New(cfg Config) http.Handler {
 	siteRepo := repository.NewSiteRepositoryAdapter(cfg.DB.Pool)
 	alertRepo := repository.NewAlertRepositoryAdapter(cfg.DB.Pool)
 	activityRepo := repository.NewActivityRepositoryAdapter(cfg.DB.Pool)
+	drPairRepo := repository.NewDRPairRepositoryAdapter(cfg.DB.Pool)
 
 	// Initialize service layer
 	imageSvc := service.NewImageService(imageRepo)
@@ -105,7 +103,7 @@ func New(cfg Config) http.Handler {
 	alertSvc := service.NewAlertService(alertRepo)
 	overviewSvc := service.NewOverviewService(assetRepo, driftRepo, siteRepo, alertRepo, activityRepo)
 	complianceSvc := service.NewComplianceService(cfg.DB, cfg.Logger)
-	resilienceSvc := service.NewResilienceService(siteRepo)
+	resilienceSvc := service.NewResilienceService(siteRepo, drPairRepo)
 	riskSvc := service.NewRiskService(cfg.DB, cfg.Logger)
 	predictionSvc := service.NewPredictionService(cfg.DB, cfg.Logger)
 
@@ -122,6 +120,7 @@ func New(cfg Config) http.Handler {
 	lineageHandler := handlers.NewLineageHandler(cfg.DB.Pool, cfg.Logger)
 	riskHandler := handlers.NewRiskHandler(riskSvc, cfg.Logger)
 	predictionHandler := handlers.NewPredictionHandler(predictionSvc, cfg.Logger)
+	userHandler := handlers.NewUserHandler(cfg.Logger)
 
 	// Health endpoints (no auth required)
 	r.Get("/healthz", healthHandler.Liveness)
@@ -209,6 +208,7 @@ func New(cfg Config) http.Handler {
 			r.Get("/", driftHandler.GetCurrent)
 			r.Get("/summary", driftHandler.Summary)
 			r.Get("/trends", driftHandler.Trends)
+			r.Get("/top-offenders", driftHandler.TopOffenders)
 			r.Get("/reports", driftHandler.ListReports)
 			r.Get("/reports/{id}", driftHandler.GetReport)
 		})
@@ -278,6 +278,11 @@ func New(cfg Config) http.Handler {
 			r.Get("/recommendations", predictionHandler.GetRecommendations)
 			r.Get("/anomalies", predictionHandler.GetAnomalies)
 			r.Get("/assets/{id}/prediction", predictionHandler.GetAssetPrediction)
+		})
+
+		// Users
+		r.Route("/users", func(r chi.Router) {
+			r.Get("/me", userHandler.GetCurrentUser)
 		})
 
 		// Organizations (admin only)

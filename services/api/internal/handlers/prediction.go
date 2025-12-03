@@ -62,9 +62,12 @@ func (h *PredictionHandler) GetAssetPrediction(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	prediction, err := h.svc.GetAssetPrediction(ctx, assetID)
+	prediction, err := h.svc.GetAssetPrediction(ctx, service.GetAssetPredictionInput{
+		AssetID: assetID,
+		OrgID:   org.ID,
+	})
 	if err != nil {
-		h.log.Error("failed to get asset prediction", "error", err, "asset_id", assetID)
+		h.log.Error("failed to get asset prediction", "error", err, "asset_id", assetID, "org_id", org.ID)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}

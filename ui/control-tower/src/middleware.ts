@@ -1,68 +1,40 @@
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Check if Clerk is configured
+// Dev bypass - set NEXT_PUBLIC_DEV_AUTH_BYPASS=true to skip Clerk entirely
+const devAuthBypass = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
+
+// Check if Clerk is configured with a valid key
 const hasClerkKey =
+  !devAuthBypass &&
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_") &&
   !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.includes("xxxxx");
 
-// Dynamic import of Clerk middleware only when key is available
-let clerkMiddleware: typeof import("@clerk/nextjs/server").clerkMiddleware | null = null;
-let createRouteMatcher: typeof import("@clerk/nextjs/server").createRouteMatcher | null = null;
-
-if (hasClerkKey) {
-  try {
-    const clerk = require("@clerk/nextjs/server");
-    clerkMiddleware = clerk.clerkMiddleware;
-    createRouteMatcher = clerk.createRouteMatcher;
-  } catch {
-    // Clerk not available
-  }
-}
-
 // Public routes that don't require authentication
-const publicPaths = [
+const isPublicRoute = createRouteMatcher([
   "/",
   "/features",
   "/pricing",
   "/security",
   "/demo",
-  "/login",
-  "/signup",
-  "/api/webhooks",
-];
+  "/login(.*)",
+  "/signup(.*)",
+  "/api/webhooks(.*)",
+]);
 
-function isPublicPath(pathname: string): boolean {
-  return publicPaths.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`)
-  );
-}
-
-export default async function middleware(req: NextRequest) {
-  // If Clerk is not configured, allow all requests (dev mode)
-  if (!hasClerkKey || !clerkMiddleware || !createRouteMatcher) {
-    return NextResponse.next();
-  }
-
-  // Use Clerk middleware when configured
-  const isPublicRoute = createRouteMatcher([
-    "/",
-    "/features",
-    "/pricing",
-    "/security",
-    "/demo",
-    "/login(.*)",
-    "/signup(.*)",
-    "/api/webhooks(.*)",
-  ]);
-
-  return clerkMiddleware(async (auth, req) => {
-    if (!isPublicRoute(req)) {
-      await auth.protect();
-    }
-  })(req, {} as any);
-}
+// Use Clerk middleware if configured, otherwise allow all routes
+export default hasClerkKey
+  ? clerkMiddleware(async (auth, request) => {
+      if (!isPublicRoute(request)) {
+        await auth.protect();
+      }
+    })
+  : function devMiddleware(_request: NextRequest) {
+      // In development without Clerk or with DEV_AUTH_BYPASS, allow all requests
+      return NextResponse.next();
+    };
 
 export const config = {
   matcher: [

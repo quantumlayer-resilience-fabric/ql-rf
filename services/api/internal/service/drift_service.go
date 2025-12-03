@@ -252,6 +252,20 @@ func (s *DriftService) GetDriftAgeDistribution(ctx context.Context, input GetDri
 	return s.driftRepo.GetDriftAgeDistribution(ctx, input.OrgID)
 }
 
+// GetTopOffendersInput contains input for getting top drifted assets.
+type GetTopOffendersInput struct {
+	OrgID uuid.UUID
+	Limit int32
+}
+
+// GetTopOffenders retrieves assets that are most out of compliance (drifted).
+func (s *DriftService) GetTopOffenders(ctx context.Context, input GetTopOffendersInput) ([]Asset, error) {
+	if input.Limit <= 0 {
+		input.Limit = 10
+	}
+	return s.assetRepo.ListDriftedAssets(ctx, input.OrgID, input.Limit)
+}
+
 // calculateStatus determines drift status based on coverage percentage.
 func calculateStatus(coveragePct float64) string {
 	if coveragePct >= 90 {

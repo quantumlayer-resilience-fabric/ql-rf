@@ -11,8 +11,12 @@ import { type ReactNode } from "react";
 export function ConditionalClerkProvider({ children }: { children: ReactNode }) {
   const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
-  // Check if we have a valid Clerk key (not a placeholder)
+  // Dev bypass - set NEXT_PUBLIC_DEV_AUTH_BYPASS=true to skip Clerk entirely
+  const devAuthBypass = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
+
+  // Check if we have a valid Clerk key (not a placeholder) and dev bypass is not enabled
   const hasValidKey =
+    !devAuthBypass &&
     publishableKey &&
     publishableKey.startsWith("pk_") &&
     !publishableKey.includes("xxxxx");
@@ -21,6 +25,6 @@ export function ConditionalClerkProvider({ children }: { children: ReactNode }) 
     return <ClerkProvider>{children}</ClerkProvider>;
   }
 
-  // In dev mode without Clerk, just render children directly
+  // In dev mode without Clerk or with DEV_AUTH_BYPASS, just render children directly
   return <>{children}</>;
 }

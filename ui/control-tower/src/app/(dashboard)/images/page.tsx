@@ -48,11 +48,12 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
-type ImageStatus = "production" | "staging" | "deprecated" | "pending";
+type ImageStatus = "production" | "staging" | "testing" | "deprecated" | "pending";
 
 const statusConfig: Record<ImageStatus, { label: string; variant: "success" | "warning" | "critical" | "info" }> = {
   production: { label: "Production", variant: "success" },
   staging: { label: "Staging", variant: "warning" },
+  testing: { label: "Testing", variant: "info" },
   deprecated: { label: "Deprecated", variant: "critical" },
   pending: { label: "Pending", variant: "info" },
 };
@@ -66,6 +67,11 @@ export default function ImagesPage() {
   const { data: imageFamilies, isLoading, error, refetch } = useImageFamilies();
   const promoteImage = usePromoteImage();
   const deprecateImage = useDeprecateImage();
+
+  // Must be called before any conditional returns to satisfy Rules of Hooks
+  const handleCreateImage = useCallback(() => {
+    router.push("/images/new");
+  }, [router]);
 
   if (isLoading) {
     return (
@@ -132,10 +138,6 @@ export default function ImagesPage() {
   const handleDeprecate = (familyId: string, version: string) => {
     deprecateImage.mutate({ familyId, version });
   };
-
-  const handleCreateImage = useCallback(() => {
-    router.push("/images/new");
-  }, [router]);
 
   const formatRelativeTime = (dateString: string) => {
     const date = new Date(dateString);

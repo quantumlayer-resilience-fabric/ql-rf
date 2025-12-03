@@ -7,8 +7,14 @@
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
 
+// Dev bypass flag - if true, use dev-token immediately
+const devAuthBypass = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
+const isDevelopment = process.env.NODE_ENV === "development";
+
 // Token getter function - set by the auth provider
-let getAuthToken: (() => Promise<string | null>) | null = null;
+// Initialize with dev-token getter if in dev bypass mode
+let getAuthToken: (() => Promise<string | null>) | null =
+  (devAuthBypass || isDevelopment) ? (async () => "dev-token") : null;
 
 /**
  * Set the auth token getter function.
@@ -18,24 +24,83 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
   getAuthToken = getter;
 }
 
-// Types based on backend contracts
+// Backend Asset type (what the API returns in snake_case)
+interface BackendAsset {
+  id: string;
+  org_id: string;
+  env_id?: string;
+  platform: string;
+  account?: string;
+  region?: string;
+  site?: string;
+  instance_id: string;
+  name?: string;
+  image_ref?: string;
+  image_version?: string;
+  state: string;
+  tags?: Record<string, string>;
+  discovered_at: string;
+  updated_at: string;
+}
+
+// Frontend Asset type (camelCase, enriched with display fields)
 export interface Asset {
   id: string;
-  hostname: string;
-  siteId: string;
-  siteName: string;
+  orgId?: string;
+  envId?: string;
   platform: "aws" | "azure" | "gcp" | "vsphere" | "k8s" | "baremetal";
-  environment: "production" | "staging" | "development" | "dr";
-  currentImageId: string;
-  currentImageVersion: string;
-  goldenImageId: string;
-  goldenImageVersion: string;
-  isDrifted: boolean;
+  account?: string;
+  region?: string;
+  site?: string;
+  instanceId?: string;
+  name?: string;
+  imageRef?: string;
+  imageVersion?: string;
+  state?: "running" | "stopped" | "terminated" | "pending" | "unknown";
+  tags?: Record<string, string>;
+  discoveredAt?: string;
+  updatedAt?: string;
+  // Computed/display fields for UI convenience
+  hostname: string; // name || instanceId
+  siteId: string;   // site || ""
+  siteName: string; // site || "Unknown"
+  // Drift-specific fields (populated by drift endpoints)
+  isDrifted?: boolean;
   driftDetectedAt?: string;
-  lastScannedAt: string;
-  metadata: Record<string, string>;
-  createdAt: string;
-  updatedAt: string;
+  currentImageId?: string;
+  currentImageVersion?: string;
+  goldenImageId?: string;
+  goldenImageVersion?: string;
+  environment?: string;
+  lastScannedAt?: string;
+  createdAt?: string;
+  metadata?: Record<string, string>;
+}
+
+// Transform backend asset to frontend format
+function transformAsset(backend: BackendAsset, isDrifted?: boolean): Asset {
+  return {
+    id: backend.id,
+    orgId: backend.org_id,
+    envId: backend.env_id,
+    platform: backend.platform as Asset["platform"],
+    account: backend.account,
+    region: backend.region,
+    site: backend.site,
+    instanceId: backend.instance_id,
+    name: backend.name,
+    imageRef: backend.image_ref,
+    imageVersion: backend.image_version,
+    state: backend.state as Asset["state"],
+    tags: backend.tags,
+    discoveredAt: backend.discovered_at,
+    updatedAt: backend.updated_at,
+    // Computed fields
+    hostname: backend.name || backend.instance_id,
+    siteId: backend.site || "",
+    siteName: backend.site || "Unknown",
+    isDrifted: isDrifted,
+  };
 }
 
 export interface Image {
@@ -44,7 +109,7 @@ export interface Image {
   familyName: string;
   version: string;
   description: string;
-  status: "production" | "staging" | "deprecated" | "pending";
+  status: "production" | "staging" | "testing" | "deprecated" | "pending";
   platforms: Array<"aws" | "azure" | "gcp" | "vsphere" | "k8s">;
   compliance: {
     cis: boolean;
@@ -65,7 +130,7 @@ export interface ImageFamily {
   description: string;
   owner: string;
   latestVersion: string;
-  status: "production" | "staging" | "deprecated" | "pending";
+  status: "production" | "staging" | "testing" | "deprecated" | "pending";
   totalDeployed: number;
   versions: Image[];
   createdAt: string;
@@ -661,48 +726,155 @@ export const api = {
 
   // Assets
   assets: {
-    list: (params?: {
-      siteId?: string;
+    list: async (params?: {
+      site?: string;
       platform?: string;
-      environment?: string;
-      isDrifted?: boolean;
-      limit?: number;
-      offset?: number;
-    }) => {
+      state?: string;
+      envId?: string;
+      page?: number;
+      pageSize?: number;
+    }): Promise<{ assets: Asset[]; total: number; page: number; pageSize: number; totalPages: number }> => {
       const searchParams = new URLSearchParams();
       if (params) {
-        Object.entries(params).forEach(([key, value]) => {
-          if (value !== undefined) {
-            searchParams.set(key, String(value));
-          }
-        });
+        // Map frontend params to backend params
+        if (params.site) searchParams.set("site", params.site);
+        if (params.platform) searchParams.set("platform", params.platform);
+        if (params.state) searchParams.set("state", params.state);
+        if (params.envId) searchParams.set("env_id", params.envId);
+        if (params.page) searchParams.set("page", String(params.page));
+        if (params.pageSize) searchParams.set("page_size", String(params.pageSize));
       }
       const query = searchParams.toString();
-      return apiFetch<{ assets: Asset[]; total: number }>(
+
+      // Backend response type
+      interface BackendAssetListResponse {
+        assets: BackendAsset[];
+        total: number;
+        page: number;
+        page_size: number;
+        total_pages: number;
+      }
+
+      const response = await apiFetch<BackendAssetListResponse>(
         `/assets${query ? `?${query}` : ""}`
       );
+
+      return {
+        assets: (response.assets || []).map(a => transformAsset(a)),
+        total: response.total,
+        page: response.page,
+        pageSize: response.page_size,
+        totalPages: response.total_pages,
+      };
     },
-    get: (id: string) => apiFetch<Asset>(`/assets/${id}`),
+
+    get: async (id: string): Promise<Asset> => {
+      const response = await apiFetch<BackendAsset>(`/assets/${id}`);
+      return transformAsset(response);
+    },
+
+    getSummary: () => apiFetch<{
+      total_assets: number;
+      running_assets: number;
+      stopped_assets: number;
+      by_platform: Record<string, number>;
+      by_state: Record<string, number>;
+    }>("/assets/summary"),
+
+    // Get drifted assets via top-offenders endpoint (returns already transformed)
     getDrifted: (limit?: number) =>
-      apiFetch<Asset[]>(`/assets/drifted${limit ? `?limit=${limit}` : ""}`),
+      apiFetch<Asset[]>(`/drift/top-offenders${limit ? `?limit=${limit}` : ""}`),
   },
 
   // Images
   images: {
-    listFamilies: () => apiFetch<ImageFamily[]>("/images/families"),
-    getFamily: (id: string) => apiFetch<ImageFamily>(`/images/families/${id}`),
+    // List images and group by family for backward compatibility with frontend
+    listFamilies: async (): Promise<ImageFamily[]> => {
+      // Backend returns snake_case fields, we need to handle the transformation
+      interface BackendImage {
+        id: string;
+        org_id: string;
+        family: string;  // Backend uses 'family' not 'familyId'
+        version: string;
+        os_name?: string;
+        os_version?: string;
+        signed?: boolean;
+        status: string;
+        created_at: string;
+        updated_at: string;
+      }
+
+      const response = await apiFetch<{ images: BackendImage[]; total: number }>("/images");
+      const backendImages = response.images || [];
+
+      // Group images by family name
+      const familyMap = new Map<string, BackendImage[]>();
+      for (const img of backendImages) {
+        const familyName = img.family || "unknown";
+        if (!familyMap.has(familyName)) {
+          familyMap.set(familyName, []);
+        }
+        familyMap.get(familyName)!.push(img);
+      }
+
+      // Convert to ImageFamily format
+      const families: ImageFamily[] = [];
+      for (const [familyName, familyImages] of familyMap) {
+        // Find latest image for this family (by version or created_at)
+        const sortedImages = [...familyImages].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        const latestImage = sortedImages[0];
+
+        // Transform backend images to frontend Image format
+        const transformedVersions: Image[] = familyImages.map(img => ({
+          id: img.id,
+          familyId: familyName,
+          familyName: familyName,
+          version: img.version,
+          description: `${img.os_name || ''} ${img.os_version || ''}`.trim(),
+          status: (img.status as Image["status"]) || "pending",
+          platforms: ["aws"] as Image["platforms"], // Default, could be derived from coordinates
+          compliance: {
+            cis: false,
+            slsaLevel: 0,
+            cosignSigned: img.signed || false,
+          },
+          deployedCount: 0,
+          createdAt: img.created_at,
+          createdBy: "system",
+        }));
+
+        families.push({
+          id: familyName, // Use family name as ID since backend doesn't have separate family entity
+          name: familyName,
+          description: `${latestImage?.os_name || ''} ${latestImage?.os_version || ''}`.trim() || "Golden image family",
+          owner: "system",
+          latestVersion: latestImage?.version || "0.0.0",
+          status: (latestImage?.status as ImageFamily["status"]) || "pending",
+          totalDeployed: 0,
+          versions: transformedVersions,
+          createdAt: sortedImages[sortedImages.length - 1]?.created_at || new Date().toISOString(),
+          updatedAt: latestImage?.created_at || new Date().toISOString(),
+        });
+      }
+
+      return families;
+    },
+    getFamily: (id: string) => apiFetch<ImageFamily>(`/images/${id}`),
     listVersions: (familyId: string) =>
-      apiFetch<Image[]>(`/images/families/${familyId}/versions`),
+      apiFetch<Image[]>(`/images?family=${familyId}`),
     getVersion: (familyId: string, version: string) =>
-      apiFetch<Image>(`/images/families/${familyId}/versions/${version}`),
-    promote: (familyId: string, version: string, targetStatus: string) =>
-      apiFetch<Image>(`/images/families/${familyId}/versions/${version}/promote`, {
+      apiFetch<Image>(`/images/${familyId}/latest`),
+    promote: (imageId: string, _version: string, targetStatus: string) =>
+      apiFetch<Image>(`/images/${imageId}/promote`, {
         method: "POST",
-        body: JSON.stringify({ targetStatus }),
+        body: JSON.stringify({ status: targetStatus }),
       }),
-    deprecate: (familyId: string, version: string) =>
-      apiFetch<Image>(`/images/families/${familyId}/versions/${version}/deprecate`, {
+    deprecate: (imageId: string, _version: string) =>
+      apiFetch<Image>(`/images/${imageId}/promote`, {
         method: "POST",
+        body: JSON.stringify({ status: "deprecated" }),
       }),
     // Lineage endpoints
     getLineage: (imageId: string) =>
@@ -742,7 +914,10 @@ export const api = {
 
   // Sites
   sites: {
-    list: () => apiFetch<Site[]>("/sites"),
+    list: async (): Promise<Site[]> => {
+      const response = await apiFetch<{ sites: Site[] }>("/sites");
+      return response.sites || [];
+    },
     get: (id: string) => apiFetch<Site>(`/sites/${id}`),
     getAssets: (id: string, limit?: number) =>
       apiFetch<Asset[]>(`/sites/${id}/assets${limit ? `?limit=${limit}` : ""}`),

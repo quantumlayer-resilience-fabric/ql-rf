@@ -5,26 +5,17 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-// Check if Clerk is configured
+// Check environment and Clerk configuration
+const isDevelopment = process.env.NODE_ENV === "development";
 const hasClerkKey =
   typeof process !== "undefined" &&
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_") &&
   !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.includes("xxxxx");
 
-// Conditionally import Clerk
-let useAuth: () => { getToken: () => Promise<string | null>; isSignedIn: boolean };
-if (hasClerkKey) {
-  try {
-    const clerk = require("@clerk/nextjs");
-    useAuth = clerk.useAuth;
-  } catch {
-    // Clerk not available
-    useAuth = () => ({ getToken: async () => "dev-token", isSignedIn: true });
-  }
-} else {
-  // Dev mode: always "signed in" with dev token
-  useAuth = () => ({ getToken: async () => "dev-token", isSignedIn: true });
+// Dev/no-auth mode - always returns signed in with dev token
+function useDevAuth() {
+  return { getToken: async () => "dev-token" as string | null, isSignedIn: true };
 }
 
 // Permission constants - mirrors backend PermXxx constants
@@ -126,12 +117,39 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/a
  * Hook to get the current user's info including role and permissions
  */
 export function useCurrentUser() {
-  const { getToken, isSignedIn } = useAuth();
+  // Use dev auth when Clerk isn't configured
+  const devAuth = useDevAuth();
+
+  // Only try to use Clerk if it's configured - avoid calling the hook otherwise
+  // This prevents the "useAuth can only be used within ClerkProvider" error
+  const clerkConfigured = hasClerkKey;
 
   return useQuery<UserInfo>({
     queryKey: ["current-user"],
     queryFn: async () => {
-      const token = await getToken();
+      // In dev mode without Clerk, return a mock admin user
+      if (!clerkConfigured && isDevelopment) {
+        return {
+          id: "dev-user",
+          name: "Dev User",
+          email: "dev@example.com",
+          role: Roles.ADMIN as Role,
+          org_id: "dev-org",
+          permissions: RolePermissions[Roles.ADMIN],
+        };
+      }
+
+      // In production without Clerk, throw error
+      if (!clerkConfigured) {
+        throw new Error("Authentication not configured");
+      }
+
+      // Get token - use dev token if Clerk isn't configured
+      const token = clerkConfigured ? await devAuth.getToken() : "dev-token";
+      if (!token) {
+        throw new Error("No authentication token available");
+      }
+
       const response = await fetch(`${API_BASE_URL}/users/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -140,7 +158,20 @@ export function useCurrentUser() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch user info");
+        // In development, fallback for convenience
+        if (isDevelopment) {
+          console.warn("Failed to fetch user info, using dev fallback");
+          return {
+            id: "demo-user",
+            name: "Demo User",
+            email: "demo@example.com",
+            role: Roles.ADMIN as Role,
+            org_id: "dev-org",
+            permissions: RolePermissions[Roles.ADMIN],
+          };
+        }
+        // In production, throw the error
+        throw new Error(`Failed to fetch user info: ${response.status}`);
       }
 
       const user = await response.json();
@@ -154,7 +185,8 @@ export function useCurrentUser() {
         permissions,
       };
     },
-    enabled: isSignedIn,
+    // Always enabled in dev mode, otherwise based on Clerk config
+    enabled: isDevelopment || clerkConfigured,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   });
 }

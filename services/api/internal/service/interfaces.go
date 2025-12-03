@@ -31,6 +31,7 @@ type AssetRepository interface {
 	GetAsset(ctx context.Context, id uuid.UUID) (*Asset, error)
 	GetAssetByInstanceID(ctx context.Context, orgID uuid.UUID, platform, instanceID string) (*Asset, error)
 	ListAssets(ctx context.Context, params ListAssetsParams) ([]Asset, error)
+	ListDriftedAssets(ctx context.Context, orgID uuid.UUID, limit int32) ([]Asset, error)
 	UpsertAsset(ctx context.Context, params UpsertAssetParams) (*Asset, error)
 	DeleteAsset(ctx context.Context, id uuid.UUID) error
 	CountAssetsByOrg(ctx context.Context, orgID uuid.UUID) (int64, error)
@@ -372,4 +373,27 @@ type CreateActivityParams struct {
 	SiteID  *uuid.UUID
 	AssetID *uuid.UUID
 	ImageID *uuid.UUID
+}
+
+// DRPairRepository defines the interface for DR pair data access.
+type DRPairRepository interface {
+	ListDRPairs(ctx context.Context, orgID uuid.UUID) ([]DRPairRow, error)
+	GetDRPair(ctx context.Context, id, orgID uuid.UUID) (*DRPairRow, error)
+}
+
+// DRPairRow represents a DR pair row from the database.
+type DRPairRow struct {
+	ID                uuid.UUID  `json:"id"`
+	OrgID             uuid.UUID  `json:"org_id"`
+	Name              string     `json:"name"`
+	PrimarySiteID     uuid.UUID  `json:"primary_site_id"`
+	DRSiteID          uuid.UUID  `json:"dr_site_id"`
+	Status            string     `json:"status"`
+	ReplicationStatus string     `json:"replication_status"`
+	RPO               *string    `json:"rpo,omitempty"`
+	RTO               *string    `json:"rto,omitempty"`
+	LastFailoverTest  *time.Time `json:"last_failover_test,omitempty"`
+	LastSyncAt        *time.Time `json:"last_sync_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }

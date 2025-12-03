@@ -9,12 +9,16 @@ import (
 
 // ResilienceService handles resilience/DR business logic.
 type ResilienceService struct {
-	siteRepo SiteRepository
+	siteRepo   SiteRepository
+	drPairRepo DRPairRepository
 }
 
 // NewResilienceService creates a new ResilienceService.
-func NewResilienceService(siteRepo SiteRepository) *ResilienceService {
-	return &ResilienceService{siteRepo: siteRepo}
+func NewResilienceService(siteRepo SiteRepository, drPairRepo DRPairRepository) *ResilienceService {
+	return &ResilienceService{
+		siteRepo:   siteRepo,
+		drPairRepo: drPairRepo,
+	}
 }
 
 // ResilienceSite represents a site in a DR context.
@@ -100,55 +104,118 @@ func (s *ResilienceService) GetResilienceSummary(ctx context.Context, input GetR
 		drReadiness = float64(drPairedCount) / float64(len(sites)) * 100
 	}
 
-	// Mock DR pairs for now
-	now := time.Now()
-	if drPairedCount > 0 {
-		drPairs = append(drPairs, DRPair{
-			ID:                uuid.New(),
-			OrgID:             input.OrgID,
-			Name:              "US East - US West",
-			PrimarySiteID:     uuid.New(),
-			DRSiteID:          uuid.New(),
-			Status:            "healthy",
-			ReplicationStatus: "in-sync",
-			RPO:               "15m",
-			RTO:               "1h",
-			LastFailoverTest:  &now,
-			LastSyncAt:        &now,
-			CreatedAt:         now,
-			UpdatedAt:         now,
-			PrimarySite: ResilienceSite{
-				ID:         uuid.New(),
-				Name:       "US East Production",
-				Region:     "us-east-1",
-				Platform:   "aws",
-				AssetCount: 150,
-				Status:     "healthy",
-				LastSyncAt: now,
-				RPO:        "15m",
-				RTO:        "1h",
-			},
-			DRSite: ResilienceSite{
-				ID:         uuid.New(),
-				Name:       "US West DR",
-				Region:     "us-west-2",
-				Platform:   "aws",
-				AssetCount: 150,
-				Status:     "healthy",
-				LastSyncAt: now,
-				RPO:        "15m",
-				RTO:        "1h",
-			},
-		})
+	// Fetch DR pairs from database
+	dbPairs, err := s.drPairRepo.ListDRPairs(ctx, input.OrgID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build site lookup map for enriching DR pairs
+	siteMap := make(map[uuid.UUID]*SiteWithStats)
+	for i := range sites {
+		siteMap[sites[i].ID] = &sites[i]
+	}
+
+	// Convert DB pairs to response format with enriched site data
+	var lastFailoverTest *time.Time
+	healthyPairs := 0
+	for _, dbPair := range dbPairs {
+		pair := DRPair{
+			ID:                dbPair.ID,
+			OrgID:             dbPair.OrgID,
+			Name:              dbPair.Name,
+			PrimarySiteID:     dbPair.PrimarySiteID,
+			DRSiteID:          dbPair.DRSiteID,
+			Status:            dbPair.Status,
+			ReplicationStatus: dbPair.ReplicationStatus,
+			LastFailoverTest:  dbPair.LastFailoverTest,
+			LastSyncAt:        dbPair.LastSyncAt,
+			CreatedAt:         dbPair.CreatedAt,
+			UpdatedAt:         dbPair.UpdatedAt,
+		}
+
+		// Handle nullable RPO/RTO
+		if dbPair.RPO != nil {
+			pair.RPO = *dbPair.RPO
+		}
+		if dbPair.RTO != nil {
+			pair.RTO = *dbPair.RTO
+		}
+
+		// Enrich with primary site data
+		if primarySite, ok := siteMap[dbPair.PrimarySiteID]; ok {
+			pair.PrimarySite = ResilienceSite{
+				ID:         primarySite.ID,
+				Name:       primarySite.Name,
+				Region:     primarySite.Region,
+				Platform:   primarySite.Platform,
+				AssetCount: primarySite.AssetCount,
+				Status:     primarySite.Status,
+				RPO:        pair.RPO,
+				RTO:        pair.RTO,
+			}
+			if primarySite.LastSyncAt != nil {
+				pair.PrimarySite.LastSyncAt = *primarySite.LastSyncAt
+			}
+		}
+
+		// Enrich with DR site data
+		if drSite, ok := siteMap[dbPair.DRSiteID]; ok {
+			pair.DRSite = ResilienceSite{
+				ID:         drSite.ID,
+				Name:       drSite.Name,
+				Region:     drSite.Region,
+				Platform:   drSite.Platform,
+				AssetCount: drSite.AssetCount,
+				Status:     drSite.Status,
+				RPO:        pair.RPO,
+				RTO:        pair.RTO,
+			}
+			if drSite.LastSyncAt != nil {
+				pair.DRSite.LastSyncAt = *drSite.LastSyncAt
+			}
+		}
+
+		drPairs = append(drPairs, pair)
+
+		// Track healthy pairs and most recent failover test
+		if dbPair.Status == "healthy" {
+			healthyPairs++
+		}
+		if dbPair.LastFailoverTest != nil {
+			if lastFailoverTest == nil || dbPair.LastFailoverTest.After(*lastFailoverTest) {
+				lastFailoverTest = dbPair.LastFailoverTest
+			}
+		}
+	}
+
+	// Calculate RPO/RTO compliance based on actual pair data
+	rpoCompliance := 100.0
+	rtoCompliance := 100.0
+	if len(drPairs) > 0 {
+		rpoCompliant := 0
+		rtoCompliant := 0
+		for _, pair := range drPairs {
+			// Consider in-sync or syncing as RPO compliant
+			if pair.ReplicationStatus == "in-sync" || pair.ReplicationStatus == "syncing" {
+				rpoCompliant++
+			}
+			// Consider healthy status as RTO compliant
+			if pair.Status == "healthy" {
+				rtoCompliant++
+			}
+		}
+		rpoCompliance = float64(rpoCompliant) / float64(len(drPairs)) * 100
+		rtoCompliance = float64(rtoCompliant) / float64(len(drPairs)) * 100
 	}
 
 	return &ResilienceSummary{
 		DRReadiness:      drReadiness,
-		RPOCompliance:    95.0,
-		RTOCompliance:    100.0,
-		LastFailoverTest: &now,
+		RPOCompliance:    rpoCompliance,
+		RTOCompliance:    rtoCompliance,
+		LastFailoverTest: lastFailoverTest,
 		TotalPairs:       len(drPairs),
-		HealthyPairs:     len(drPairs),
+		HealthyPairs:     healthyPairs,
 		DRPairs:          drPairs,
 		UnpairedSites:    unpairedSites,
 	}, nil
@@ -176,16 +243,68 @@ type GetDRPairInput struct {
 
 // GetDRPair retrieves a specific DR pair.
 func (s *ResilienceService) GetDRPair(ctx context.Context, input GetDRPairInput) (*DRPair, error) {
-	summary, err := s.GetResilienceSummary(ctx, GetResilienceSummaryInput{OrgID: input.OrgID})
+	dbPair, err := s.drPairRepo.GetDRPair(ctx, input.ID, input.OrgID)
 	if err != nil {
 		return nil, err
 	}
-	for _, pair := range summary.DRPairs {
-		if pair.ID == input.ID {
-			return &pair, nil
+
+	pair := &DRPair{
+		ID:                dbPair.ID,
+		OrgID:             dbPair.OrgID,
+		Name:              dbPair.Name,
+		PrimarySiteID:     dbPair.PrimarySiteID,
+		DRSiteID:          dbPair.DRSiteID,
+		Status:            dbPair.Status,
+		ReplicationStatus: dbPair.ReplicationStatus,
+		LastFailoverTest:  dbPair.LastFailoverTest,
+		LastSyncAt:        dbPair.LastSyncAt,
+		CreatedAt:         dbPair.CreatedAt,
+		UpdatedAt:         dbPair.UpdatedAt,
+	}
+
+	if dbPair.RPO != nil {
+		pair.RPO = *dbPair.RPO
+	}
+	if dbPair.RTO != nil {
+		pair.RTO = *dbPair.RTO
+	}
+
+	// Enrich with site data
+	primarySite, err := s.siteRepo.GetSiteWithAssetStats(ctx, dbPair.PrimarySiteID, input.OrgID)
+	if err == nil && primarySite != nil {
+		pair.PrimarySite = ResilienceSite{
+			ID:         primarySite.ID,
+			Name:       primarySite.Name,
+			Region:     primarySite.Region,
+			Platform:   primarySite.Platform,
+			AssetCount: primarySite.AssetCount,
+			Status:     primarySite.Status,
+			RPO:        pair.RPO,
+			RTO:        pair.RTO,
+		}
+		if primarySite.LastSyncAt != nil {
+			pair.PrimarySite.LastSyncAt = *primarySite.LastSyncAt
 		}
 	}
-	return nil, ErrNotFound
+
+	drSite, err := s.siteRepo.GetSiteWithAssetStats(ctx, dbPair.DRSiteID, input.OrgID)
+	if err == nil && drSite != nil {
+		pair.DRSite = ResilienceSite{
+			ID:         drSite.ID,
+			Name:       drSite.Name,
+			Region:     drSite.Region,
+			Platform:   drSite.Platform,
+			AssetCount: drSite.AssetCount,
+			Status:     drSite.Status,
+			RPO:        pair.RPO,
+			RTO:        pair.RTO,
+		}
+		if drSite.LastSyncAt != nil {
+			pair.DRSite.LastSyncAt = *drSite.LastSyncAt
+		}
+	}
+
+	return pair, nil
 }
 
 // TriggerFailoverTestInput contains input for triggering a failover test.

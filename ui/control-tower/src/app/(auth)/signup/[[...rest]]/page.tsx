@@ -5,15 +5,19 @@ import dynamic from "next/dynamic";
 // Force dynamic rendering to skip prerendering
 export const dynamic_rendering = "force-dynamic";
 
+// Dev bypass - set NEXT_PUBLIC_DEV_AUTH_BYPASS=true to skip Clerk entirely
+const devAuthBypass = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
+
 // Check if Clerk is configured (at module level for tree-shaking)
 const hasClerkKey =
+  !devAuthBypass &&
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_") &&
   !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.includes("xxxxx");
 
-// Only load Clerk SignIn component if we have a valid key
-const ClerkSignIn = hasClerkKey
-  ? dynamic(() => import("@clerk/nextjs").then((mod) => mod.SignIn), {
+// Only load Clerk SignUp component if we have a valid key
+const ClerkSignUp = hasClerkKey
+  ? dynamic(() => import("@clerk/nextjs").then((mod) => mod.SignUp), {
       loading: () => (
         <div className="flex items-center justify-center min-h-screen">
           <div className="animate-pulse">Loading...</div>
@@ -22,7 +26,7 @@ const ClerkSignIn = hasClerkKey
     })
   : null;
 
-function DevModeLogin() {
+function DevModeSignup() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background">
       <div className="p-8 border rounded-lg shadow-lg max-w-md text-center">
@@ -42,13 +46,13 @@ function DevModeLogin() {
   );
 }
 
-export default function LoginPage() {
-  if (!ClerkSignIn) {
-    return <DevModeLogin />;
+export default function SignupPage() {
+  if (!ClerkSignUp) {
+    return <DevModeSignup />;
   }
 
   return (
-    <ClerkSignIn
+    <ClerkSignUp
       appearance={{
         elements: {
           rootBox: "mx-auto",
@@ -61,9 +65,9 @@ export default function LoginPage() {
         },
       }}
       routing="path"
-      path="/login"
-      signUpUrl="/signup"
-      forceRedirectUrl="/overview"
+      path="/signup"
+      signInUrl="/login"
+      forceRedirectUrl="/onboarding"
     />
   );
 }

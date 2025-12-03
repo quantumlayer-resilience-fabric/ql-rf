@@ -8,12 +8,16 @@ import { cn } from "@/lib/utils"
 function ScrollArea({
   className,
   children,
+  type = "hover",
   ...props
-}: React.ComponentProps<typeof ScrollAreaPrimitive.Root>) {
+}: React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
+  type?: "auto" | "always" | "scroll" | "hover";
+}) {
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
-      className={cn("relative", className)}
+      className={cn("relative overflow-hidden", className)}
+      type={type}
       {...props}
     >
       <ScrollAreaPrimitive.Viewport

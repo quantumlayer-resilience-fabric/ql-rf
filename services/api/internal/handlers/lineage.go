@@ -60,37 +60,43 @@ func (h *LineageHandler) GetLineage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get parent lineage
-	parents, err := h.getParents(ctx, id)
+	parents, err := h.getParents(ctx, id, org.ID)
 	if err != nil {
 		h.log.Error("failed to get parents", "error", err)
 	}
 
 	// Get child lineage
-	children, err := h.getChildren(ctx, id)
+	children, err := h.getChildren(ctx, id, org.ID)
 	if err != nil {
 		h.log.Error("failed to get children", "error", err)
 	}
 
 	// Get builds
-	builds, err := h.getBuilds(ctx, id)
+	builds, err := h.getBuilds(ctx, id, org.ID)
 	if err != nil {
 		h.log.Error("failed to get builds", "error", err)
 	}
 
 	// Get vulnerability summary
-	vulnSummary, err := h.getVulnSummary(ctx, id)
+	vulnSummary, err := h.getVulnSummary(ctx, id, org.ID)
 	if err != nil {
 		h.log.Error("failed to get vuln summary", "error", err)
 	}
 
-	// Get active deployments count
+	// Get active deployments count (join with images for org check)
 	var deploymentCount int
-	_ = h.db.QueryRow(ctx, `
-		SELECT COUNT(*) FROM image_deployments WHERE image_id = $1 AND status = 'active'
-	`, id).Scan(&deploymentCount)
+	err = h.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM image_deployments id
+		JOIN images i ON i.id = id.image_id
+		WHERE id.image_id = $1 AND id.status = 'active' AND i.org_id = $2
+	`, id, org.ID).Scan(&deploymentCount)
+	if err != nil {
+		h.log.Error("failed to get deployment count", "error", err)
+		// Non-fatal: continue with zero count
+	}
 
 	// Get promotions
-	promotions, err := h.getPromotions(ctx, id)
+	promotions, err := h.getPromotions(ctx, id, org.ID)
 	if err != nil {
 		h.log.Error("failed to get promotions", "error", err)
 	}
@@ -146,6 +152,7 @@ func (h *LineageHandler) GetLineageTree(w http.ResponseWriter, r *http.Request) 
 			&img.Signed, &img.Status, &img.CreatedAt, &img.UpdatedAt,
 		)
 		if err != nil {
+			h.log.Error("failed to scan image row", "error", err, "family", family)
 			continue
 		}
 		imageMap[img.ID] = &img
@@ -174,6 +181,7 @@ func (h *LineageHandler) GetLineageTree(w http.ResponseWriter, r *http.Request) 
 			var imageID, parentID uuid.UUID
 			var relType string
 			if err := lineageRows.Scan(&imageID, &parentID, &relType); err != nil {
+				h.log.Error("failed to scan lineage row", "error", err, "family", family)
 				continue
 			}
 			childrenMap[parentID] = append(childrenMap[parentID], imageID)
@@ -316,7 +324,12 @@ func (h *LineageHandler) GetVulnerabilities(w http.ResponseWriter, r *http.Reque
 
 	// Verify image exists
 	var exists bool
-	_ = h.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE id = $1 AND org_id = $2)`, id, org.ID).Scan(&exists)
+	err = h.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE id = $1 AND org_id = $2)`, id, org.ID).Scan(&exists)
+	if err != nil {
+		h.log.Error("failed to check image existence", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 	if !exists {
 		http.Error(w, "image not found", http.StatusNotFound)
 		return
@@ -357,6 +370,7 @@ func (h *LineageHandler) GetVulnerabilities(w http.ResponseWriter, r *http.Reque
 			&v.FixedInImageID, &v.ResolvedAt, &v.ResolvedBy, &v.CreatedAt, &v.UpdatedAt,
 		)
 		if err != nil {
+			h.log.Error("failed to scan vulnerability row", "error", err, "image_id", id)
 			continue
 		}
 		vulns = append(vulns, v)
@@ -389,7 +403,12 @@ func (h *LineageHandler) AddVulnerability(w http.ResponseWriter, r *http.Request
 
 	// Verify image exists
 	var exists bool
-	_ = h.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE id = $1 AND org_id = $2)`, id, org.ID).Scan(&exists)
+	err = h.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE id = $1 AND org_id = $2)`, id, org.ID).Scan(&exists)
+	if err != nil {
+		h.log.Error("failed to check image existence", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 	if !exists {
 		http.Error(w, "image not found", http.StatusNotFound)
 		return
@@ -439,7 +458,7 @@ func (h *LineageHandler) GetBuilds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	builds, err := h.getBuilds(ctx, id)
+	builds, err := h.getBuilds(ctx, id, org.ID)
 	if err != nil {
 		h.log.Error("failed to get builds", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -498,6 +517,7 @@ func (h *LineageHandler) GetDeployments(w http.ResponseWriter, r *http.Request) 
 			&d.AssetName, &d.Platform, &d.Region,
 		)
 		if err != nil {
+			h.log.Error("failed to scan deployment row", "error", err, "image_id", id)
 			continue
 		}
 		deployments = append(deployments, d)
@@ -545,6 +565,7 @@ func (h *LineageHandler) GetComponents(w http.ResponseWriter, r *http.Request) {
 			&c.PackageManager, &c.License, &c.LicenseURL, &c.SourceURL, &c.Checksum, &c.CreatedAt,
 		)
 		if err != nil {
+			h.log.Error("failed to scan component row", "error", err, "image_id", id)
 			continue
 		}
 		components = append(components, c)
@@ -555,14 +576,14 @@ func (h *LineageHandler) GetComponents(w http.ResponseWriter, r *http.Request) {
 
 // Helper functions
 
-func (h *LineageHandler) getParents(ctx context.Context, imageID uuid.UUID) ([]models.ImageLineage, error) {
+func (h *LineageHandler) getParents(ctx context.Context, imageID, orgID uuid.UUID) ([]models.ImageLineage, error) {
 	rows, err := h.db.Query(ctx, `
 		SELECT il.id, il.image_id, il.parent_image_id, il.relationship_type, il.created_at,
 		       i.family, i.version, i.status
 		FROM image_lineage il
 		JOIN images i ON i.id = il.parent_image_id
-		WHERE il.image_id = $1
-	`, imageID)
+		WHERE il.image_id = $1 AND i.org_id = $2
+	`, imageID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -577,6 +598,7 @@ func (h *LineageHandler) getParents(ctx context.Context, imageID uuid.UUID) ([]m
 			&parentFamily, &parentVersion, &parentStatus,
 		)
 		if err != nil {
+			h.log.Error("failed to scan parent lineage row", "error", err, "image_id", imageID)
 			continue
 		}
 		l.ParentImage = &models.Image{
@@ -590,14 +612,14 @@ func (h *LineageHandler) getParents(ctx context.Context, imageID uuid.UUID) ([]m
 	return lineages, nil
 }
 
-func (h *LineageHandler) getChildren(ctx context.Context, imageID uuid.UUID) ([]models.ImageLineage, error) {
+func (h *LineageHandler) getChildren(ctx context.Context, imageID, orgID uuid.UUID) ([]models.ImageLineage, error) {
 	rows, err := h.db.Query(ctx, `
 		SELECT il.id, il.image_id, il.parent_image_id, il.relationship_type, il.created_at,
 		       i.family, i.version, i.status
 		FROM image_lineage il
 		JOIN images i ON i.id = il.image_id
-		WHERE il.parent_image_id = $1
-	`, imageID)
+		WHERE il.parent_image_id = $1 AND i.org_id = $2
+	`, imageID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -612,6 +634,7 @@ func (h *LineageHandler) getChildren(ctx context.Context, imageID uuid.UUID) ([]
 			&childFamily, &childVersion, &childStatus,
 		)
 		if err != nil {
+			h.log.Error("failed to scan child lineage row", "error", err, "image_id", imageID)
 			continue
 		}
 		l.Image = &models.Image{
@@ -625,16 +648,17 @@ func (h *LineageHandler) getChildren(ctx context.Context, imageID uuid.UUID) ([]
 	return lineages, nil
 }
 
-func (h *LineageHandler) getBuilds(ctx context.Context, imageID uuid.UUID) ([]models.ImageBuild, error) {
+func (h *LineageHandler) getBuilds(ctx context.Context, imageID, orgID uuid.UUID) ([]models.ImageBuild, error) {
 	rows, err := h.db.Query(ctx, `
-		SELECT id, image_id, build_number, source_repo, source_commit, source_branch,
-		       builder_type, builder_version, build_runner, build_runner_id, build_runner_url,
-		       build_log_url, build_duration_seconds, built_by, signed_by,
-		       status, error_message, started_at, completed_at, created_at
-		FROM image_builds
-		WHERE image_id = $1
-		ORDER BY build_number DESC
-	`, imageID)
+		SELECT ib.id, ib.image_id, ib.build_number, ib.source_repo, ib.source_commit, ib.source_branch,
+		       ib.builder_type, ib.builder_version, ib.build_runner, ib.build_runner_id, ib.build_runner_url,
+		       ib.build_log_url, ib.build_duration_seconds, ib.built_by, ib.signed_by,
+		       ib.status, ib.error_message, ib.started_at, ib.completed_at, ib.created_at
+		FROM image_builds ib
+		JOIN images i ON i.id = ib.image_id
+		WHERE ib.image_id = $1 AND i.org_id = $2
+		ORDER BY ib.build_number DESC
+	`, imageID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -650,6 +674,7 @@ func (h *LineageHandler) getBuilds(ctx context.Context, imageID uuid.UUID) ([]mo
 			&b.Status, &b.ErrorMessage, &b.StartedAt, &b.CompletedAt, &b.CreatedAt,
 		)
 		if err != nil {
+			h.log.Error("failed to scan build row", "error", err, "image_id", imageID)
 			continue
 		}
 		builds = append(builds, b)
@@ -657,35 +682,37 @@ func (h *LineageHandler) getBuilds(ctx context.Context, imageID uuid.UUID) ([]mo
 	return builds, nil
 }
 
-func (h *LineageHandler) getVulnSummary(ctx context.Context, imageID uuid.UUID) (models.VulnerabilitySummary, error) {
+func (h *LineageHandler) getVulnSummary(ctx context.Context, imageID, orgID uuid.UUID) (models.VulnerabilitySummary, error) {
 	var summary models.VulnerabilitySummary
 	summary.ImageID = imageID
 
 	err := h.db.QueryRow(ctx, `
 		SELECT
-			COUNT(*) FILTER (WHERE severity = 'critical' AND status = 'open'),
-			COUNT(*) FILTER (WHERE severity = 'high' AND status = 'open'),
-			COUNT(*) FILTER (WHERE severity = 'medium' AND status = 'open'),
-			COUNT(*) FILTER (WHERE severity = 'low' AND status = 'open'),
-			COUNT(*) FILTER (WHERE status = 'fixed'),
-			MAX(scanned_at)
-		FROM image_vulnerabilities
-		WHERE image_id = $1
-	`, imageID).Scan(
+			COUNT(*) FILTER (WHERE iv.severity = 'critical' AND iv.status = 'open'),
+			COUNT(*) FILTER (WHERE iv.severity = 'high' AND iv.status = 'open'),
+			COUNT(*) FILTER (WHERE iv.severity = 'medium' AND iv.status = 'open'),
+			COUNT(*) FILTER (WHERE iv.severity = 'low' AND iv.status = 'open'),
+			COUNT(*) FILTER (WHERE iv.status = 'fixed'),
+			MAX(iv.scanned_at)
+		FROM image_vulnerabilities iv
+		JOIN images i ON i.id = iv.image_id
+		WHERE iv.image_id = $1 AND i.org_id = $2
+	`, imageID, orgID).Scan(
 		&summary.CriticalOpen, &summary.HighOpen, &summary.MediumOpen,
 		&summary.LowOpen, &summary.FixedCount, &summary.LastScannedAt,
 	)
 	return summary, err
 }
 
-func (h *LineageHandler) getPromotions(ctx context.Context, imageID uuid.UUID) ([]models.ImagePromotion, error) {
+func (h *LineageHandler) getPromotions(ctx context.Context, imageID, orgID uuid.UUID) ([]models.ImagePromotion, error) {
 	rows, err := h.db.Query(ctx, `
-		SELECT id, image_id, from_status, to_status, promoted_by, approved_by,
-		       approval_ticket, reason, validation_passed, promoted_at
-		FROM image_promotions
-		WHERE image_id = $1
-		ORDER BY promoted_at DESC
-	`, imageID)
+		SELECT ip.id, ip.image_id, ip.from_status, ip.to_status, ip.promoted_by, ip.approved_by,
+		       ip.approval_ticket, ip.reason, ip.validation_passed, ip.promoted_at
+		FROM image_promotions ip
+		JOIN images i ON i.id = ip.image_id
+		WHERE ip.image_id = $1 AND i.org_id = $2
+		ORDER BY ip.promoted_at DESC
+	`, imageID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -699,6 +726,7 @@ func (h *LineageHandler) getPromotions(ctx context.Context, imageID uuid.UUID) (
 			&p.ApprovalTicket, &p.Reason, &p.ValidationPassed, &p.PromotedAt,
 		)
 		if err != nil {
+			h.log.Error("failed to scan promotion row", "error", err, "image_id", imageID)
 			continue
 		}
 		promotions = append(promotions, p)
@@ -724,7 +752,12 @@ func (h *LineageHandler) ImportScanResults(w http.ResponseWriter, r *http.Reques
 
 	// Verify image exists
 	var exists bool
-	_ = h.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE id = $1 AND org_id = $2)`, id, org.ID).Scan(&exists)
+	err = h.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE id = $1 AND org_id = $2)`, id, org.ID).Scan(&exists)
+	if err != nil {
+		h.log.Error("failed to check image existence", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 	if !exists {
 		http.Error(w, "image not found", http.StatusNotFound)
 		return
@@ -763,6 +796,8 @@ func (h *LineageHandler) ImportScanResults(w http.ResponseWriter, r *http.Reques
 	`, id, req.Scanner)
 	if err != nil {
 		h.log.Error("failed to mark stale vulns", "error", err)
+		http.Error(w, "failed to prepare scan import", http.StatusInternalServerError)
+		return
 	}
 
 	var imported, updated, fixed int
@@ -863,7 +898,12 @@ func (h *LineageHandler) ImportSBOM(w http.ResponseWriter, r *http.Request) {
 
 	// Verify image exists
 	var exists bool
-	_ = h.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE id = $1 AND org_id = $2)`, id, org.ID).Scan(&exists)
+	err = h.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE id = $1 AND org_id = $2)`, id, org.ID).Scan(&exists)
+	if err != nil {
+		h.log.Error("failed to check image existence", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 	if !exists {
 		http.Error(w, "image not found", http.StatusNotFound)
 		return
@@ -897,6 +937,8 @@ func (h *LineageHandler) ImportSBOM(w http.ResponseWriter, r *http.Request) {
 	_, err = tx.Exec(ctx, `DELETE FROM image_components WHERE image_id = $1`, id)
 	if err != nil {
 		h.log.Error("failed to clear existing components", "error", err)
+		http.Error(w, "failed to prepare SBOM import", http.StatusInternalServerError)
+		return
 	}
 
 	var imported int
@@ -920,6 +962,8 @@ func (h *LineageHandler) ImportSBOM(w http.ResponseWriter, r *http.Request) {
 		_, err = tx.Exec(ctx, `UPDATE images SET sbom_url = $1, updated_at = NOW() WHERE id = $2`, req.SBOMUrl, id)
 		if err != nil {
 			h.log.Error("failed to update sbom_url", "error", err)
+			http.Error(w, "failed to update image SBOM URL", http.StatusInternalServerError)
+			return
 		}
 	}
 

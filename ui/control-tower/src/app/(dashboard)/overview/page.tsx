@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/status/status-badge";
 import { PlatformIcon } from "@/components/status/platform-icon";
 import { PageSkeleton, ErrorState } from "@/components/feedback";
 import { useOverviewMetrics } from "@/hooks/use-overview";
+import { useDriftSummary } from "@/hooks/use-drift";
 import {
   Server,
   TrendingDown,
@@ -17,6 +18,7 @@ import {
 
 export default function OverviewPage() {
   const { data: metrics, isLoading, error, refetch } = useOverviewMetrics();
+  const { data: driftSummary, isLoading: isDriftLoading } = useDriftSummary();
 
   if (isLoading) {
     return (
@@ -72,17 +74,12 @@ export default function OverviewPage() {
     label: a.severity.charAt(0).toUpperCase() + a.severity.slice(1),
   }));
 
-  // Mock site heatmap data - this would come from drift API in a full implementation
-  const siteHeatmap = [
-    { name: "eu-west-1", coverage: 98.2, status: "success" as const },
-    { name: "eu-west-2", coverage: 96.1, status: "success" as const },
-    { name: "us-east-1", coverage: 87.3, status: "warning" as const },
-    { name: "us-west-2", coverage: 95.8, status: "success" as const },
-    { name: "ap-south-1", coverage: 62.4, status: "critical" as const },
-    { name: "ap-northeast-1", coverage: 94.5, status: "success" as const },
-    { name: "dc-london", coverage: 91.2, status: "success" as const },
-    { name: "dc-singapore", coverage: 78.9, status: "warning" as const },
-  ];
+  // Transform drift API site data for heatmap
+  const siteHeatmap = (driftSummary?.bySite || []).map((site) => ({
+    name: site.siteName || site.siteId,
+    coverage: site.coverage,
+    status: site.status,
+  }));
 
   return (
     <div className="page-transition space-y-6">
@@ -245,33 +242,51 @@ export default function OverviewPage() {
           <CardTitle className="text-base">Drift Heatmap by Site</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
-            {siteHeatmap.map((site) => (
-              <div
-                key={site.name}
-                className={`cursor-pointer rounded-lg border p-4 text-center transition-colors hover:border-brand-accent ${
-                  site.status === "success"
-                    ? "border-status-green/30 bg-status-green-bg"
-                    : site.status === "warning"
-                    ? "border-status-amber/30 bg-status-amber-bg"
-                    : "border-status-red/30 bg-status-red-bg"
-                }`}
-              >
+          {isDriftLoading ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+              {[...Array(8)].map((_, i) => (
                 <div
-                  className={`text-2xl font-bold ${
+                  key={i}
+                  className="animate-pulse rounded-lg border border-border bg-muted p-4 text-center"
+                >
+                  <div className="h-8 w-12 mx-auto bg-muted-foreground/20 rounded" />
+                  <div className="mt-2 h-3 w-16 mx-auto bg-muted-foreground/20 rounded" />
+                </div>
+              ))}
+            </div>
+          ) : siteHeatmap.length > 0 ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+              {siteHeatmap.map((site) => (
+                <div
+                  key={site.name}
+                  className={`cursor-pointer rounded-lg border p-4 text-center transition-colors hover:border-brand-accent ${
                     site.status === "success"
-                      ? "text-status-green"
+                      ? "border-status-green/30 bg-status-green-bg"
                       : site.status === "warning"
-                      ? "text-status-amber"
-                      : "text-status-red"
+                      ? "border-status-amber/30 bg-status-amber-bg"
+                      : "border-status-red/30 bg-status-red-bg"
                   }`}
                 >
-                  {site.coverage}%
+                  <div
+                    className={`text-2xl font-bold ${
+                      site.status === "success"
+                        ? "text-status-green"
+                        : site.status === "warning"
+                        ? "text-status-amber"
+                        : "text-status-red"
+                    }`}
+                  >
+                    {site.coverage.toFixed(1)}%
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">{site.name}</div>
                 </div>
-                <div className="mt-1 text-xs text-muted-foreground">{site.name}</div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center text-sm text-muted-foreground py-8">
+              No site drift data available. Sites with assets will appear here.
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -412,25 +413,73 @@ func (r *Repository) ListAssets(ctx context.Context, params ListAssetsParams) ([
 	argIdx := 2
 
 	if params.EnvID != nil {
-		query += ` AND env_id = $` + string(rune('0'+argIdx))
+		query += ` AND env_id = $` + strconv.Itoa(argIdx)
 		args = append(args, *params.EnvID)
 		argIdx++
 	}
 	if params.Platform != nil {
-		query += ` AND platform = $` + string(rune('0'+argIdx))
+		query += ` AND platform = $` + strconv.Itoa(argIdx)
 		args = append(args, *params.Platform)
 		argIdx++
 	}
 	if params.State != nil {
-		query += ` AND state = $` + string(rune('0'+argIdx))
+		query += ` AND state = $` + strconv.Itoa(argIdx)
 		args = append(args, *params.State)
 		argIdx++
 	}
 
-	query += ` ORDER BY discovered_at DESC LIMIT $` + string(rune('0'+argIdx)) + ` OFFSET $` + string(rune('0'+argIdx+1))
+	query += ` ORDER BY discovered_at DESC LIMIT $` + strconv.Itoa(argIdx) + ` OFFSET $` + strconv.Itoa(argIdx+1)
 	args = append(args, params.Limit, params.Offset)
 
 	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var assets []Asset
+	for rows.Next() {
+		var a Asset
+		if err := rows.Scan(
+			&a.ID, &a.OrgID, &a.EnvID, &a.Platform, &a.Account, &a.Region, &a.Site,
+			&a.InstanceID, &a.Name, &a.ImageRef, &a.ImageVersion, &a.State, &a.Tags,
+			&a.DiscoveredAt, &a.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		assets = append(assets, a)
+	}
+	return assets, rows.Err()
+}
+
+// ListDriftedAssets returns assets that are not running the latest production image.
+// "Top offenders" are assets that are drifted from their golden image.
+func (r *Repository) ListDriftedAssets(ctx context.Context, orgID uuid.UUID, limit int32) ([]Asset, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 10
+	}
+
+	// Get running assets that are NOT compliant (drifted)
+	// An asset is drifted if it's running but not on a production image version
+	query := `
+		SELECT a.id, a.org_id, a.env_id, a.platform, a.account, a.region, a.site,
+		       a.instance_id, a.name, a.image_ref, a.image_version, a.state, a.tags,
+		       a.discovered_at, a.updated_at
+		FROM assets a
+		WHERE a.org_id = $1
+		  AND a.state = 'running'
+		  AND NOT EXISTS (
+		      SELECT 1 FROM images i
+		      WHERE i.org_id = a.org_id
+		        AND i.family = a.image_ref
+		        AND i.version = a.image_version
+		        AND i.status = 'production'
+		  )
+		ORDER BY a.updated_at DESC
+		LIMIT $2
+	`
+
+	rows, err := r.pool.Query(ctx, query, orgID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1090,27 +1139,27 @@ func (r *Repository) ListAlerts(ctx context.Context, params ListAlertsParams) ([
 	argIdx := 2
 
 	if params.Severity != nil {
-		query += ` AND severity = $` + string(rune('0'+argIdx))
+		query += ` AND severity = $` + strconv.Itoa(argIdx)
 		args = append(args, *params.Severity)
 		argIdx++
 	}
 	if params.Status != nil {
-		query += ` AND status = $` + string(rune('0'+argIdx))
+		query += ` AND status = $` + strconv.Itoa(argIdx)
 		args = append(args, *params.Status)
 		argIdx++
 	}
 	if params.Source != nil {
-		query += ` AND source = $` + string(rune('0'+argIdx))
+		query += ` AND source = $` + strconv.Itoa(argIdx)
 		args = append(args, *params.Source)
 		argIdx++
 	}
 	if params.SiteID != nil {
-		query += ` AND site_id = $` + string(rune('0'+argIdx))
+		query += ` AND site_id = $` + strconv.Itoa(argIdx)
 		args = append(args, *params.SiteID)
 		argIdx++
 	}
 
-	query += ` ORDER BY created_at DESC LIMIT $` + string(rune('0'+argIdx)) + ` OFFSET $` + string(rune('0'+argIdx+1))
+	query += ` ORDER BY created_at DESC LIMIT $` + strconv.Itoa(argIdx) + ` OFFSET $` + strconv.Itoa(argIdx+1)
 	args = append(args, params.Limit, params.Offset)
 
 	rows, err := r.pool.Query(ctx, query, args...)
@@ -1356,6 +1405,82 @@ func (r *Repository) GetDriftAgeDistribution(ctx context.Context, orgID uuid.UUI
 			{Range: "30+ days", Count: range30Plus, Percentage: pct(range30Plus)},
 		},
 	}, nil
+}
+
+// =============================================================================
+// DR Pair Models and Methods
+// =============================================================================
+
+// DRPair represents a disaster recovery site pair.
+type DRPair struct {
+	ID                uuid.UUID  `json:"id"`
+	OrgID             uuid.UUID  `json:"org_id"`
+	Name              string     `json:"name"`
+	PrimarySiteID     uuid.UUID  `json:"primary_site_id"`
+	DRSiteID          uuid.UUID  `json:"dr_site_id"`
+	Status            string     `json:"status"`
+	ReplicationStatus string     `json:"replication_status"`
+	RPO               *string    `json:"rpo,omitempty"`
+	RTO               *string    `json:"rto,omitempty"`
+	LastFailoverTest  *time.Time `json:"last_failover_test,omitempty"`
+	LastSyncAt        *time.Time `json:"last_sync_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+// ListDRPairs retrieves all DR pairs for an organization.
+func (r *Repository) ListDRPairs(ctx context.Context, orgID uuid.UUID) ([]DRPair, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, org_id, name, primary_site_id, dr_site_id, status,
+		       replication_status, rpo, rto, last_failover_test, last_sync_at,
+		       created_at, updated_at
+		FROM dr_pairs
+		WHERE org_id = $1
+		ORDER BY name
+	`, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var pairs []DRPair
+	for rows.Next() {
+		var p DRPair
+		if err := rows.Scan(
+			&p.ID, &p.OrgID, &p.Name, &p.PrimarySiteID, &p.DRSiteID, &p.Status,
+			&p.ReplicationStatus, &p.RPO, &p.RTO, &p.LastFailoverTest, &p.LastSyncAt,
+			&p.CreatedAt, &p.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		pairs = append(pairs, p)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return pairs, nil
+}
+
+// GetDRPair retrieves a specific DR pair by ID with tenant isolation.
+func (r *Repository) GetDRPair(ctx context.Context, id, orgID uuid.UUID) (*DRPair, error) {
+	var p DRPair
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, org_id, name, primary_site_id, dr_site_id, status,
+		       replication_status, rpo, rto, last_failover_test, last_sync_at,
+		       created_at, updated_at
+		FROM dr_pairs
+		WHERE id = $1 AND org_id = $2
+	`, id, orgID).Scan(
+		&p.ID, &p.OrgID, &p.Name, &p.PrimarySiteID, &p.DRSiteID, &p.Status,
+		&p.ReplicationStatus, &p.RPO, &p.RTO, &p.LastFailoverTest, &p.LastSyncAt,
+		&p.CreatedAt, &p.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 // =============================================================================

@@ -236,6 +236,20 @@ func (a *AssetRepositoryAdapter) CountCompliantAssets(ctx context.Context, orgID
 	return a.repo.CountCompliantAssets(ctx, orgID)
 }
 
+// ListDriftedAssets returns assets that are not running the latest production image.
+func (a *AssetRepositoryAdapter) ListDriftedAssets(ctx context.Context, orgID uuid.UUID, limit int32) ([]service.Asset, error) {
+	assets, err := a.repo.ListDriftedAssets(ctx, orgID, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]service.Asset, 0, len(assets))
+	for _, asset := range assets {
+		result = append(result, *repoAssetToService(&asset))
+	}
+	return result, nil
+}
+
 // DriftRepositoryAdapter adapts Repository to implement service.DriftRepository.
 type DriftRepositoryAdapter struct {
 	repo *Repository
@@ -737,5 +751,56 @@ func repoActivityToService(activity *Activity) *service.Activity {
 		AssetID:   activity.AssetID,
 		ImageID:   activity.ImageID,
 		Timestamp: activity.Timestamp,
+	}
+}
+
+// DRPairRepositoryAdapter adapts Repository to implement service.DRPairRepository.
+type DRPairRepositoryAdapter struct {
+	repo *Repository
+}
+
+// NewDRPairRepositoryAdapter creates a new DRPairRepositoryAdapter.
+func NewDRPairRepositoryAdapter(pool *pgxpool.Pool) *DRPairRepositoryAdapter {
+	return &DRPairRepositoryAdapter{repo: New(pool)}
+}
+
+// ListDRPairs returns DR pairs for an organization.
+func (a *DRPairRepositoryAdapter) ListDRPairs(ctx context.Context, orgID uuid.UUID) ([]service.DRPairRow, error) {
+	pairs, err := a.repo.ListDRPairs(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]service.DRPairRow, 0, len(pairs))
+	for _, p := range pairs {
+		result = append(result, *repoDRPairToService(&p))
+	}
+	return result, nil
+}
+
+// GetDRPair returns a specific DR pair.
+func (a *DRPairRepositoryAdapter) GetDRPair(ctx context.Context, id, orgID uuid.UUID) (*service.DRPairRow, error) {
+	pair, err := a.repo.GetDRPair(ctx, id, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return repoDRPairToService(pair), nil
+}
+
+func repoDRPairToService(pair *DRPair) *service.DRPairRow {
+	return &service.DRPairRow{
+		ID:                pair.ID,
+		OrgID:             pair.OrgID,
+		Name:              pair.Name,
+		PrimarySiteID:     pair.PrimarySiteID,
+		DRSiteID:          pair.DRSiteID,
+		Status:            pair.Status,
+		ReplicationStatus: pair.ReplicationStatus,
+		RPO:               pair.RPO,
+		RTO:               pair.RTO,
+		LastFailoverTest:  pair.LastFailoverTest,
+		LastSyncAt:        pair.LastSyncAt,
+		CreatedAt:         pair.CreatedAt,
+		UpdatedAt:         pair.UpdatedAt,
 	}
 }

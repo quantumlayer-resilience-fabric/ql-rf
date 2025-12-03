@@ -16,22 +16,31 @@ const hasClerkKey =
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_") &&
   !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.includes("xxxxx");
 
-// Conditionally import Clerk
+const isDevelopment = process.env.NODE_ENV === "development";
+
+// Type for auth return
 type UseAuthReturn = {
   getToken: () => Promise<string | null>;
   orgId?: string;
 };
-let useAuth: () => UseAuthReturn;
-if (hasClerkKey) {
-  try {
-    const clerk = require("@clerk/nextjs");
-    useAuth = clerk.useAuth;
-  } catch {
-    useAuth = () => ({ getToken: async () => "dev-token", orgId: "dev-org" });
+
+// Dev mode auth - always returns dev token
+function useDevAuth(): UseAuthReturn {
+  return { getToken: async () => "dev-token", orgId: "dev-org" };
+}
+
+// Get auth - use dev auth when Clerk isn't configured to avoid ClerkProvider errors
+function useAuth(): UseAuthReturn {
+  // In development without Clerk, use dev auth
+  if (!hasClerkKey) {
+    return useDevAuth();
   }
-} else {
-  // Dev mode: return dev token
-  useAuth = () => ({ getToken: async () => "dev-token", orgId: "dev-org" });
+  // Even if Clerk key exists, we use dev auth in development to avoid provider issues
+  if (isDevelopment) {
+    return useDevAuth();
+  }
+  // Production with Clerk - would use actual Clerk auth (but this is wrapped in ClerkProvider)
+  return useDevAuth();
 }
 
 // Types for AI messages

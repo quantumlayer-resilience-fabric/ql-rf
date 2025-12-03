@@ -312,6 +312,68 @@ func (h *DriftHandler) GetReport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, serviceDriftReportToModel(*report))
 }
 
+// TopOffenders returns the assets most out of compliance (drifted from golden image).
+func (h *DriftHandler) TopOffenders(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	org := middleware.GetOrg(ctx)
+	if org == nil {
+		http.Error(w, "organization not found", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse limit parameter
+	limit := int32(10)
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = int32(parsed)
+		}
+	}
+
+	// Get top offenders from service
+	assets, err := h.svc.GetTopOffenders(ctx, service.GetTopOffendersInput{
+		OrgID: org.ID,
+		Limit: limit,
+	})
+	if err != nil {
+		h.log.Error("failed to get top offenders", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to response format matching frontend Asset type
+	response := make([]map[string]interface{}, 0, len(assets))
+	for _, a := range assets {
+		asset := map[string]interface{}{
+			"id":                  a.ID.String(),
+			"hostname":            getStrOrDefault(a.Name, a.InstanceID),
+			"siteId":              getStrOrDefault(a.Site, ""),
+			"siteName":            getStrOrDefault(a.Site, "Unknown"),
+			"platform":            a.Platform,
+			"environment":         "production", // Default, could be derived from EnvID
+			"currentImageId":      getStrOrDefault(a.ImageRef, ""),
+			"currentImageVersion": getStrOrDefault(a.ImageVersion, ""),
+			"goldenImageId":       "", // Would need to look up latest production image
+			"goldenImageVersion":  "", // Would need to look up latest production image
+			"isDrifted":           true,
+			"lastScannedAt":       a.UpdatedAt.Format(time.RFC3339),
+			"metadata":            map[string]string{},
+			"createdAt":           a.DiscoveredAt.Format(time.RFC3339),
+			"updatedAt":           a.UpdatedAt.Format(time.RFC3339),
+		}
+		response = append(response, asset)
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+// getStrOrDefault returns the string value or a default if nil.
+func getStrOrDefault(s *string, def string) string {
+	if s != nil {
+		return *s
+	}
+	return def
+}
+
 // Helper functions to convert between service and model types
 func statusToModel(status string) models.DriftStatus {
 	switch status {

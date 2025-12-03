@@ -150,8 +150,8 @@ export default function AICopilotPage() {
         </div>
 
         {/* Chat Area */}
-        <Card className="flex flex-1 flex-col overflow-hidden">
-          <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+        <Card className="flex flex-1 flex-col overflow-hidden min-h-0">
+          <ScrollArea className="flex-1 p-4 min-h-0 h-full" type="always" ref={scrollRef}>
             {messages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center text-center">
                 <div className="rounded-full bg-gradient-to-r from-brand-accent/20 to-purple-500/20 p-6">

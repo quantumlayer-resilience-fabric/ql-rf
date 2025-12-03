@@ -7,3 +7,6 @@ export * from "./use-alerts";
 export * from "./use-compliance";
 export * from "./use-resilience";
 export * from "./use-ai";
+export * from "./use-lineage";
+export * from "./use-risk";
+export * from "./use-permissions";

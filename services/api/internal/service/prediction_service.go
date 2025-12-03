@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"time"
@@ -348,8 +349,7 @@ func (s *PredictionService) describeAnomaly(anomalyType string, actual, expected
 		direction = "below"
 	}
 
-	return "Risk score " + direction + " expected range by " +
-		string(rune('0'+int(deviation))) + " standard deviations"
+	return fmt.Sprintf("Risk score %s expected range by %.1f standard deviations", direction, deviation)
 }
 
 // getAssetTrends identifies assets with increasing/decreasing risk based on drift status.
@@ -614,12 +614,18 @@ func (s *PredictionService) getAssetCounts(ctx context.Context, orgID uuid.UUID)
 }
 
 // GetAssetPrediction generates a risk prediction for a specific asset.
-func (s *PredictionService) GetAssetPrediction(ctx context.Context, assetID uuid.UUID) (*models.RiskPrediction, error) {
+// GetAssetPredictionInput contains input for asset prediction.
+type GetAssetPredictionInput struct {
+	AssetID uuid.UUID
+	OrgID   uuid.UUID
+}
+
+func (s *PredictionService) GetAssetPrediction(ctx context.Context, input GetAssetPredictionInput) (*models.RiskPrediction, error) {
 	now := time.Now()
 
 	if s.db == nil {
 		return &models.RiskPrediction{
-			AssetID:           assetID,
+			AssetID:           input.AssetID,
 			CurrentScore:      0,
 			PredictedScore:    0,
 			PredictedLevel:    models.RiskLevelLow,
@@ -633,14 +639,14 @@ func (s *PredictionService) GetAssetPrediction(ctx context.Context, assetID uuid
 		}, nil
 	}
 
-	// Get asset data
+	// Get asset data - CRITICAL: filter by org_id for tenant isolation
 	var state string
 	var imageRef *string
 	var updatedAt time.Time
 	err := s.db.Pool.QueryRow(ctx, `
 		SELECT state, image_ref, updated_at
-		FROM assets WHERE id = $1
-	`, assetID).Scan(&state, &imageRef, &updatedAt)
+		FROM assets WHERE id = $1 AND org_id = $2
+	`, input.AssetID, input.OrgID).Scan(&state, &imageRef, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -675,7 +681,7 @@ func (s *PredictionService) GetAssetPrediction(ctx context.Context, assetID uuid
 	action := s.recommendAction(currentScore, predictedScore)
 
 	return &models.RiskPrediction{
-		AssetID:           assetID,
+		AssetID:           input.AssetID,
 		CurrentScore:      currentScore,
 		PredictedScore:    predictedScore,
 		PredictedLevel:    models.CalculateRiskLevel(predictedScore),
