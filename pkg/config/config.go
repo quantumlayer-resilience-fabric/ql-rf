@@ -191,6 +191,9 @@ type OPAConfig struct {
 
 // NotificationConfig holds notification service configuration.
 type NotificationConfig struct {
+	// Application base URL for links in notifications
+	AppBaseURL string `mapstructure:"app_base_url"`
+
 	// Slack
 	SlackEnabled    bool   `mapstructure:"slack_enabled"`
 	SlackWebhookURL string `mapstructure:"slack_webhook_url"`

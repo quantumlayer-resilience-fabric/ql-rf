@@ -351,6 +351,12 @@ func (n *Notifier) sendEmail(ctx context.Context, event Event) error {
 
 // buildEmailContent builds email subject and body for an event.
 func (n *Notifier) buildEmailContent(event Event) (subject, body string) {
+	// Use configured base URL or default to localhost for dev
+	baseURL := n.cfg.AppBaseURL
+	if baseURL == "" {
+		baseURL = "http://localhost:3000"
+	}
+
 	switch event.Type {
 	case EventTaskPendingApproval:
 		subject = fmt.Sprintf("[QL-RF] Task Awaiting Approval: %s", event.TaskType)
@@ -363,10 +369,10 @@ func (n *Notifier) buildEmailContent(event Event) (subject, body string) {
 <p><strong>Environment:</strong> %s</p>
 <p><strong>Risk Level:</strong> %s</p>
 <p><strong>Summary:</strong> %s</p>
-<p><a href="http://localhost:3000/ai/tasks/%s">View Task</a></p>
+<p><a href="%s/ai/tasks/%s">View Task</a></p>
 </body>
 </html>
-`, event.TaskID, event.TaskType, event.Environment, event.RiskLevel, event.Summary, event.TaskID)
+`, event.TaskID, event.TaskType, event.Environment, event.RiskLevel, event.Summary, baseURL, event.TaskID)
 
 	case EventTaskApproved:
 		subject = fmt.Sprintf("[QL-RF] Task Approved: %s", event.TaskID[:8])
@@ -418,10 +424,10 @@ func (n *Notifier) buildEmailContent(event Event) (subject, body string) {
 <h2 style="color: red;">Execution Failed</h2>
 <p><strong>Task ID:</strong> %s</p>
 <p><strong>Error:</strong> %s</p>
-<p><a href="http://localhost:3000/ai/tasks/%s">View Details</a></p>
+<p><a href="%s/ai/tasks/%s">View Details</a></p>
 </body>
 </html>
-`, event.TaskID, errMsg, event.TaskID)
+`, event.TaskID, errMsg, baseURL, event.TaskID)
 
 	default:
 		subject = fmt.Sprintf("[QL-RF] Notification: %s", event.Type)

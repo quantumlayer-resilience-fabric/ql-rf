@@ -44,6 +44,13 @@ func New(cfg Config) http.Handler {
 	r.Use(middleware.Recoverer(cfg.Logger))
 	r.Use(chimiddleware.Compress(5))
 
+	// Rate limiting (enabled by default in production)
+	rateLimitCfg := middleware.DefaultRateLimitConfig()
+	if cfg.Config.Env == "development" {
+		rateLimitCfg.Enabled = false // Disable in dev for easier testing
+	}
+	r.Use(middleware.RateLimit(rateLimitCfg, cfg.Logger))
+
 	// CORS configuration
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:3000", "https://*.quantumlayer.dev"},
