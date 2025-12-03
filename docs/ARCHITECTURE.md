@@ -163,6 +163,28 @@ type Connector interface {
 }
 ```
 
+**Transaction Support:**
+
+The sync service uses database transactions for atomic asset synchronization:
+
+```go
+// BeginTx starts a transaction and returns a transactional repository
+tx, txRepo, err := s.repo.BeginTx(ctx)
+defer func() {
+    if err != nil {
+        tx.Rollback(ctx)
+    }
+}()
+
+// All operations use txRepo for consistency
+existing, err := txRepo.ListAssetsByPlatform(ctx, orgID, platform)
+dbAsset, isNew, err := txRepo.UpsertAsset(ctx, params)
+txRepo.MarkAssetTerminated(ctx, existingAsset.ID)
+
+// Commit only on success
+tx.Commit(ctx)
+```
+
 ### 4. Drift Service (`services/drift/`)
 
 Real-time drift detection engine using Kafka event streaming.
@@ -285,6 +307,59 @@ Durable workflow execution for long-running operations.
 4. Validation - Validate DR services
 5. Failback - Restore to primary
 6. Post-check - Verify restoration
+
+### 10. Execution Engine (`services/orchestrator/internal/executor/`)
+
+Phased execution engine with proper context management and cancellation support.
+
+**Key Features:**
+- **Context Timeouts**: All executions have configurable maximum timeout (default: 4 hours)
+- **Cancellation Support**: Proper cancellation propagation with cleanup
+- **Phased Rollout**: Execute plans in phases with health checks between phases
+- **Rollback Logic**: Automatic rollback on phase failures via platform connectors
+
+**Execution Flow:**
+```
+Task Approved → Create Context with Timeout → Execute Phases → Health Checks → Complete/Rollback
+                      ↓
+              Store Cancel Function → Cancellable at any time
+```
+
+### 11. Notification Service (`services/orchestrator/internal/notifier/`)
+
+Multi-channel notification system for task lifecycle events.
+
+**Channels:**
+- **Slack**: Webhook-based notifications with rich formatting
+- **Email**: SMTP-based email notifications
+- **Webhook**: Generic HTTP webhooks with HMAC-SHA256 signatures
+
+**Security:**
+- Webhooks signed with `X-QL-Signature: sha256=<hmac>` header
+- Configurable secret per organization
+
+### 12. Prediction Service (`services/api/internal/service/prediction_service.go`)
+
+AI-powered risk prediction using real database data.
+
+**Data Sources:**
+- `drift_reports` table for historical risk trends
+- `assets` table for current asset state analysis
+- Real-time drift age calculation
+
+**Risk Calculation:**
+```go
+score := 30.0 // Base score
+switch state {
+case "running": score -= 10
+case "stopped", "terminated": score += 20
+case "unknown": score += 30
+}
+if driftAge > 30 { score += 30 }
+else if driftAge > 14 { score += 20 }
+else if driftAge > 7 { score += 10 }
+if !hasImage { score += 15 }
+```
 
 ---
 
@@ -582,6 +657,19 @@ make test-race         # With race detector
 make test-integration  # Integration tests (requires Docker)
 make test-e2e          # Full E2E tests
 ```
+
+### Test Coverage
+
+**Critical Package Tests:**
+
+| Package | Test File | Coverage |
+|---------|-----------|----------|
+| `pkg/auth` | `clerk_test.go` | JWT verification, JWKS fetching, key caching |
+| `pkg/database` | `postgres_test.go` | Config validation, connection handling |
+| `pkg/models` | `risk_test.go` | Risk calculations, model validation |
+| `services/drift/internal/engine` | `drift_test.go` | Severity calculation, status thresholds |
+| `services/orchestrator/internal/executor` | `executor_test.go` | Phase execution, cancellation |
+| `services/orchestrator/internal/validation` | `schema_test.go` | JSON Schema validation |
 
 ### Test Files
 - `tests/integration/orchestrator_test.go` - Orchestrator API
