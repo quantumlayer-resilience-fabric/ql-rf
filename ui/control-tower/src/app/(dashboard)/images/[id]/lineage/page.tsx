@@ -11,9 +11,11 @@ import { MetricCard } from "@/components/data/metric-card";
 import { PageSkeleton, ErrorState } from "@/components/feedback";
 import {
   LineageTreeView,
+  LineageGraph,
   LineagePath,
   VulnerabilitySummaryCard,
   VulnerabilityList,
+  VulnerabilityTrendChart,
   BuildHistory,
 } from "@/components/images";
 import {
@@ -36,6 +38,8 @@ import {
   AlertTriangle,
   CheckCircle,
   ExternalLink,
+  Network,
+  List,
 } from "lucide-react";
 
 type ImageStatus = "production" | "staging" | "deprecated" | "pending";
@@ -53,6 +57,7 @@ export default function ImageLineagePage() {
   const imageId = params.id as string;
 
   const [activeTab, setActiveTab] = useState("overview");
+  const [treeViewMode, setTreeViewMode] = useState<"tree" | "graph">("tree");
 
   // Fetch all lineage-related data
   const { data: lineage, isLoading: lineageLoading, error: lineageError, refetch: refetchLineage } = useImageLineage(imageId);
@@ -258,6 +263,14 @@ export default function ImageLineagePage() {
         </TabsList>
 
         <TabsContent value="overview" className="mt-6 space-y-6">
+          {/* Vulnerability Trend Chart */}
+          {vulnerabilities && vulnSummary && (
+            <VulnerabilityTrendChart
+              vulnerabilities={vulnerabilities}
+              summary={vulnSummary}
+            />
+          )}
+
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Vulnerability Summary */}
             {vulnSummary && (
@@ -468,12 +481,45 @@ export default function ImageLineagePage() {
         </TabsContent>
 
         {lineageTree && (
-          <TabsContent value="tree" className="mt-6">
-            <LineageTreeView
-              tree={lineageTree}
-              onSelectImage={(id) => router.push(`/images/${id}/lineage`)}
-              selectedImageId={imageId}
-            />
+          <TabsContent value="tree" className="mt-6 space-y-4">
+            {/* View Toggle */}
+            <div className="flex items-center justify-end gap-2">
+              <span className="text-sm text-muted-foreground">View:</span>
+              <div className="flex items-center border rounded-md">
+                <Button
+                  variant={treeViewMode === "tree" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 px-3 rounded-r-none"
+                  onClick={() => setTreeViewMode("tree")}
+                >
+                  <List className="h-4 w-4 mr-1" />
+                  Tree
+                </Button>
+                <Button
+                  variant={treeViewMode === "graph" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 px-3 rounded-l-none border-l"
+                  onClick={() => setTreeViewMode("graph")}
+                >
+                  <Network className="h-4 w-4 mr-1" />
+                  Graph
+                </Button>
+              </div>
+            </div>
+
+            {treeViewMode === "tree" ? (
+              <LineageTreeView
+                tree={lineageTree}
+                onSelectImage={(id) => router.push(`/images/${id}/lineage`)}
+                selectedImageId={imageId}
+              />
+            ) : (
+              <LineageGraph
+                tree={lineageTree}
+                onSelectImage={(id) => router.push(`/images/${id}/lineage`)}
+                selectedImageId={imageId}
+              />
+            )}
           </TabsContent>
         )}
       </Tabs>

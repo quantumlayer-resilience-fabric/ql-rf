@@ -335,11 +335,77 @@ type CreatePromotionRequest struct {
 
 // ImageLineageResponse is the API response for image lineage queries.
 type ImageLineageResponse struct {
-	Image     *Image            `json:"image"`
-	Parents   []ImageLineage    `json:"parents"`
-	Children  []ImageLineage    `json:"children"`
-	Builds    []ImageBuild      `json:"builds"`
-	Vulns     VulnerabilitySummary `json:"vulnerability_summary"`
-	Deployments int             `json:"active_deployments"`
-	Promotions []ImagePromotion `json:"promotions"`
+	Image       *Image               `json:"image"`
+	Parents     []ImageLineage       `json:"parents"`
+	Children    []ImageLineage       `json:"children"`
+	Builds      []ImageBuild         `json:"builds"`
+	Vulns       VulnerabilitySummary `json:"vulnerability_summary"`
+	Deployments int                  `json:"active_deployments"`
+	Promotions  []ImagePromotion     `json:"promotions"`
+}
+
+// =============================================================================
+// Scanner Integration Types
+// =============================================================================
+
+// ImportScanRequest is the request to import vulnerability scan results.
+type ImportScanRequest struct {
+	Scanner         string            `json:"scanner" validate:"required"` // trivy, grype, snyk, clair, anchore, aqua, twistlock, qualys
+	ScanVersion     string            `json:"scan_version,omitempty"`
+	ScanStartedAt   *time.Time        `json:"scan_started_at,omitempty"`
+	Vulnerabilities []ScanVulnerability `json:"vulnerabilities" validate:"required"`
+}
+
+// ScanVulnerability represents a vulnerability from a scanner.
+type ScanVulnerability struct {
+	CVEID          string                `json:"cve_id" validate:"required"`
+	Severity       VulnerabilitySeverity `json:"severity" validate:"required"`
+	CVSSScore      float64               `json:"cvss_score,omitempty"`
+	CVSSVector     string                `json:"cvss_vector,omitempty"`
+	PackageName    string                `json:"package_name,omitempty"`
+	PackageVersion string                `json:"package_version,omitempty"`
+	PackageType    string                `json:"package_type,omitempty"`
+	FixedVersion   string                `json:"fixed_version,omitempty"`
+	Description    string                `json:"description,omitempty"`
+	References     []string              `json:"references,omitempty"`
+}
+
+// ImportScanResponse is the response after importing scan results.
+type ImportScanResponse struct {
+	ImageID  uuid.UUID `json:"image_id"`
+	Scanner  string    `json:"scanner"`
+	Imported int       `json:"imported"`
+	Updated  int       `json:"updated"`
+	Fixed    int       `json:"fixed"`
+}
+
+// =============================================================================
+// SBOM Import Types
+// =============================================================================
+
+// ImportSBOMRequest is the request to import SBOM data.
+type ImportSBOMRequest struct {
+	Format     string          `json:"format" validate:"required"` // spdx, cyclonedx, syft
+	SBOMUrl    string          `json:"sbom_url,omitempty"`
+	Components []SBOMComponent `json:"components" validate:"required"`
+}
+
+// SBOMComponent represents a component from an SBOM.
+type SBOMComponent struct {
+	Name           string `json:"name" validate:"required"`
+	Version        string `json:"version" validate:"required"`
+	ComponentType  string `json:"component_type,omitempty"` // os_package, library, binary, container
+	PackageManager string `json:"package_manager,omitempty"`
+	License        string `json:"license,omitempty"`
+	LicenseURL     string `json:"license_url,omitempty"`
+	SourceURL      string `json:"source_url,omitempty"`
+	Checksum       string `json:"checksum,omitempty"`
+	PURL           string `json:"purl,omitempty"` // Package URL (pkg:type/name@version)
+}
+
+// ImportSBOMResponse is the response after importing SBOM data.
+type ImportSBOMResponse struct {
+	ImageID    uuid.UUID `json:"image_id"`
+	Format     string    `json:"format"`
+	Components int       `json:"components"`
 }

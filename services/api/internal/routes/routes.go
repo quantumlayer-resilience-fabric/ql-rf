@@ -137,12 +137,19 @@ func New(cfg Config) http.Handler {
 				r.Get("/", lineageHandler.GetVulnerabilities)
 				r.With(middleware.RequirePermission(models.PermManageImages)).
 					Post("/", lineageHandler.AddVulnerability)
+				// Bulk import from scanners (Trivy, Grype, Snyk, etc.)
+				r.With(middleware.RequirePermission(models.PermManageImages)).
+					Post("/import", lineageHandler.ImportScanResults)
 			})
 
 			// Build history and deployments
 			r.Get("/{id}/builds", lineageHandler.GetBuilds)
 			r.Get("/{id}/deployments", lineageHandler.GetDeployments)
 			r.Get("/{id}/components", lineageHandler.GetComponents)
+
+			// SBOM import
+			r.With(middleware.RequirePermission(models.PermManageImages)).
+				Post("/{id}/sbom", lineageHandler.ImportSBOM)
 		})
 
 		// Assets

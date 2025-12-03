@@ -321,6 +321,64 @@ export interface ImageLineageResponse {
   promotions: ImagePromotion[];
 }
 
+// Scanner Import Types
+export type ScannerType = "trivy" | "grype" | "snyk" | "clair" | "anchore" | "aqua" | "twistlock" | "qualys";
+
+export interface ScanVulnerability {
+  cveId: string;
+  severity: "critical" | "high" | "medium" | "low" | "unknown";
+  cvssScore?: number;
+  cvssVector?: string;
+  packageName?: string;
+  packageVersion?: string;
+  packageType?: string;
+  fixedVersion?: string;
+  description?: string;
+  references?: string[];
+}
+
+export interface ImportScanRequest {
+  scanner: ScannerType;
+  scanVersion?: string;
+  scanStartedAt?: string;
+  vulnerabilities: ScanVulnerability[];
+}
+
+export interface ImportScanResponse {
+  imageId: string;
+  scanner: string;
+  imported: number;
+  updated: number;
+  fixed: number;
+}
+
+// SBOM Import Types
+export type SBOMFormat = "spdx" | "cyclonedx" | "syft";
+
+export interface SBOMComponent {
+  name: string;
+  version: string;
+  componentType?: string;
+  packageManager?: string;
+  license?: string;
+  licenseUrl?: string;
+  sourceUrl?: string;
+  checksum?: string;
+  purl?: string;
+}
+
+export interface ImportSBOMRequest {
+  format: SBOMFormat;
+  sbomUrl?: string;
+  components: SBOMComponent[];
+}
+
+export interface ImportSBOMResponse {
+  imageId: string;
+  format: string;
+  components: number;
+}
+
 export interface ComplianceSummary {
   overallScore: number;
   cisCompliance: number;
@@ -526,6 +584,17 @@ export const api = {
       apiFetch<ImageDeployment[]>(`/images/${imageId}/deployments`),
     getComponents: (imageId: string) =>
       apiFetch<ImageComponent[]>(`/images/${imageId}/components`),
+    // Import endpoints
+    importScanResults: (imageId: string, data: ImportScanRequest) =>
+      apiFetch<ImportScanResponse>(`/images/${imageId}/vulnerabilities/import`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    importSBOM: (imageId: string, data: ImportSBOMRequest) =>
+      apiFetch<ImportSBOMResponse>(`/images/${imageId}/sbom`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
   },
 
   // Sites

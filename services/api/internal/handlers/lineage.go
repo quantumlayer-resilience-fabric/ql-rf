@@ -705,3 +705,239 @@ func (h *LineageHandler) getPromotions(ctx context.Context, imageID uuid.UUID) (
 	}
 	return promotions, nil
 }
+
+// ImportScanResults imports vulnerability scan results from security scanners (Trivy, Grype, Snyk, etc.)
+func (h *LineageHandler) ImportScanResults(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	org := middleware.GetOrg(ctx)
+	if org == nil {
+		http.Error(w, "organization not found", http.StatusUnauthorized)
+		return
+	}
+
+	imageID := chi.URLParam(r, "id")
+	id, err := uuid.Parse(imageID)
+	if err != nil {
+		http.Error(w, "invalid image ID", http.StatusBadRequest)
+		return
+	}
+
+	// Verify image exists
+	var exists bool
+	_ = h.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE id = $1 AND org_id = $2)`, id, org.ID).Scan(&exists)
+	if !exists {
+		http.Error(w, "image not found", http.StatusNotFound)
+		return
+	}
+
+	var req models.ImportScanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate scanner type
+	validScanners := map[string]bool{
+		"trivy": true, "grype": true, "snyk": true, "clair": true,
+		"anchore": true, "aqua": true, "twistlock": true, "qualys": true,
+	}
+	if !validScanners[req.Scanner] {
+		http.Error(w, "unsupported scanner type", http.StatusBadRequest)
+		return
+	}
+
+	// Begin transaction for bulk insert
+	tx, err := h.db.Begin(ctx)
+	if err != nil {
+		h.log.Error("failed to begin transaction", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	// Mark all existing open vulnerabilities from this scanner as potentially stale
+	_, err = tx.Exec(ctx, `
+		UPDATE image_vulnerabilities
+		SET status = 'stale'
+		WHERE image_id = $1 AND scanner = $2 AND status = 'open'
+	`, id, req.Scanner)
+	if err != nil {
+		h.log.Error("failed to mark stale vulns", "error", err)
+	}
+
+	var imported, updated, fixed int
+	for _, v := range req.Vulnerabilities {
+		// Check if vulnerability already exists
+		var existingID uuid.UUID
+		var existingStatus string
+		err := tx.QueryRow(ctx, `
+			SELECT id, status FROM image_vulnerabilities
+			WHERE image_id = $1 AND cve_id = $2 AND package_name = $3
+		`, id, v.CVEID, v.PackageName).Scan(&existingID, &existingStatus)
+
+		if err == nil {
+			// Update existing vulnerability
+			_, err = tx.Exec(ctx, `
+				UPDATE image_vulnerabilities
+				SET severity = $1, cvss_score = $2, cvss_vector = $3,
+				    package_version = $4, fixed_version = $5,
+				    scanner = $6, scanned_at = NOW(), status = 'open', updated_at = NOW()
+				WHERE id = $7
+			`, v.Severity, v.CVSSScore, v.CVSSVector,
+				v.PackageVersion, v.FixedVersion, req.Scanner, existingID)
+			if err != nil {
+				h.log.Error("failed to update vulnerability", "cve", v.CVEID, "error", err)
+				continue
+			}
+			if existingStatus == "fixed" {
+				// Re-opened vulnerability
+				updated++
+			}
+			updated++
+		} else {
+			// Insert new vulnerability
+			_, err = tx.Exec(ctx, `
+				INSERT INTO image_vulnerabilities (
+					image_id, cve_id, severity, cvss_score, cvss_vector,
+					package_name, package_version, package_type, fixed_version,
+					scanner, scanned_at, status
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), 'open')
+			`, id, v.CVEID, v.Severity, v.CVSSScore, v.CVSSVector,
+				v.PackageName, v.PackageVersion, v.PackageType, v.FixedVersion, req.Scanner)
+			if err != nil {
+				h.log.Error("failed to insert vulnerability", "cve", v.CVEID, "error", err)
+				continue
+			}
+			imported++
+		}
+	}
+
+	// Mark any remaining stale vulnerabilities as fixed (they weren't in the new scan)
+	result, err := tx.Exec(ctx, `
+		UPDATE image_vulnerabilities
+		SET status = 'fixed', resolved_at = NOW()
+		WHERE image_id = $1 AND scanner = $2 AND status = 'stale'
+	`, id, req.Scanner)
+	if err == nil {
+		fixed = int(result.RowsAffected())
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		h.log.Error("failed to commit transaction", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	h.log.Info("scan results imported",
+		"image_id", id,
+		"scanner", req.Scanner,
+		"imported", imported,
+		"updated", updated,
+		"fixed", fixed,
+	)
+
+	writeJSON(w, http.StatusOK, models.ImportScanResponse{
+		ImageID:  id,
+		Scanner:  req.Scanner,
+		Imported: imported,
+		Updated:  updated,
+		Fixed:    fixed,
+	})
+}
+
+// ImportSBOM imports Software Bill of Materials for an image
+func (h *LineageHandler) ImportSBOM(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	org := middleware.GetOrg(ctx)
+	if org == nil {
+		http.Error(w, "organization not found", http.StatusUnauthorized)
+		return
+	}
+
+	imageID := chi.URLParam(r, "id")
+	id, err := uuid.Parse(imageID)
+	if err != nil {
+		http.Error(w, "invalid image ID", http.StatusBadRequest)
+		return
+	}
+
+	// Verify image exists
+	var exists bool
+	_ = h.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE id = $1 AND org_id = $2)`, id, org.ID).Scan(&exists)
+	if !exists {
+		http.Error(w, "image not found", http.StatusNotFound)
+		return
+	}
+
+	var req models.ImportSBOMRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate format
+	validFormats := map[string]bool{
+		"spdx": true, "cyclonedx": true, "syft": true,
+	}
+	if !validFormats[req.Format] {
+		http.Error(w, "unsupported SBOM format (supported: spdx, cyclonedx, syft)", http.StatusBadRequest)
+		return
+	}
+
+	// Begin transaction
+	tx, err := h.db.Begin(ctx)
+	if err != nil {
+		h.log.Error("failed to begin transaction", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	// Clear existing components for this image (full replace)
+	_, err = tx.Exec(ctx, `DELETE FROM image_components WHERE image_id = $1`, id)
+	if err != nil {
+		h.log.Error("failed to clear existing components", "error", err)
+	}
+
+	var imported int
+	for _, c := range req.Components {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO image_components (
+				image_id, name, version, component_type, package_manager,
+				license, license_url, source_url, checksum
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`, id, c.Name, c.Version, c.ComponentType, c.PackageManager,
+			c.License, c.LicenseURL, c.SourceURL, c.Checksum)
+		if err != nil {
+			h.log.Error("failed to insert component", "name", c.Name, "error", err)
+			continue
+		}
+		imported++
+	}
+
+	// Update image SBOM URL if provided
+	if req.SBOMUrl != "" {
+		_, err = tx.Exec(ctx, `UPDATE images SET sbom_url = $1, updated_at = NOW() WHERE id = $2`, req.SBOMUrl, id)
+		if err != nil {
+			h.log.Error("failed to update sbom_url", "error", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		h.log.Error("failed to commit transaction", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	h.log.Info("SBOM imported",
+		"image_id", id,
+		"format", req.Format,
+		"components", imported,
+	)
+
+	writeJSON(w, http.StatusOK, models.ImportSBOMResponse{
+		ImageID:    id,
+		Format:     req.Format,
+		Components: imported,
+	})
+}

@@ -8,6 +8,10 @@ import {
   ImageDeployment,
   ImageComponent,
   ImageLineageRelationship,
+  ImportScanRequest,
+  ImportScanResponse,
+  ImportSBOMRequest,
+  ImportSBOMResponse,
 } from "@/lib/api";
 
 export const lineageKeys = {
@@ -115,6 +119,38 @@ export function useAddVulnerability() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: lineageKeys.vulnerabilities(variables.imageId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: lineageKeys.lineage(variables.imageId),
+      });
+    },
+  });
+}
+
+export function useImportScanResults() {
+  const queryClient = useQueryClient();
+
+  return useMutation<ImportScanResponse, Error, { imageId: string; data: ImportScanRequest }>({
+    mutationFn: ({ imageId, data }) => api.images.importScanResults(imageId, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: lineageKeys.vulnerabilities(variables.imageId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: lineageKeys.lineage(variables.imageId),
+      });
+    },
+  });
+}
+
+export function useImportSBOM() {
+  const queryClient = useQueryClient();
+
+  return useMutation<ImportSBOMResponse, Error, { imageId: string; data: ImportSBOMRequest }>({
+    mutationFn: ({ imageId, data }) => api.images.importSBOM(imageId, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: lineageKeys.components(variables.imageId),
       });
       queryClient.invalidateQueries({
         queryKey: lineageKeys.lineage(variables.imageId),

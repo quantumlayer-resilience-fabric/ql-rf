@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, Fragment } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,8 @@ import {
   GitBranch,
   Calendar,
   Loader2,
+  Network,
+  AlertTriangle,
 } from "lucide-react";
 
 type ImageStatus = "production" | "staging" | "deprecated" | "pending";
@@ -55,6 +58,7 @@ const statusConfig: Record<ImageStatus, { label: string; variant: "success" | "w
 };
 
 export default function ImagesPage() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [expandedFamily, setExpandedFamily] = useState<string | null>(null);
@@ -364,10 +368,34 @@ export default function ImagesPage() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    router.push(`/images/${family.id}`);
+                                  }}
+                                >
                                   <ExternalLink className="mr-2 h-4 w-4" />
                                   View Details
                                 </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    router.push(`/images/${family.id}/lineage`);
+                                  }}
+                                >
+                                  <Network className="mr-2 h-4 w-4" />
+                                  View Lineage
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    router.push(`/images/${family.id}/lineage?tab=vulnerabilities`);
+                                  }}
+                                >
+                                  <AlertTriangle className="mr-2 h-4 w-4" />
+                                  Vulnerabilities
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
                                 <DropdownMenuItem>
                                   <Copy className="mr-2 h-4 w-4" />
                                   Copy ID
