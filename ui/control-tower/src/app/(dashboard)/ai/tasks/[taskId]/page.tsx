@@ -9,6 +9,8 @@ import { StatusBadge } from "@/components/status/status-badge";
 import { GradientText } from "@/components/brand/gradient-text";
 import { useTask, useApproveTask, useRejectTask, useTaskExecutions, TaskWithPlan } from "@/hooks/use-ai";
 import { ExecutionStatus } from "@/components/ai/execution-status";
+import { PermissionGate } from "@/components/auth/permission-gate";
+import { Permissions } from "@/hooks/use-permissions";
 import { formatDistanceToNow, format } from "date-fns";
 import ReactMarkdown from "react-markdown";
 import {
@@ -25,6 +27,7 @@ import {
   Shield,
   FileText,
   Edit,
+  ShieldAlert,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -373,46 +376,66 @@ export default function TaskDetailPage({ params }: PageProps) {
           )}
 
           {task.state === "planned" && plan?.state === "awaiting_approval" && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Button
-                  className="w-full bg-status-green hover:bg-status-green/90"
-                  onClick={handleApprove}
-                  disabled={isActionLoading}
-                >
-                  {approveTask.isPending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <CheckCircle className="mr-2 h-4 w-4" />
-                  )}
-                  Approve & Execute
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  disabled={isActionLoading}
-                >
-                  <Edit className="mr-2 h-4 w-4" />
-                  Modify Plan
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full text-destructive hover:text-destructive"
-                  onClick={handleReject}
-                  disabled={isActionLoading}
-                >
-                  {rejectTask.isPending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <XCircle className="mr-2 h-4 w-4" />
-                  )}
-                  Reject
-                </Button>
-              </CardContent>
-            </Card>
+            <PermissionGate
+              permission={Permissions.APPROVE_AI_TASKS}
+              fallback={
+                <Card className="border-muted">
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+                      Actions
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      You need the &quot;Approve AI Tasks&quot; permission to approve or reject this task.
+                      Contact your administrator to request access.
+                    </p>
+                  </CardContent>
+                </Card>
+              }
+            >
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Actions</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Button
+                    className="w-full bg-status-green hover:bg-status-green/90"
+                    onClick={handleApprove}
+                    disabled={isActionLoading}
+                  >
+                    {approveTask.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <CheckCircle className="mr-2 h-4 w-4" />
+                    )}
+                    Approve & Execute
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    disabled={isActionLoading}
+                  >
+                    <Edit className="mr-2 h-4 w-4" />
+                    Modify Plan
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full text-destructive hover:text-destructive"
+                    onClick={handleReject}
+                    disabled={isActionLoading}
+                  >
+                    {rejectTask.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <XCircle className="mr-2 h-4 w-4" />
+                    )}
+                    Reject
+                  </Button>
+                </CardContent>
+              </Card>
+            </PermissionGate>
           )}
         </div>
       </div>

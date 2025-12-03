@@ -8,6 +8,8 @@ import { MetricCard } from "@/components/data/metric-card";
 import { StatusBadge } from "@/components/status/status-badge";
 import { PlatformIcon } from "@/components/status/platform-icon";
 import { PageSkeleton, ErrorState, EmptyState } from "@/components/feedback";
+import { PermissionGate } from "@/components/auth/permission-gate";
+import { Permissions } from "@/hooks/use-permissions";
 import { useResilienceSummary, useTriggerFailoverTest, useTriggerDRSync } from "@/hooks/use-resilience";
 import {
   RefreshCw,
@@ -25,6 +27,7 @@ import {
   Link2,
   History,
   Loader2,
+  ShieldAlert,
 } from "lucide-react";
 
 export default function ResiliencePage() {
@@ -117,10 +120,12 @@ export default function ResiliencePage() {
             <History className="mr-2 h-4 w-4" />
             Drill History
           </Button>
-          <Button size="sm">
-            <Play className="mr-2 h-4 w-4" />
-            Run DR Drill
-          </Button>
+          <PermissionGate permission={Permissions.TRIGGER_DRILL}>
+            <Button size="sm">
+              <Play className="mr-2 h-4 w-4" />
+              Run DR Drill
+            </Button>
+          </PermissionGate>
         </div>
       </div>
 
@@ -269,34 +274,44 @@ export default function ResiliencePage() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex flex-col gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleFailoverTest(pair.id)}
-                        disabled={triggerFailoverTest.isPending}
-                      >
-                        {triggerFailoverTest.isPending ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Play className="mr-2 h-4 w-4" />
-                        )}
-                        Test
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleSync(pair.id)}
-                        disabled={triggerSync.isPending}
-                      >
-                        {triggerSync.isPending ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <RefreshCw className="mr-2 h-4 w-4" />
-                        )}
-                        Sync
-                      </Button>
-                    </div>
+                    <PermissionGate
+                      permission={Permissions.TRIGGER_DRILL}
+                      fallback={
+                        <div className="flex flex-col gap-2 text-center">
+                          <ShieldAlert className="h-4 w-4 mx-auto text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">No permission</span>
+                        </div>
+                      }
+                    >
+                      <div className="flex flex-col gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleFailoverTest(pair.id)}
+                          disabled={triggerFailoverTest.isPending}
+                        >
+                          {triggerFailoverTest.isPending ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Play className="mr-2 h-4 w-4" />
+                          )}
+                          Test
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleSync(pair.id)}
+                          disabled={triggerSync.isPending}
+                        >
+                          {triggerSync.isPending ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                          )}
+                          Sync
+                        </Button>
+                      </div>
+                    </PermissionGate>
                   </div>
                 </CardContent>
               </Card>

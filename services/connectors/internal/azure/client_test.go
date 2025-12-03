@@ -3,6 +3,7 @@ package azure
 import (
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v5"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
@@ -169,4 +170,103 @@ func TestConnector_ConnectMissingCredentials(t *testing.T) {
 	err := c.Connect(nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "credentials not configured")
+}
+
+func TestConnector_IsResourceGroupAllowed(t *testing.T) {
+	tests := []struct {
+		name          string
+		configRGs     []string
+		checkRG       string
+		expected      bool
+	}{
+		{
+			name:      "empty filter allows all",
+			configRGs: nil,
+			checkRG:   "any-rg",
+			expected:  true,
+		},
+		{
+			name:      "exact match",
+			configRGs: []string{"my-rg", "other-rg"},
+			checkRG:   "my-rg",
+			expected:  true,
+		},
+		{
+			name:      "case insensitive match",
+			configRGs: []string{"My-RG"},
+			checkRG:   "my-rg",
+			expected:  true,
+		},
+		{
+			name:      "not in list",
+			configRGs: []string{"allowed-rg"},
+			checkRG:   "blocked-rg",
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := New(Config{
+				SubscriptionID: "test-sub",
+				ResourceGroups: tt.configRGs,
+			}, newTestLogger())
+			result := c.isResourceGroupAllowed(tt.checkRG)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestConnector_ExtractImageReference(t *testing.T) {
+	c := New(Config{SubscriptionID: "test-sub"}, newTestLogger())
+
+	tests := []struct {
+		name            string
+		publisher       *string
+		offer           *string
+		sku             *string
+		version         *string
+		id              *string
+		expectedRef     string
+		expectedVersion string
+	}{
+		{
+			name:            "marketplace image",
+			publisher:       ptrString("Canonical"),
+			offer:           ptrString("UbuntuServer"),
+			sku:             ptrString("20_04-lts"),
+			version:         ptrString("latest"),
+			expectedRef:     "Canonical:UbuntuServer:20_04-lts",
+			expectedVersion: "latest",
+		},
+		{
+			name:            "gallery image with version",
+			id:              ptrString("/subscriptions/xxx/resourceGroups/rg/providers/Microsoft.Compute/galleries/gallery/images/myimage/versions/1.0.0"),
+			expectedRef:     "1.0.0",
+			expectedVersion: "1.0.0",
+		},
+		{
+			name:            "nil reference",
+			expectedRef:     "",
+			expectedVersion: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var imgRef *armcompute.ImageReference
+			if tt.publisher != nil || tt.id != nil {
+				imgRef = &armcompute.ImageReference{
+					Publisher: tt.publisher,
+					Offer:     tt.offer,
+					SKU:       tt.sku,
+					Version:   tt.version,
+					ID:        tt.id,
+				}
+			}
+			ref, ver := c.extractImageReference(imgRef)
+			assert.Equal(t, tt.expectedRef, ref)
+			assert.Equal(t, tt.expectedVersion, ver)
+		})
+	}
 }

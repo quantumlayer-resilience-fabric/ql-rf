@@ -104,7 +104,11 @@ test-unit:
 
 ## test-integration: Run integration tests (requires docker-compose)
 test-integration:
-	$(GO) test ./... -tags=integration -v
+	$(GO) test ./tests/integration/... -tags=integration -v -timeout 10m
+
+## test-e2e: Run full end-to-end tests (requires full environment)
+test-e2e:
+	$(GO) test ./tests/integration/... -tags=integration -v -timeout 15m -count=1
 
 ## test-coverage: Run tests with coverage report
 test-coverage:

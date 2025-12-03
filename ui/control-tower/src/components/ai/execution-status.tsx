@@ -14,6 +14,8 @@ import {
   useResumeExecution,
   useCancelExecution,
 } from "@/hooks/use-ai";
+import { PermissionGate } from "@/components/auth/permission-gate";
+import { Permissions } from "@/hooks/use-permissions";
 import { formatDistanceToNow, format } from "date-fns";
 import {
   Loader2,
@@ -27,6 +29,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  ShieldAlert,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -161,7 +164,18 @@ export function ExecutionStatus({ execution, showControls = true }: ExecutionSta
 
         {/* Controls */}
         {showControls && (execution.status === "running" || execution.status === "paused") && (
-          <>
+          <PermissionGate
+            permission={Permissions.EXECUTE_AI_TASKS}
+            fallback={
+              <>
+                <Separator />
+                <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                  <ShieldAlert className="h-4 w-4" />
+                  <span>You need the &quot;Execute AI Tasks&quot; permission to control this execution.</span>
+                </div>
+              </>
+            }
+          >
             <Separator />
             <div className="flex gap-2">
               {execution.status === "running" && (
@@ -209,7 +223,7 @@ export function ExecutionStatus({ execution, showControls = true }: ExecutionSta
                 Cancel
               </Button>
             </div>
-          </>
+          </PermissionGate>
         )}
 
         {/* Completion Time */}

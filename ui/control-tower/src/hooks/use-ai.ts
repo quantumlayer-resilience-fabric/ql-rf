@@ -8,6 +8,7 @@ import { useOverviewMetrics } from "./use-overview";
 import { useDriftSummary } from "./use-drift";
 import { useComplianceSummary } from "./use-compliance";
 import { useResilienceSummary } from "./use-resilience";
+import { useAuth } from "@clerk/nextjs";
 
 // Types for AI messages
 export interface AIMessage {
@@ -119,32 +120,59 @@ export function useAIContext(): AIContext {
 const ORCHESTRATOR_URL = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "http://localhost:8083";
 
 /**
+ * Helper to create authenticated fetch for orchestrator API
+ */
+async function orchestratorFetch(
+  endpoint: string,
+  options: RequestInit = {},
+  getToken: () => Promise<string | null>
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...((options.headers as Record<string, string>) || {}),
+  };
+
+  // Add auth token if available
+  const token = await getToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  return fetch(`${ORCHESTRATOR_URL}${endpoint}`, {
+    ...options,
+    headers,
+  });
+}
+
+/**
  * Hook to send a message to the AI copilot
  * Now routes to the AI Orchestrator service for agentic workflows
  */
 export function useSendAIMessage() {
   const queryClient = useQueryClient();
+  const { getToken, orgId } = useAuth();
 
   return useMutation<AIResponse, Error, SendMessageParams>({
     mutationFn: async ({ message, context }) => {
       // Call the orchestrator execute endpoint
-      const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/ai/execute`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await orchestratorFetch(
+        "/api/v1/ai/execute",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            intent: message,
+            org_id: orgId || "default-org",
+            environment: "production", // TODO: Get from user selection
+            context: {
+              fleet_size: context?.fleetSize,
+              drift_score: context?.driftScore,
+              compliance_score: context?.complianceScore,
+              dr_readiness: context?.drReadiness,
+            },
+          }),
         },
-        body: JSON.stringify({
-          intent: message,
-          org_id: "test-org", // TODO: Get from auth context
-          environment: "production", // TODO: Get from user selection
-          context: {
-            fleet_size: context?.fleetSize,
-            drift_score: context?.driftScore,
-            compliance_score: context?.complianceScore,
-            dr_readiness: context?.drReadiness,
-          },
-        }),
-      });
+        getToken
+      );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -179,16 +207,18 @@ export function useSendAIMessage() {
  */
 export function useApproveTask() {
   const queryClient = useQueryClient();
+  const { getToken } = useAuth();
 
   return useMutation<AITask, Error, { taskId: string; reason?: string }>({
     mutationFn: async ({ taskId, reason }) => {
-      const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/ai/tasks/${taskId}/approve`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await orchestratorFetch(
+        `/api/v1/ai/tasks/${taskId}/approve`,
+        {
+          method: "POST",
+          body: JSON.stringify({ reason }),
         },
-        body: JSON.stringify({ reason }),
-      });
+        getToken
+      );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -208,16 +238,18 @@ export function useApproveTask() {
  */
 export function useRejectTask() {
   const queryClient = useQueryClient();
+  const { getToken } = useAuth();
 
   return useMutation<AITask, Error, { taskId: string; reason?: string }>({
     mutationFn: async ({ taskId, reason }) => {
-      const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/ai/tasks/${taskId}/reject`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await orchestratorFetch(
+        `/api/v1/ai/tasks/${taskId}/reject`,
+        {
+          method: "POST",
+          body: JSON.stringify({ reason }),
         },
-        body: JSON.stringify({ reason }),
-      });
+        getToken
+      );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -261,11 +293,17 @@ export interface TaskWithPlan {
  * Hook to list pending AI tasks
  */
 export function usePendingTasks() {
+  const { getToken } = useAuth();
+
   return useQuery<TaskWithPlan[]>({
     queryKey: ["ai-tasks", "pending"],
     queryFn: async () => {
       // Use state=planned to get tasks awaiting approval
-      const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/ai/tasks?state=planned`);
+      const response = await orchestratorFetch(
+        "/api/v1/ai/tasks?state=planned",
+        {},
+        getToken
+      );
       if (!response.ok) {
         throw new Error("Failed to fetch pending tasks");
       }
@@ -279,14 +317,17 @@ export function usePendingTasks() {
 /**
  * Hook to list all AI tasks
  */
-export function useAllTasks(orgId?: string) {
+export function useAllTasks(filterOrgId?: string) {
+  const { getToken, orgId } = useAuth();
+
   return useQuery<TaskWithPlan[]>({
-    queryKey: ["ai-tasks", "all", orgId],
+    queryKey: ["ai-tasks", "all", filterOrgId || orgId],
     queryFn: async () => {
-      const url = orgId
-        ? `${ORCHESTRATOR_URL}/api/v1/ai/tasks?org_id=${orgId}`
-        : `${ORCHESTRATOR_URL}/api/v1/ai/tasks`;
-      const response = await fetch(url);
+      const effectiveOrgId = filterOrgId || orgId;
+      const url = effectiveOrgId
+        ? `/api/v1/ai/tasks?org_id=${effectiveOrgId}`
+        : `/api/v1/ai/tasks`;
+      const response = await orchestratorFetch(url, {}, getToken);
       if (!response.ok) {
         throw new Error("Failed to fetch tasks");
       }
@@ -301,10 +342,16 @@ export function useAllTasks(orgId?: string) {
  * Hook to get a single task by ID
  */
 export function useTask(taskId: string) {
+  const { getToken } = useAuth();
+
   return useQuery<TaskWithPlan>({
     queryKey: ["ai-tasks", taskId],
     queryFn: async () => {
-      const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/ai/tasks/${taskId}`);
+      const response = await orchestratorFetch(
+        `/api/v1/ai/tasks/${taskId}`,
+        {},
+        getToken
+      );
       if (!response.ok) {
         throw new Error("Failed to fetch task");
       }
@@ -434,10 +481,16 @@ export interface Execution {
  * Hook to list executions for a task
  */
 export function useTaskExecutions(taskId: string) {
+  const { getToken } = useAuth();
+
   return useQuery<Execution[]>({
     queryKey: ["executions", taskId],
     queryFn: async () => {
-      const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/ai/tasks/${taskId}/executions`);
+      const response = await orchestratorFetch(
+        `/api/v1/ai/tasks/${taskId}/executions`,
+        {},
+        getToken
+      );
       if (!response.ok) {
         throw new Error("Failed to fetch executions");
       }
@@ -453,10 +506,16 @@ export function useTaskExecutions(taskId: string) {
  * Hook to get a single execution
  */
 export function useExecution(executionId: string) {
+  const { getToken } = useAuth();
+
   return useQuery<Execution>({
     queryKey: ["execution", executionId],
     queryFn: async () => {
-      const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/ai/executions/${executionId}`);
+      const response = await orchestratorFetch(
+        `/api/v1/ai/executions/${executionId}`,
+        {},
+        getToken
+      );
       if (!response.ok) {
         throw new Error("Failed to fetch execution");
       }
@@ -472,12 +531,15 @@ export function useExecution(executionId: string) {
  */
 export function usePauseExecution() {
   const queryClient = useQueryClient();
+  const { getToken } = useAuth();
 
   return useMutation<void, Error, string>({
     mutationFn: async (executionId) => {
-      const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/ai/executions/${executionId}/pause`, {
-        method: "POST",
-      });
+      const response = await orchestratorFetch(
+        `/api/v1/ai/executions/${executionId}/pause`,
+        { method: "POST" },
+        getToken
+      );
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || "Failed to pause execution");
@@ -495,12 +557,15 @@ export function usePauseExecution() {
  */
 export function useResumeExecution() {
   const queryClient = useQueryClient();
+  const { getToken } = useAuth();
 
   return useMutation<void, Error, string>({
     mutationFn: async (executionId) => {
-      const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/ai/executions/${executionId}/resume`, {
-        method: "POST",
-      });
+      const response = await orchestratorFetch(
+        `/api/v1/ai/executions/${executionId}/resume`,
+        { method: "POST" },
+        getToken
+      );
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || "Failed to resume execution");
@@ -518,12 +583,15 @@ export function useResumeExecution() {
  */
 export function useCancelExecution() {
   const queryClient = useQueryClient();
+  const { getToken } = useAuth();
 
   return useMutation<void, Error, string>({
     mutationFn: async (executionId) => {
-      const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/ai/executions/${executionId}/cancel`, {
-        method: "POST",
-      });
+      const response = await orchestratorFetch(
+        `/api/v1/ai/executions/${executionId}/cancel`,
+        { method: "POST" },
+        getToken
+      );
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || "Failed to cancel execution");

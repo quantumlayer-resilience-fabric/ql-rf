@@ -23,6 +23,9 @@ const (
 
 	// WorkflowTypeTaskExecution is the workflow type for task execution.
 	WorkflowTypeTaskExecution = "TaskExecutionWorkflow"
+
+	// WorkflowTypeDRDrill is the workflow type for DR drill execution.
+	WorkflowTypeDRDrill = "DRDrillWorkflow"
 )
 
 // Worker wraps the Temporal worker with our dependencies.
@@ -97,13 +100,20 @@ func New(cfg Config) (*Worker, error) {
 
 	// Register workflows
 	w.RegisterWorkflow(workflows.TaskExecutionWorkflow)
+	w.RegisterWorkflow(workflows.DRDrillWorkflow)
 
-	// Register activities
+	// Register task execution activities
 	w.RegisterActivity(acts.UpdateTaskStatus)
 	w.RegisterActivity(acts.RecordAuditLog)
 	w.RegisterActivity(acts.SendNotification)
 	w.RegisterActivity(acts.UpdateTaskPlan)
 	w.RegisterActivity(acts.ExecuteTask)
+
+	// Register DR drill activities
+	w.RegisterActivity(acts.ExecuteDRPhase)
+	w.RegisterActivity(acts.NotifyDRDrillStarted)
+	w.RegisterActivity(acts.NotifyDRDrillCompleted)
+	w.RegisterActivity(acts.StoreDRDrillResult)
 
 	log.Info("Temporal worker created",
 		"task_queue", taskQueue,
@@ -204,6 +214,68 @@ func (w *Worker) CancelWorkflow(ctx context.Context, taskID string) error {
 	}
 
 	w.log.Info("Cancelled workflow", "workflow_id", workflowID)
+	return nil
+}
+
+// StartDRDrillWorkflow starts a new DR drill workflow.
+func (w *Worker) StartDRDrillWorkflow(ctx context.Context, input workflows.DRDrillWorkflowInput) (string, error) {
+	workflowOpts := client.StartWorkflowOptions{
+		ID:        fmt.Sprintf("dr-drill-%s", input.DrillID),
+		TaskQueue: TaskQueue,
+	}
+
+	we, err := w.client.ExecuteWorkflow(ctx, workflowOpts, workflows.DRDrillWorkflow, input)
+	if err != nil {
+		return "", fmt.Errorf("failed to start DR drill workflow: %w", err)
+	}
+
+	w.log.Info("Started DR drill workflow",
+		"workflow_id", we.GetID(),
+		"run_id", we.GetRunID(),
+		"drill_id", input.DrillID,
+		"drill_type", input.DrillType,
+		"pairs", len(input.DrPairIDs),
+	)
+
+	return we.GetRunID(), nil
+}
+
+// GetDRDrillStatus gets the status of a DR drill workflow.
+func (w *Worker) GetDRDrillStatus(ctx context.Context, drillID string) (string, error) {
+	workflowID := fmt.Sprintf("dr-drill-%s", drillID)
+
+	desc, err := w.client.DescribeWorkflowExecution(ctx, workflowID, "")
+	if err != nil {
+		return "", fmt.Errorf("failed to describe DR drill workflow: %w", err)
+	}
+
+	return desc.WorkflowExecutionInfo.Status.String(), nil
+}
+
+// GetDRDrillResult gets the result of a completed DR drill workflow.
+func (w *Worker) GetDRDrillResult(ctx context.Context, drillID string, runID string) (*workflows.DRDrillWorkflowResult, error) {
+	workflowID := fmt.Sprintf("dr-drill-%s", drillID)
+
+	workflowRun := w.client.GetWorkflow(ctx, workflowID, runID)
+
+	var result workflows.DRDrillWorkflowResult
+	if err := workflowRun.Get(ctx, &result); err != nil {
+		return nil, fmt.Errorf("failed to get DR drill result: %w", err)
+	}
+
+	return &result, nil
+}
+
+// CancelDRDrill cancels a running DR drill workflow.
+func (w *Worker) CancelDRDrill(ctx context.Context, drillID string) error {
+	workflowID := fmt.Sprintf("dr-drill-%s", drillID)
+
+	err := w.client.CancelWorkflow(ctx, workflowID, "")
+	if err != nil {
+		return fmt.Errorf("failed to cancel DR drill workflow: %w", err)
+	}
+
+	w.log.Info("Cancelled DR drill workflow", "workflow_id", workflowID)
 	return nil
 }
 

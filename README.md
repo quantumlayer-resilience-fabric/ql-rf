@@ -233,17 +233,19 @@ ql-rf/
 - [x] Temporal workflow integration
 - [x] AI Copilot UI with task approval cards
 
-### Phase 3: Expansion (In Progress)
-- [ ] Azure/GCP connector improvements
-- [ ] RBAC and multi-tenancy
-- [ ] DR drill execution
-- [ ] Event bridge to QuantumLayer
+### Phase 3: Expansion ✅
+- [x] Azure connector with real Azure SDK calls
+- [x] GCP connector with real Google Cloud SDK calls
+- [x] vSphere connector with govmomi SDK
+- [x] RBAC-based UI visibility (PermissionGate)
+- [x] DR drill Temporal workflows
+- [x] E2E integration test suite
 
-### Phase 4: Full Automation
-- [ ] Patch-as-Code workflows
+### Phase 4: Full Automation (Next)
 - [ ] Predictive risk scoring
 - [ ] Full DR failover orchestration
 - [ ] Auto-remediation mode
+- [ ] Event bridge to QuantumLayer
 
 ## Contributing
 

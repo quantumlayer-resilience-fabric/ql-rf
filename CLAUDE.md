@@ -87,7 +87,8 @@ make build-drift      # Build drift service only
 # Testing
 make test             # Run all tests
 make test-unit        # Run unit tests only
-make test-integration # Run integration tests
+make test-integration # Run integration tests (requires docker-compose)
+make test-e2e         # Run full E2E tests
 make test-coverage    # Run tests with coverage report
 
 # Code Quality
@@ -232,13 +233,24 @@ Run migrations: `make migrate-up`
 ```bash
 # Unit tests (fast, no external deps)
 go test ./... -short
+make test-unit
 
 # Integration tests (requires docker-compose)
 make dev
-go test ./... -tags=integration
+make test-integration
+# Or directly:
+go test ./tests/integration/... -tags=integration -v -timeout 10m
+
+# E2E tests
+make test-e2e
 
 # Specific package
 go test ./services/api/internal/handlers/...
+
+# Integration test files:
+# - tests/integration/orchestrator_test.go - AI orchestrator API
+# - tests/integration/api_test.go - Main API endpoints
+# - tests/integration/connectors_test.go - Cloud connectors (AWS, Azure, GCP, vSphere)
 ```
 
 ## Design System

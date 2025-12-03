@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status/status-badge";
 import { AITask, useApproveTask, useRejectTask } from "@/hooks/use-ai";
 import { QualityScoreDisplay, QualityScoreBadge } from "./quality-score-display";
+import { PermissionGate } from "@/components/auth/permission-gate";
+import { Permissions } from "@/hooks/use-permissions";
 import {
   CheckCircle,
   XCircle,
@@ -17,6 +19,7 @@ import {
   ChevronDown,
   ChevronUp,
   Shield,
+  ShieldAlert,
 } from "lucide-react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -168,42 +171,56 @@ export function TaskApprovalCard({ task, onApproved, onRejected }: TaskApprovalC
         )}
       </CardContent>
 
-      <CardFooter className="flex justify-end gap-2 pt-4">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleReject}
-          disabled={isLoading}
-        >
-          {rejectTask.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <XCircle className="mr-2 h-4 w-4" />
-          )}
-          Reject
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={isLoading}
-        >
-          <Edit className="mr-2 h-4 w-4" />
-          Modify
-        </Button>
-        <Button
-          size="sm"
-          onClick={handleApprove}
-          disabled={isLoading}
-          className="bg-status-green hover:bg-status-green/90"
-        >
-          {approveTask.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <CheckCircle className="mr-2 h-4 w-4" />
-          )}
-          Approve & Execute
-        </Button>
-      </CardFooter>
+      <PermissionGate
+        permission={Permissions.APPROVE_AI_TASKS}
+        fallback={
+          <CardFooter className="pt-4">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <ShieldAlert className="h-4 w-4" />
+              <span className="text-sm">
+                You need the &quot;Approve AI Tasks&quot; permission to take action on this task.
+              </span>
+            </div>
+          </CardFooter>
+        }
+      >
+        <CardFooter className="flex justify-end gap-2 pt-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleReject}
+            disabled={isLoading}
+          >
+            {rejectTask.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <XCircle className="mr-2 h-4 w-4" />
+            )}
+            Reject
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isLoading}
+          >
+            <Edit className="mr-2 h-4 w-4" />
+            Modify
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleApprove}
+            disabled={isLoading}
+            className="bg-status-green hover:bg-status-green/90"
+          >
+            {approveTask.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle className="mr-2 h-4 w-4" />
+            )}
+            Approve & Execute
+          </Button>
+        </CardFooter>
+      </PermissionGate>
     </Card>
   );
 }

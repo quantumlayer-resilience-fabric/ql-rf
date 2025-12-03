@@ -98,14 +98,114 @@ func TestConnector_Close(t *testing.T) {
 
 func TestConfig(t *testing.T) {
 	cfg := Config{
-		URL:      "https://vcenter.example.com/sdk",
-		User:     "admin",
-		Password: "password123",
-		Insecure: true,
+		URL:         "https://vcenter.example.com/sdk",
+		User:        "admin",
+		Password:    "password123",
+		Insecure:    true,
+		Datacenters: []string{"DC1", "DC2"},
+		Clusters:    []string{"Cluster1"},
 	}
 
 	assert.Equal(t, "https://vcenter.example.com/sdk", cfg.URL)
 	assert.Equal(t, "admin", cfg.User)
 	assert.Equal(t, "password123", cfg.Password)
 	assert.True(t, cfg.Insecure)
+	assert.Equal(t, []string{"DC1", "DC2"}, cfg.Datacenters)
+	assert.Equal(t, []string{"Cluster1"}, cfg.Clusters)
+}
+
+func TestConnector_IsDatacenterAllowed(t *testing.T) {
+	tests := []struct {
+		name        string
+		configDCs   []string
+		checkDC     string
+		expected    bool
+	}{
+		{
+			name:      "empty filter allows all",
+			configDCs: nil,
+			checkDC:   "any-datacenter",
+			expected:  true,
+		},
+		{
+			name:      "exact match",
+			configDCs: []string{"DC1", "DC2"},
+			checkDC:   "DC1",
+			expected:  true,
+		},
+		{
+			name:      "case insensitive match",
+			configDCs: []string{"Production-DC"},
+			checkDC:   "production-dc",
+			expected:  true,
+		},
+		{
+			name:      "not in list",
+			configDCs: []string{"DC1"},
+			checkDC:   "DC2",
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := New(Config{
+				URL:         "https://vcenter.example.com/sdk",
+				Datacenters: tt.configDCs,
+			}, newTestLogger())
+			result := c.isDatacenterAllowed(tt.checkDC)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestConnector_IsClusterAllowed(t *testing.T) {
+	tests := []struct {
+		name           string
+		configClusters []string
+		checkCluster   string
+		expected       bool
+	}{
+		{
+			name:           "empty filter allows all",
+			configClusters: nil,
+			checkCluster:   "any-cluster",
+			expected:       true,
+		},
+		{
+			name:           "empty cluster with no filter",
+			configClusters: nil,
+			checkCluster:   "",
+			expected:       true,
+		},
+		{
+			name:           "exact match",
+			configClusters: []string{"Production", "Development"},
+			checkCluster:   "Production",
+			expected:       true,
+		},
+		{
+			name:           "case insensitive match",
+			configClusters: []string{"Prod-Cluster"},
+			checkCluster:   "prod-cluster",
+			expected:       true,
+		},
+		{
+			name:           "not in list",
+			configClusters: []string{"Production"},
+			checkCluster:   "Development",
+			expected:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := New(Config{
+				URL:      "https://vcenter.example.com/sdk",
+				Clusters: tt.configClusters,
+			}, newTestLogger())
+			result := c.isClusterAllowed(tt.checkCluster)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
