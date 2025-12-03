@@ -45,6 +45,7 @@ type SyncResult struct {
 }
 
 // SyncAssets synchronizes discovered assets with the database.
+// All database operations are performed within a single transaction for consistency.
 func (s *Service) SyncAssets(ctx context.Context, orgID uuid.UUID, platform string, discovered []models.NormalizedAsset) (*SyncResult, error) {
 	startTime := time.Now()
 	result := &SyncResult{
@@ -52,8 +53,21 @@ func (s *Service) SyncAssets(ctx context.Context, orgID uuid.UUID, platform stri
 		AssetsFound: len(discovered),
 	}
 
+	// Start transaction for atomic sync operation
+	tx, txRepo, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			if rbErr := tx.Rollback(ctx); rbErr != nil {
+				s.log.Error("failed to rollback transaction", "error", rbErr)
+			}
+		}
+	}()
+
 	// Get existing assets for this platform
-	existing, err := s.repo.ListAssetsByPlatform(ctx, orgID, platform)
+	existing, err := txRepo.ListAssetsByPlatform(ctx, orgID, platform)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list existing assets: %w", err)
 	}
@@ -106,7 +120,7 @@ func (s *Service) SyncAssets(ctx context.Context, orgID uuid.UUID, platform stri
 		}
 
 		// Upsert asset
-		dbAsset, isNew, err := s.repo.UpsertAsset(ctx, params)
+		dbAsset, isNew, err := txRepo.UpsertAsset(ctx, params)
 		if err != nil {
 			s.log.Error("failed to upsert asset", "error", err, "instance_id", asset.InstanceID)
 			result.Errors = append(result.Errors, err)
@@ -142,7 +156,7 @@ func (s *Service) SyncAssets(ctx context.Context, orgID uuid.UUID, platform stri
 			// Asset no longer exists in the platform
 			if existingAsset.State != "terminated" {
 				// Mark as terminated
-				if err := s.repo.MarkAssetTerminated(ctx, existingAsset.ID); err != nil {
+				if err := txRepo.MarkAssetTerminated(ctx, existingAsset.ID); err != nil {
 					s.log.Error("failed to mark asset terminated", "error", err, "instance_id", instanceID)
 					result.Errors = append(result.Errors, err)
 					continue
@@ -158,6 +172,11 @@ func (s *Service) SyncAssets(ctx context.Context, orgID uuid.UUID, platform stri
 				result.AssetsRemoved++
 			}
 		}
+	}
+
+	// Commit transaction if no critical errors
+	if err = tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	result.Duration = time.Since(startTime)

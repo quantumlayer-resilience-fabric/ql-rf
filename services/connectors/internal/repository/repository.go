@@ -8,17 +8,40 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// DBTX represents a database connection or transaction.
+type DBTX interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 // Repository handles database operations for connectors.
 type Repository struct {
 	pool *pgxpool.Pool
+	db   DBTX // Can be pool or transaction
 }
 
 // New creates a new repository.
 func New(pool *pgxpool.Pool) *Repository {
-	return &Repository{pool: pool}
+	return &Repository{pool: pool, db: pool}
+}
+
+// WithTx returns a new repository that uses the given transaction.
+func (r *Repository) WithTx(tx pgx.Tx) *Repository {
+	return &Repository{pool: r.pool, db: tx}
+}
+
+// BeginTx starts a new transaction and returns a repository using it.
+func (r *Repository) BeginTx(ctx context.Context) (pgx.Tx, *Repository, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return tx, r.WithTx(tx), nil
 }
 
 // Asset represents an asset in the database.
@@ -67,7 +90,7 @@ func (r *Repository) UpsertAsset(ctx context.Context, params UpsertAssetParams) 
 	}
 	isNew = existingID == uuid.Nil
 
-	err = r.pool.QueryRow(ctx, `
+	err = r.db.QueryRow(ctx, `
 		INSERT INTO assets (org_id, env_id, platform, account, region, instance_id, name, image_ref, image_version, state, tags)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (org_id, platform, instance_id)
@@ -101,7 +124,7 @@ func (r *Repository) UpsertAsset(ctx context.Context, params UpsertAssetParams) 
 // getAssetID returns the ID of an existing asset.
 func (r *Repository) getAssetID(ctx context.Context, orgID uuid.UUID, platform, instanceID string) (uuid.UUID, error) {
 	var id uuid.UUID
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT id FROM assets WHERE org_id = $1 AND platform = $2 AND instance_id = $3
 	`, orgID, platform, instanceID).Scan(&id)
 	return id, err
@@ -110,7 +133,7 @@ func (r *Repository) getAssetID(ctx context.Context, orgID uuid.UUID, platform, 
 // GetAsset retrieves an asset by ID.
 func (r *Repository) GetAsset(ctx context.Context, id uuid.UUID) (*Asset, error) {
 	var a Asset
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT id, org_id, env_id, platform, account, region, site,
 		       instance_id, name, image_ref, image_version, state, tags,
 		       discovered_at, updated_at
@@ -129,7 +152,7 @@ func (r *Repository) GetAsset(ctx context.Context, id uuid.UUID) (*Asset, error)
 // GetAssetByInstanceID retrieves an asset by instance ID.
 func (r *Repository) GetAssetByInstanceID(ctx context.Context, orgID uuid.UUID, platform, instanceID string) (*Asset, error) {
 	var a Asset
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT id, org_id, env_id, platform, account, region, site,
 		       instance_id, name, image_ref, image_version, state, tags,
 		       discovered_at, updated_at
@@ -147,7 +170,7 @@ func (r *Repository) GetAssetByInstanceID(ctx context.Context, orgID uuid.UUID, 
 
 // ListAssetsByPlatform returns all assets for an org and platform.
 func (r *Repository) ListAssetsByPlatform(ctx context.Context, orgID uuid.UUID, platform string) ([]Asset, error) {
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.db.Query(ctx, `
 		SELECT id, org_id, env_id, platform, account, region, site,
 		       instance_id, name, image_ref, image_version, state, tags,
 		       discovered_at, updated_at
@@ -177,7 +200,7 @@ func (r *Repository) ListAssetsByPlatform(ctx context.Context, orgID uuid.UUID, 
 
 // MarkAssetTerminated updates an asset's state to terminated.
 func (r *Repository) MarkAssetTerminated(ctx context.Context, id uuid.UUID) error {
-	_, err := r.pool.Exec(ctx, `
+	_, err := r.db.Exec(ctx, `
 		UPDATE assets SET state = 'terminated', updated_at = NOW() WHERE id = $1
 	`, id)
 	return err
@@ -185,6 +208,6 @@ func (r *Repository) MarkAssetTerminated(ctx context.Context, id uuid.UUID) erro
 
 // DeleteAsset removes an asset from the database.
 func (r *Repository) DeleteAsset(ctx context.Context, id uuid.UUID) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM assets WHERE id = $1`, id)
+	_, err := r.db.Exec(ctx, `DELETE FROM assets WHERE id = $1`, id)
 	return err
 }
