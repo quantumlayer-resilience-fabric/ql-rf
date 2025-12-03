@@ -71,9 +71,11 @@ func New(cfg Config) http.Handler {
 				origin == "http://localhost:3000" ||
 				origin == "http://localhost:3001" ||
 				origin == "http://localhost:3002" ||
+				origin == "http://localhost:3003" ||
 				origin == "http://127.0.0.1:3000" ||
 				origin == "http://127.0.0.1:3001" ||
 				origin == "http://127.0.0.1:3002" ||
+				origin == "http://127.0.0.1:3003" ||
 				// Allow any localhost port
 				(len(origin) > 17 && origin[:17] == "http://localhost:") ||
 				(len(origin) > 18 && origin[:18] == "http://127.0.0.1:"))

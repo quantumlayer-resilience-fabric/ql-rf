@@ -19,9 +19,14 @@ RUN npm ci
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Build arguments for Clerk (needed at build time)
+# Build arguments for environment variables (needed at build time for Next.js)
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ARG NEXT_PUBLIC_API_URL=http://localhost:8080/api/v1
+ARG NEXT_PUBLIC_ORCHESTRATOR_URL=http://localhost:8083
+
 ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_ORCHESTRATOR_URL=$NEXT_PUBLIC_ORCHESTRATOR_URL
 
 # Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
