@@ -68,6 +68,16 @@ GET  /api/v1/images           # List golden images
 GET  /api/v1/drift            # Current drift report
 GET  /api/v1/compliance       # Compliance status
 GET  /api/v1/resilience       # DR pairs and status
+
+# Image Lineage Endpoints
+GET  /api/v1/images/{id}/lineage              # Full lineage with parents, children, vulns
+GET  /api/v1/images/families/{family}/lineage-tree  # Tree view for family
+POST /api/v1/images/{id}/lineage/parents      # Add parent relationship
+GET  /api/v1/images/{id}/vulnerabilities      # CVE list for image
+POST /api/v1/images/{id}/vulnerabilities      # Record new vulnerability
+GET  /api/v1/images/{id}/builds               # Build provenance history
+GET  /api/v1/images/{id}/deployments          # Where image is deployed
+GET  /api/v1/images/{id}/components           # SBOM components
 ```
 
 ### 2. AI Orchestrator (`services/orchestrator/`)
@@ -205,6 +215,8 @@ ui/control-tower/src/
 │   │   │   ├── tasks/        # Task list
 │   │   │   └── chat/         # AI chat interface
 │   │   ├── assets/           # Asset management
+│   │   ├── images/           # Golden images
+│   │   │   └── [id]/lineage/ # Image lineage detail
 │   │   ├── drift/            # Drift analysis
 │   │   ├── compliance/       # Compliance dashboard
 │   │   └── resilience/       # DR management
@@ -215,9 +227,14 @@ ui/control-tower/src/
 │   │   ├── pending-task-card.tsx
 │   │   ├── execution-status.tsx
 │   │   └── ai-chat-interface.tsx
+│   ├── images/               # Image lineage components
+│   │   ├── lineage-tree.tsx  # Tree visualization
+│   │   ├── vulnerability-summary.tsx
+│   │   └── build-history.tsx
 │   └── ui/                   # shadcn/ui components
 └── hooks/
     ├── use-ai.ts             # AI task hooks
+    ├── use-lineage.ts        # Image lineage hooks
     └── use-permissions.ts    # RBAC hooks
 ```
 
@@ -252,7 +269,16 @@ organizations, users, org_memberships
 sites, assets, asset_tags
 
 -- Golden images
-golden_image_families, golden_images
+images (golden_image_families, golden_images)
+
+-- Image Lineage (Migration 000006)
+image_lineage          -- Parent-child relationships (derived_from, patched_from, rebuilt_from)
+image_builds           -- SLSA-compatible build provenance
+image_vulnerabilities  -- CVE tracking per image
+image_deployments      -- Where images are deployed
+image_promotions       -- Status transition audit trail
+image_components       -- SBOM data
+image_tags             -- Custom key-value metadata
 
 -- Drift tracking
 drift_reports, drift_items
@@ -265,6 +291,13 @@ dr_pairs, dr_drills, dr_drill_results
 
 -- AI tasks
 ai_tasks, ai_task_plans, ai_tool_invocations
+```
+
+**Lineage Views:**
+```sql
+v_image_lineage_tree      -- Recursive CTE for tree traversal
+v_image_vuln_summary      -- Vulnerability counts by severity
+v_image_deployment_summary -- Deployment statistics
 ```
 
 ### Event Streaming (Kafka)
@@ -335,6 +368,12 @@ make run-orchestrator          # Run AI orchestrator
 | GET | `/readyz` | Readiness probe |
 | GET | `/api/v1/assets` | List assets |
 | GET | `/api/v1/images` | List golden images |
+| GET | `/api/v1/images/{id}/lineage` | Image lineage |
+| GET | `/api/v1/images/families/{family}/lineage-tree` | Family tree |
+| GET | `/api/v1/images/{id}/vulnerabilities` | CVE list |
+| GET | `/api/v1/images/{id}/builds` | Build history |
+| GET | `/api/v1/images/{id}/deployments` | Deployments |
+| GET | `/api/v1/images/{id}/components` | SBOM |
 | GET | `/api/v1/drift` | Drift report |
 | GET | `/api/v1/compliance` | Compliance status |
 | GET | `/api/v1/resilience/dr-pairs` | DR pairs |

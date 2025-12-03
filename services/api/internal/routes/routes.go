@@ -82,6 +82,7 @@ func New(cfg Config) http.Handler {
 	overviewHandler := handlers.NewOverviewHandler(overviewSvc, cfg.Logger)
 	complianceHandler := handlers.NewComplianceHandler(complianceSvc, cfg.Logger)
 	resilienceHandler := handlers.NewResilienceHandler(resilienceSvc, cfg.Logger)
+	lineageHandler := handlers.NewLineageHandler(cfg.DB.Pool, cfg.Logger)
 
 	// Health endpoints (no auth required)
 	r.Get("/healthz", healthHandler.Liveness)
@@ -96,7 +97,12 @@ func New(cfg Config) http.Handler {
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Apply authentication middleware to all API routes
-		r.Use(middleware.Auth(cfg.Config.Clerk.SecretKey, cfg.Logger))
+		authConfig := middleware.AuthConfig{
+			ClerkPublishableKey: cfg.Config.Clerk.PublishableKey,
+			ClerkSecretKey:      cfg.Config.Clerk.SecretKey,
+			DevMode:             cfg.Config.Env == "development",
+		}
+		r.Use(middleware.Auth(authConfig, cfg.Logger))
 		r.Use(middleware.Tenant(cfg.DB, cfg.Logger))
 
 		// Images
@@ -115,6 +121,28 @@ func New(cfg Config) http.Handler {
 				r.Post("/{id}/coordinates", imageHandler.AddCoordinate)
 				r.Post("/{id}/promote", imageHandler.Promote)
 			})
+
+			// Lineage routes for image family tree
+			r.Get("/families/{family}/lineage-tree", lineageHandler.GetLineageTree)
+
+			// Lineage routes for individual images
+			r.Route("/{id}/lineage", func(r chi.Router) {
+				r.Get("/", lineageHandler.GetLineage)
+				r.With(middleware.RequirePermission(models.PermManageImages)).
+					Post("/parents", lineageHandler.AddParent)
+			})
+
+			// Vulnerability tracking
+			r.Route("/{id}/vulnerabilities", func(r chi.Router) {
+				r.Get("/", lineageHandler.GetVulnerabilities)
+				r.With(middleware.RequirePermission(models.PermManageImages)).
+					Post("/", lineageHandler.AddVulnerability)
+			})
+
+			// Build history and deployments
+			r.Get("/{id}/builds", lineageHandler.GetBuilds)
+			r.Get("/{id}/deployments", lineageHandler.GetDeployments)
+			r.Get("/{id}/components", lineageHandler.GetComponents)
 		})
 
 		// Assets

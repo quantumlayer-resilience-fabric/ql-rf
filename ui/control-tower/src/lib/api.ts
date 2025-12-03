@@ -171,6 +171,156 @@ export interface ImageComplianceStatus {
   issueCount: number;
 }
 
+// Image Lineage Types
+export interface ImageLineageRelationship {
+  id: string;
+  imageId: string;
+  parentImageId: string;
+  relationshipType: "derived_from" | "patched_from" | "rebuilt_from";
+  createdAt: string;
+  parentImage?: {
+    id: string;
+    family: string;
+    version: string;
+    status: string;
+  };
+  image?: {
+    id: string;
+    family: string;
+    version: string;
+    status: string;
+  };
+}
+
+export interface ImageBuild {
+  id: string;
+  imageId: string;
+  buildNumber: number;
+  sourceRepo?: string;
+  sourceCommit?: string;
+  sourceBranch?: string;
+  builderType: string;
+  builderVersion?: string;
+  buildRunner?: string;
+  buildRunnerId?: string;
+  buildRunnerUrl?: string;
+  buildLogUrl?: string;
+  buildDurationSeconds?: number;
+  builtBy?: string;
+  signedBy?: string;
+  status: "pending" | "building" | "success" | "failed";
+  errorMessage?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+}
+
+export interface ImageVulnerability {
+  id: string;
+  imageId: string;
+  cveId: string;
+  severity: "critical" | "high" | "medium" | "low" | "unknown";
+  cvssScore?: number;
+  cvssVector?: string;
+  packageName?: string;
+  packageVersion?: string;
+  packageType?: string;
+  fixedVersion?: string;
+  status: "open" | "fixed" | "wont_fix" | "false_positive";
+  statusReason?: string;
+  scanner?: string;
+  scannedAt?: string;
+  fixedInImageId?: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VulnerabilitySummary {
+  imageId: string;
+  family: string;
+  version: string;
+  criticalOpen: number;
+  highOpen: number;
+  mediumOpen: number;
+  lowOpen: number;
+  fixedCount: number;
+  lastScannedAt?: string;
+}
+
+export interface ImageDeployment {
+  id: string;
+  imageId: string;
+  assetId: string;
+  deployedAt: string;
+  deployedBy?: string;
+  deploymentMethod?: string;
+  status: "active" | "replaced" | "terminated";
+  replacedAt?: string;
+  replacedByImageId?: string;
+  assetName?: string;
+  platform?: string;
+  region?: string;
+}
+
+export interface ImagePromotion {
+  id: string;
+  imageId: string;
+  fromStatus: string;
+  toStatus: string;
+  promotedBy: string;
+  approvedBy?: string;
+  approvalTicket?: string;
+  reason?: string;
+  validationPassed?: boolean;
+  promotedAt: string;
+}
+
+export interface ImageComponent {
+  id: string;
+  imageId: string;
+  name: string;
+  version: string;
+  componentType: "os_package" | "library" | "binary" | "container";
+  packageManager?: string;
+  license?: string;
+  licenseUrl?: string;
+  sourceUrl?: string;
+  checksum?: string;
+  createdAt: string;
+}
+
+export interface LineageNode {
+  image: {
+    id: string;
+    family: string;
+    version: string;
+    status: string;
+    osName?: string;
+    osVersion?: string;
+  };
+  depth: number;
+  children?: LineageNode[];
+  parents?: LineageNode[];
+}
+
+export interface ImageLineageTree {
+  family: string;
+  roots: LineageNode[];
+  totalNodes: number;
+}
+
+export interface ImageLineageResponse {
+  image: Image;
+  parents: ImageLineageRelationship[];
+  children: ImageLineageRelationship[];
+  builds: ImageBuild[];
+  vulnerabilitySummary: VulnerabilitySummary;
+  activeDeployments: number;
+  promotions: ImagePromotion[];
+}
+
 export interface ComplianceSummary {
   overallScore: number;
   cisCompliance: number;
@@ -353,6 +503,29 @@ export const api = {
       apiFetch<Image>(`/images/families/${familyId}/versions/${version}/deprecate`, {
         method: "POST",
       }),
+    // Lineage endpoints
+    getLineage: (imageId: string) =>
+      apiFetch<ImageLineageResponse>(`/images/${imageId}/lineage`),
+    getLineageTree: (family: string) =>
+      apiFetch<ImageLineageTree>(`/images/families/${family}/lineage-tree`),
+    addParent: (imageId: string, parentImageId: string, relationshipType: string) =>
+      apiFetch<ImageLineageRelationship>(`/images/${imageId}/lineage/parents`, {
+        method: "POST",
+        body: JSON.stringify({ parent_image_id: parentImageId, relationship_type: relationshipType }),
+      }),
+    getVulnerabilities: (imageId: string) =>
+      apiFetch<ImageVulnerability[]>(`/images/${imageId}/vulnerabilities`),
+    addVulnerability: (imageId: string, vulnerability: Partial<ImageVulnerability>) =>
+      apiFetch<ImageVulnerability>(`/images/${imageId}/vulnerabilities`, {
+        method: "POST",
+        body: JSON.stringify(vulnerability),
+      }),
+    getBuilds: (imageId: string) =>
+      apiFetch<ImageBuild[]>(`/images/${imageId}/builds`),
+    getDeployments: (imageId: string) =>
+      apiFetch<ImageDeployment[]>(`/images/${imageId}/deployments`),
+    getComponents: (imageId: string) =>
+      apiFetch<ImageComponent[]>(`/images/${imageId}/components`),
   },
 
   // Sites

@@ -193,6 +193,12 @@ ql-rf/
 | GET | `/api/v1/images` | List golden images |
 | POST | `/api/v1/images` | Register new image |
 | GET | `/api/v1/images/{family}/latest` | Get latest version |
+| GET | `/api/v1/images/{id}/lineage` | Image lineage (parents, children, vulns) |
+| GET | `/api/v1/images/families/{family}/lineage-tree` | Family tree view |
+| GET | `/api/v1/images/{id}/vulnerabilities` | CVE list for image |
+| GET | `/api/v1/images/{id}/builds` | Build provenance history |
+| GET | `/api/v1/images/{id}/deployments` | Where image is deployed |
+| GET | `/api/v1/images/{id}/components` | SBOM components |
 | GET | `/api/v1/assets` | List assets with filters |
 | GET | `/api/v1/assets/{id}` | Get asset details |
 | GET | `/api/v1/drift` | Current drift report |
@@ -241,7 +247,16 @@ ql-rf/
 - [x] DR drill Temporal workflows
 - [x] E2E integration test suite
 
-### Phase 4: Full Automation (Next)
+### Phase 4: Golden Image Lineage ✅
+- [x] Image lineage data model (parent-child relationships)
+- [x] Build provenance tracking (SLSA-compatible)
+- [x] Vulnerability (CVE) tracking per image
+- [x] Deployment tracking (where images run)
+- [x] SBOM components storage
+- [x] Lineage API endpoints
+- [x] Lineage visualization UI (tree view, vulnerability cards)
+
+### Phase 5: Full Automation (Next)
 - [ ] Predictive risk scoring
 - [ ] Full DR failover orchestration
 - [ ] Auto-remediation mode
