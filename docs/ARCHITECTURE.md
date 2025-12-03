@@ -75,9 +75,11 @@ GET  /api/v1/images/families/{family}/lineage-tree  # Tree view for family
 POST /api/v1/images/{id}/lineage/parents      # Add parent relationship
 GET  /api/v1/images/{id}/vulnerabilities      # CVE list for image
 POST /api/v1/images/{id}/vulnerabilities      # Record new vulnerability
+POST /api/v1/images/{id}/vulnerabilities/import  # Bulk import from scanners
 GET  /api/v1/images/{id}/builds               # Build provenance history
 GET  /api/v1/images/{id}/deployments          # Where image is deployed
 GET  /api/v1/images/{id}/components           # SBOM components
+POST /api/v1/images/{id}/sbom                 # Import SBOM data
 ```
 
 ### 2. AI Orchestrator (`services/orchestrator/`)
@@ -228,8 +230,10 @@ ui/control-tower/src/
 │   │   ├── execution-status.tsx
 │   │   └── ai-chat-interface.tsx
 │   ├── images/               # Image lineage components
-│   │   ├── lineage-tree.tsx  # Tree visualization
+│   │   ├── lineage-tree.tsx  # Hierarchical tree visualization
+│   │   ├── lineage-graph.tsx # Interactive canvas graph
 │   │   ├── vulnerability-summary.tsx
+│   │   ├── vulnerability-trend-chart.tsx  # Time-series chart
 │   │   └── build-history.tsx
 │   └── ui/                   # shadcn/ui components
 └── hooks/
@@ -371,9 +375,11 @@ make run-orchestrator          # Run AI orchestrator
 | GET | `/api/v1/images/{id}/lineage` | Image lineage |
 | GET | `/api/v1/images/families/{family}/lineage-tree` | Family tree |
 | GET | `/api/v1/images/{id}/vulnerabilities` | CVE list |
+| POST | `/api/v1/images/{id}/vulnerabilities/import` | Import scanner results |
 | GET | `/api/v1/images/{id}/builds` | Build history |
 | GET | `/api/v1/images/{id}/deployments` | Deployments |
 | GET | `/api/v1/images/{id}/components` | SBOM |
+| POST | `/api/v1/images/{id}/sbom` | Import SBOM |
 | GET | `/api/v1/drift` | Drift report |
 | GET | `/api/v1/compliance` | Compliance status |
 | GET | `/api/v1/resilience/dr-pairs` | DR pairs |

@@ -196,9 +196,11 @@ ql-rf/
 | GET | `/api/v1/images/{id}/lineage` | Image lineage (parents, children, vulns) |
 | GET | `/api/v1/images/families/{family}/lineage-tree` | Family tree view |
 | GET | `/api/v1/images/{id}/vulnerabilities` | CVE list for image |
+| POST | `/api/v1/images/{id}/vulnerabilities/import` | Import scanner results (Trivy, Grype, Snyk, etc.) |
 | GET | `/api/v1/images/{id}/builds` | Build provenance history |
 | GET | `/api/v1/images/{id}/deployments` | Where image is deployed |
 | GET | `/api/v1/images/{id}/components` | SBOM components |
+| POST | `/api/v1/images/{id}/sbom` | Import SBOM (SPDX, CycloneDX, Syft) |
 | GET | `/api/v1/assets` | List assets with filters |
 | GET | `/api/v1/assets/{id}` | Get asset details |
 | GET | `/api/v1/drift` | Current drift report |
@@ -255,6 +257,10 @@ ql-rf/
 - [x] SBOM components storage
 - [x] Lineage API endpoints
 - [x] Lineage visualization UI (tree view, vulnerability cards)
+- [x] Interactive lineage graph visualization (canvas-based)
+- [x] Vulnerability trend charts with time-range filtering
+- [x] Scanner integration API (Trivy, Grype, Snyk, Clair, Anchore, Aqua, Twistlock, Qualys)
+- [x] SBOM import API (SPDX, CycloneDX, Syft formats)
 
 ### Phase 5: Full Automation (Next)
 - [ ] Predictive risk scoring
