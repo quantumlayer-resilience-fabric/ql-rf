@@ -802,6 +802,7 @@ func (h *Handler) rejectTask(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) modifyTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskID")
+	ctx := r.Context()
 
 	var req ApprovalRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -809,33 +810,209 @@ func (h *Handler) modifyTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID := middleware.GetUserID(ctx)
+	if userID == "" {
+		userID = "anonymous"
+	}
+
+	// Verify task exists and is in a modifiable state
+	var currentState string
+	err := h.db.Pool.QueryRow(ctx, `
+		SELECT state FROM ai_tasks WHERE id = $1
+	`, taskID).Scan(&currentState)
+	if err != nil {
+		h.respondError(w, http.StatusNotFound, "task not found", err)
+		return
+	}
+
+	// Only allow modification of tasks in planned or rejected state
+	if currentState != "planned" && currentState != "rejected" {
+		h.respondError(w, http.StatusBadRequest,
+			fmt.Sprintf("cannot modify task in state '%s', must be 'planned' or 'rejected'", currentState),
+			nil)
+		return
+	}
+
+	// Get current plan
+	var planPayloadJSON []byte
+	err = h.db.Pool.QueryRow(ctx, `
+		SELECT payload FROM ai_plans WHERE task_id = $1
+	`, taskID).Scan(&planPayloadJSON)
+	if err != nil {
+		h.respondError(w, http.StatusNotFound, "plan not found", err)
+		return
+	}
+
+	// Parse and merge modifications
+	var planPayload map[string]interface{}
+	if err := json.Unmarshal(planPayloadJSON, &planPayload); err != nil {
+		h.respondError(w, http.StatusInternalServerError, "failed to parse plan", err)
+		return
+	}
+
+	// Apply modifications to plan
+	for key, value := range req.Modifications {
+		planPayload[key] = value
+	}
+
+	// Add modification audit trail
+	modifications := planPayload["_modifications"]
+	if modifications == nil {
+		modifications = []interface{}{}
+	}
+	modList := modifications.([]interface{})
+	modList = append(modList, map[string]interface{}{
+		"modified_by": userID,
+		"modified_at": time.Now().UTC(),
+		"changes":     req.Modifications,
+		"reason":      req.Reason,
+	})
+	planPayload["_modifications"] = modList
+
+	// Save updated plan
+	updatedPayloadJSON, err := json.Marshal(planPayload)
+	if err != nil {
+		h.respondError(w, http.StatusInternalServerError, "failed to serialize plan", err)
+		return
+	}
+
+	now := time.Now().UTC()
+
+	// Update plan
+	_, err = h.db.Pool.Exec(ctx, `
+		UPDATE ai_plans
+		SET payload = $1, state = 'awaiting_approval', updated_at = $2
+		WHERE task_id = $3
+	`, updatedPayloadJSON, now, taskID)
+	if err != nil {
+		h.respondError(w, http.StatusInternalServerError, "failed to update plan", err)
+		return
+	}
+
+	// Update task state
+	_, err = h.db.Pool.Exec(ctx, `
+		UPDATE ai_tasks
+		SET state = 'planned', updated_at = $1
+		WHERE id = $2
+	`, now, taskID)
+	if err != nil {
+		h.log.Warn("failed to update task state", "error", err)
+	}
+
 	h.log.Info("task modified",
 		"task_id", taskID,
+		"modified_by", userID,
 		"modifications", req.Modifications,
 	)
-
-	// TODO: Implement actual modification logic
 
 	h.respond(w, http.StatusOK, map[string]interface{}{
 		"task_id":       taskID,
 		"status":        "modified",
 		"message":       "Task modifications applied, ready for re-approval",
+		"modified_by":   userID,
+		"modified_at":   now,
 		"modifications": req.Modifications,
 	})
 }
 
 func (h *Handler) cancelTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskID")
+	ctx := r.Context()
 
-	h.log.Info("task cancelled", "task_id", taskID)
+	var req ApprovalRequest
+	// Request body is optional for cancel
+	json.NewDecoder(r.Body).Decode(&req)
 
-	// TODO: Implement actual cancellation logic
+	userID := middleware.GetUserID(ctx)
+	if userID == "" {
+		userID = "anonymous"
+	}
+
+	// Verify task exists and get current state
+	var currentState string
+	err := h.db.Pool.QueryRow(ctx, `
+		SELECT state FROM ai_tasks WHERE id = $1
+	`, taskID).Scan(&currentState)
+	if err != nil {
+		h.respondError(w, http.StatusNotFound, "task not found", err)
+		return
+	}
+
+	// Cannot cancel already completed, failed, or cancelled tasks
+	if currentState == "completed" || currentState == "failed" || currentState == "cancelled" {
+		h.respondError(w, http.StatusBadRequest,
+			fmt.Sprintf("cannot cancel task in state '%s'", currentState),
+			nil)
+		return
+	}
+
+	now := time.Now().UTC()
+
+	// If task is executing, try to cancel the execution
+	if currentState == "executing" {
+		// Check for active execution
+		var executionID string
+		err := h.db.Pool.QueryRow(ctx, `
+			SELECT id FROM ai_executions WHERE task_id = $1 AND status IN ('pending', 'running', 'paused')
+			ORDER BY created_at DESC LIMIT 1
+		`, taskID).Scan(&executionID)
+		if err == nil && h.executor != nil {
+			// Cancel the execution
+			if err := h.executor.CancelExecution(ctx, executionID); err != nil {
+				h.log.Warn("failed to cancel execution", "execution_id", executionID, "error", err)
+			}
+		}
+
+		// Cancel via Temporal if available
+		if h.temporalWorker != nil {
+			if err := h.temporalWorker.CancelWorkflow(ctx, taskID); err != nil {
+				h.log.Warn("failed to cancel temporal workflow", "task_id", taskID, "error", err)
+			}
+		}
+	}
+
+	// Update task state to cancelled
+	_, err = h.db.Pool.Exec(ctx, `
+		UPDATE ai_tasks
+		SET state = 'cancelled', updated_at = $1
+		WHERE id = $2
+	`, now, taskID)
+	if err != nil {
+		h.respondError(w, http.StatusInternalServerError, "failed to update task", err)
+		return
+	}
+
+	// Update plan state
+	_, _ = h.db.Pool.Exec(ctx, `
+		UPDATE ai_plans
+		SET state = 'cancelled', rejection_reason = $1, updated_at = $2
+		WHERE task_id = $3
+	`, req.Reason, now, taskID)
+
+	h.log.Info("task cancelled",
+		"task_id", taskID,
+		"cancelled_by", userID,
+		"previous_state", currentState,
+		"reason", req.Reason,
+	)
+
+	// Send cancellation notification
+	if h.notifier != nil {
+		go func() {
+			if err := h.notifier.NotifyTaskRejected(context.Background(), taskID, userID, "Task cancelled: "+req.Reason); err != nil {
+				h.log.Error("failed to send cancellation notification", "error", err)
+			}
+		}()
+	}
 
 	h.respond(w, http.StatusOK, map[string]interface{}{
-		"task_id":      taskID,
-		"status":       "cancelled",
-		"message":      "Task cancelled",
-		"cancelled_at": time.Now().UTC(),
+		"task_id":        taskID,
+		"status":         "cancelled",
+		"previous_state": currentState,
+		"message":        "Task cancelled",
+		"cancelled_by":   userID,
+		"cancelled_at":   now,
+		"reason":         req.Reason,
 	})
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -142,51 +143,179 @@ func (e *Engine) Calculate(ctx context.Context, req models.DriftCalculationReque
 
 // getGoldenImageBaselines returns a map of image references to their latest versions.
 func (e *Engine) getGoldenImageBaselines(ctx context.Context, orgID uuid.UUID) (map[string]string, error) {
-	// TODO: Query database for golden images with production status
-	// For now, return mock data
-	return map[string]string{
-		"ami-0123456789abcdef0": "1.6.4",
-		"ami-fedcba9876543210f": "1.6.3",
-		"ql-base-linux":        "1.6.4",
-	}, nil
+	baselines := make(map[string]string)
+
+	// Query for the latest production images for each family
+	query := `
+		SELECT DISTINCT ON (i.family)
+			i.family,
+			i.version,
+			ic.identifier
+		FROM images i
+		LEFT JOIN image_coordinates ic ON ic.image_id = i.id
+		WHERE i.org_id = $1
+		AND i.status = 'production'
+		ORDER BY i.family, i.created_at DESC
+	`
+
+	rows, err := e.db.Pool.Query(ctx, query, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query golden images: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var family, version string
+		var identifier *string
+		if err := rows.Scan(&family, &version, &identifier); err != nil {
+			e.log.Warn("failed to scan golden image row", "error", err)
+			continue
+		}
+
+		// Map family name to version
+		baselines[family] = version
+
+		// Also map platform-specific identifiers to version
+		if identifier != nil && *identifier != "" {
+			baselines[*identifier] = version
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating golden images: %w", err)
+	}
+
+	e.log.Debug("loaded golden image baselines",
+		"org_id", orgID,
+		"count", len(baselines),
+	)
+
+	return baselines, nil
 }
 
 // getFleetAssets returns all assets matching the given criteria.
 func (e *Engine) getFleetAssets(ctx context.Context, req models.DriftCalculationRequest) ([]models.Asset, error) {
-	// TODO: Query database for assets
-	// For now, return mock data
-	return []models.Asset{
-		{
-			ID:           uuid.New(),
-			OrgID:        req.OrgID,
-			Platform:     models.PlatformAWS,
-			Region:       "us-east-1",
-			InstanceID:   "i-001",
-			ImageRef:     "ami-0123456789abcdef0",
-			ImageVersion: "1.6.4",
-			State:        models.AssetStateRunning,
-		},
-		{
-			ID:           uuid.New(),
-			OrgID:        req.OrgID,
-			Platform:     models.PlatformAWS,
-			Region:       "us-east-1",
-			InstanceID:   "i-002",
-			ImageRef:     "ami-fedcba9876543210f",
-			ImageVersion: "1.6.2",
-			State:        models.AssetStateRunning,
-		},
-		{
-			ID:           uuid.New(),
-			OrgID:        req.OrgID,
-			Platform:     models.PlatformAWS,
-			Region:       "us-east-1",
-			InstanceID:   "i-003",
-			ImageRef:     "ami-0123456789abcdef0",
-			ImageVersion: "1.6.4",
-			State:        models.AssetStateRunning,
-		},
-	}, nil
+	// Build dynamic query based on filters
+	query := `
+		SELECT
+			a.id,
+			a.org_id,
+			a.env_id,
+			a.platform,
+			a.account,
+			a.region,
+			a.site,
+			a.instance_id,
+			a.name,
+			a.image_ref,
+			a.image_version,
+			a.state,
+			a.tags,
+			a.discovered_at,
+			a.updated_at
+		FROM assets a
+		WHERE a.org_id = $1
+	`
+	args := []interface{}{req.OrgID}
+	argNum := 2
+
+	// Apply optional filters
+	if req.EnvID != uuid.Nil {
+		query += fmt.Sprintf(" AND a.env_id = $%d", argNum)
+		args = append(args, req.EnvID)
+		argNum++
+	}
+
+	if req.Platform != "" {
+		query += fmt.Sprintf(" AND a.platform = $%d", argNum)
+		args = append(args, req.Platform)
+		argNum++
+	}
+
+	if req.Site != "" {
+		query += fmt.Sprintf(" AND a.site = $%d", argNum)
+		args = append(args, req.Site)
+		argNum++
+	}
+
+	// Only get active assets by default
+	query += " ORDER BY a.discovered_at DESC"
+
+	rows, err := e.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query assets: %w", err)
+	}
+	defer rows.Close()
+
+	var assets []models.Asset
+	for rows.Next() {
+		var asset models.Asset
+		var envID *uuid.UUID
+		var account, region, site, name, imageRef, imageVersion *string
+		var tags []byte
+
+		if err := rows.Scan(
+			&asset.ID,
+			&asset.OrgID,
+			&envID,
+			&asset.Platform,
+			&account,
+			&region,
+			&site,
+			&asset.InstanceID,
+			&name,
+			&imageRef,
+			&imageVersion,
+			&asset.State,
+			&tags,
+			&asset.DiscoveredAt,
+			&asset.UpdatedAt,
+		); err != nil {
+			e.log.Warn("failed to scan asset row", "error", err)
+			continue
+		}
+
+		// Set optional fields
+		if envID != nil {
+			asset.EnvID = *envID
+		}
+		if account != nil {
+			asset.Account = *account
+		}
+		if region != nil {
+			asset.Region = *region
+		}
+		if site != nil {
+			asset.Site = *site
+		}
+		if name != nil {
+			asset.Name = *name
+		}
+		if imageRef != nil {
+			asset.ImageRef = *imageRef
+		}
+		if imageVersion != nil {
+			asset.ImageVersion = *imageVersion
+		}
+
+		// Set tags JSON directly (it's already json.RawMessage type)
+		if len(tags) > 0 {
+			asset.Tags = tags
+		}
+
+		assets = append(assets, asset)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating assets: %w", err)
+	}
+
+	e.log.Debug("loaded fleet assets",
+		"org_id", req.OrgID,
+		"count", len(assets),
+	)
+
+	return assets, nil
 }
 
 // findBaselineByFamily attempts to match an image ref to a family.
@@ -258,27 +387,130 @@ func (e *Engine) CalculateSummary(ctx context.Context, orgID uuid.UUID) (*models
 
 // calculateByScope calculates drift metrics grouped by a scope.
 func (e *Engine) calculateByScope(ctx context.Context, orgID uuid.UUID, scopeType string) []models.DriftByScope {
-	// TODO: Query database and calculate per-scope metrics
-	// For now, return mock data
+	// Get baselines first
+	baselines, err := e.getGoldenImageBaselines(ctx, orgID)
+	if err != nil {
+		e.log.Warn("failed to get baselines for scope calculation", "error", err)
+		return nil
+	}
+
+	// Determine the grouping column
+	var groupColumn string
 	switch scopeType {
 	case "environment":
-		return []models.DriftByScope{
-			{Scope: "prod", TotalAssets: 8234, CompliantAssets: 7180, CoveragePct: 87.2, Status: models.DriftStatusWarning},
-			{Scope: "staging", TotalAssets: 2456, CompliantAssets: 2362, CoveragePct: 96.2, Status: models.DriftStatusHealthy},
-			{Scope: "dev", TotalAssets: 1523, CompliantAssets: 1412, CoveragePct: 92.7, Status: models.DriftStatusHealthy},
-		}
+		groupColumn = "e.name"
 	case "platform":
-		return []models.DriftByScope{
-			{Scope: "aws", TotalAssets: 4231, CompliantAssets: 4020, CoveragePct: 95.0, Status: models.DriftStatusHealthy},
-			{Scope: "azure", TotalAssets: 3892, CompliantAssets: 3700, CoveragePct: 95.1, Status: models.DriftStatusHealthy},
-			{Scope: "gcp", TotalAssets: 2156, CompliantAssets: 2050, CoveragePct: 95.1, Status: models.DriftStatusHealthy},
-		}
+		groupColumn = "a.platform"
 	case "site":
-		return []models.DriftByScope{
-			{Scope: "us-east-1", TotalAssets: 3456, CompliantAssets: 3380, CoveragePct: 97.8, Status: models.DriftStatusHealthy},
-			{Scope: "eu-west-1", TotalAssets: 2891, CompliantAssets: 2750, CoveragePct: 95.1, Status: models.DriftStatusHealthy},
-		}
+		groupColumn = "a.site"
 	default:
 		return nil
 	}
+
+	// Build query with grouping
+	var query string
+	if scopeType == "environment" {
+		query = fmt.Sprintf(`
+			SELECT
+				COALESCE(%s, 'unknown') as scope,
+				COUNT(*) as total_assets,
+				a.image_ref,
+				a.image_version
+			FROM assets a
+			LEFT JOIN environments e ON e.id = a.env_id
+			WHERE a.org_id = $1
+			AND a.state IN ('running', 'stopped')
+			GROUP BY %s, a.image_ref, a.image_version
+			ORDER BY scope
+		`, groupColumn, groupColumn)
+	} else {
+		query = fmt.Sprintf(`
+			SELECT
+				COALESCE(%s, 'unknown') as scope,
+				COUNT(*) as total_assets,
+				a.image_ref,
+				a.image_version
+			FROM assets a
+			WHERE a.org_id = $1
+			AND a.state IN ('running', 'stopped')
+			GROUP BY %s, a.image_ref, a.image_version
+			ORDER BY scope
+		`, groupColumn, groupColumn)
+	}
+
+	rows, err := e.db.Pool.Query(ctx, query, orgID)
+	if err != nil {
+		e.log.Warn("failed to query scope metrics", "error", err, "scope_type", scopeType)
+		return nil
+	}
+	defer rows.Close()
+
+	// Aggregate results by scope
+	scopeMetrics := make(map[string]*models.DriftByScope)
+
+	for rows.Next() {
+		var scope string
+		var count int
+		var imageRef, imageVersion *string
+
+		if err := rows.Scan(&scope, &count, &imageRef, &imageVersion); err != nil {
+			e.log.Warn("failed to scan scope row", "error", err)
+			continue
+		}
+
+		// Initialize scope if needed
+		if _, exists := scopeMetrics[scope]; !exists {
+			scopeMetrics[scope] = &models.DriftByScope{
+				Scope:           scope,
+				TotalAssets:     0,
+				CompliantAssets: 0,
+			}
+		}
+
+		metric := scopeMetrics[scope]
+		metric.TotalAssets += count
+
+		// Check compliance
+		isCompliant := false
+		if imageRef != nil && imageVersion != nil {
+			expectedVersion, ok := baselines[*imageRef]
+			if !ok {
+				// Try family-based match
+				for family, version := range baselines {
+					if family == *imageRef || strings.Contains(*imageRef, family) {
+						expectedVersion = version
+						ok = true
+						break
+					}
+				}
+			}
+			if !ok {
+				// No baseline found - consider compliant
+				isCompliant = true
+			} else {
+				isCompliant = *imageVersion == expectedVersion
+			}
+		}
+
+		if isCompliant {
+			metric.CompliantAssets += count
+		}
+	}
+
+	// Convert to slice and calculate percentages
+	var results []models.DriftByScope
+	for _, metric := range scopeMetrics {
+		if metric.TotalAssets > 0 {
+			metric.CoveragePct = float64(metric.CompliantAssets) / float64(metric.TotalAssets) * 100
+			metric.Status = models.CalculateStatus(metric.CoveragePct, e.config.WarningThreshold, e.config.CriticalThreshold)
+		}
+		results = append(results, *metric)
+	}
+
+	// Sort by scope name
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Scope < results[j].Scope
+	})
+
+	return results
 }

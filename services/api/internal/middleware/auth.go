@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/quantumlayerhq/ql-rf/pkg/auth"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
@@ -278,4 +279,131 @@ func OptionalAuth(cfg AuthConfig, log *logger.Logger) func(next http.Handler) ht
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// TenantConfig holds configuration for the tenant middleware.
+type TenantConfig struct {
+	DB      *pgxpool.Pool
+	DevMode bool
+	Log     *logger.Logger
+}
+
+// Tenant returns middleware that resolves the organization from the authenticated user.
+// It should be used after the Auth middleware.
+func Tenant(cfg TenantConfig) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			user := GetUser(ctx)
+
+			if user == nil {
+				// No authenticated user, skip org lookup
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			var org *models.Organization
+
+			// Try to get org from user's org_id
+			if user.OrgID != uuid.Nil {
+				org = lookupOrgByID(ctx, cfg.DB, user.OrgID)
+			}
+
+			// If no org found and we have claims, try org from claims
+			if org == nil {
+				if claims := GetClaims(ctx); claims != nil && claims.OrgID != "" {
+					if orgID, err := uuid.Parse(claims.OrgID); err == nil {
+						org = lookupOrgByID(ctx, cfg.DB, orgID)
+					}
+				}
+			}
+
+			// Development mode fallback - use first org for the user or create default
+			if org == nil && cfg.DevMode {
+				org = lookupOrgByUserExternalID(ctx, cfg.DB, user.ExternalID)
+
+				// If still no org in dev mode, try to find default org
+				if org == nil {
+					org = lookupDefaultOrg(ctx, cfg.DB)
+				}
+
+				if org != nil && cfg.Log != nil {
+					cfg.Log.Debug("dev mode: resolved org for user",
+						"user_external_id", user.ExternalID,
+						"org_id", org.ID,
+						"org_name", org.Name,
+					)
+				}
+			}
+
+			// Add organization to context if found
+			if org != nil {
+				ctx = context.WithValue(ctx, OrgContextKey, org)
+				ctx = context.WithValue(ctx, logger.OrgIDKey, org.ID.String())
+				r = r.WithContext(ctx)
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// lookupOrgByID fetches an organization by ID.
+func lookupOrgByID(ctx context.Context, db *pgxpool.Pool, orgID uuid.UUID) *models.Organization {
+	if db == nil {
+		return nil
+	}
+
+	var org models.Organization
+	err := db.QueryRow(ctx, `
+		SELECT id, name, slug, created_at, updated_at
+		FROM organizations
+		WHERE id = $1
+	`, orgID).Scan(&org.ID, &org.Name, &org.Slug, &org.CreatedAt, &org.UpdatedAt)
+
+	if err != nil {
+		return nil
+	}
+	return &org
+}
+
+// lookupOrgByUserExternalID finds the org for a user by their external ID.
+func lookupOrgByUserExternalID(ctx context.Context, db *pgxpool.Pool, externalID string) *models.Organization {
+	if db == nil {
+		return nil
+	}
+
+	var org models.Organization
+	err := db.QueryRow(ctx, `
+		SELECT o.id, o.name, o.slug, o.created_at, o.updated_at
+		FROM organizations o
+		JOIN users u ON u.org_id = o.id
+		WHERE u.external_id = $1
+		LIMIT 1
+	`, externalID).Scan(&org.ID, &org.Name, &org.Slug, &org.CreatedAt, &org.UpdatedAt)
+
+	if err != nil {
+		return nil
+	}
+	return &org
+}
+
+// lookupDefaultOrg finds the first organization (for dev mode).
+func lookupDefaultOrg(ctx context.Context, db *pgxpool.Pool) *models.Organization {
+	if db == nil {
+		return nil
+	}
+
+	var org models.Organization
+	err := db.QueryRow(ctx, `
+		SELECT id, name, slug, created_at, updated_at
+		FROM organizations
+		ORDER BY created_at ASC
+		LIMIT 1
+	`).Scan(&org.ID, &org.Name, &org.Slug, &org.CreatedAt, &org.UpdatedAt)
+
+	if err != nil {
+		return nil
+	}
+	return &org
 }

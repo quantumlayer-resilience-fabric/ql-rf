@@ -69,7 +69,7 @@ func New(cfg Config) http.Handler {
 	siteSvc := service.NewSiteService(siteRepo)
 	alertSvc := service.NewAlertService(alertRepo)
 	overviewSvc := service.NewOverviewService(assetRepo, driftRepo, siteRepo, alertRepo, activityRepo)
-	complianceSvc := service.NewComplianceService()
+	complianceSvc := service.NewComplianceService(cfg.DB, cfg.Logger)
 	resilienceSvc := service.NewResilienceService(siteRepo)
 
 	// Initialize handlers
@@ -97,13 +97,19 @@ func New(cfg Config) http.Handler {
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Apply authentication middleware to all API routes
+		devMode := cfg.Config.Env == "development"
 		authConfig := middleware.AuthConfig{
 			ClerkPublishableKey: cfg.Config.Clerk.PublishableKey,
 			ClerkSecretKey:      cfg.Config.Clerk.SecretKey,
-			DevMode:             cfg.Config.Env == "development",
+			DevMode:             devMode,
+		}
+		tenantConfig := middleware.TenantConfig{
+			DB:      cfg.DB.Pool,
+			DevMode: devMode,
+			Log:     cfg.Logger,
 		}
 		r.Use(middleware.Auth(authConfig, cfg.Logger))
-		r.Use(middleware.Tenant(cfg.DB, cfg.Logger))
+		r.Use(middleware.Tenant(tenantConfig))
 
 		// Images
 		r.Route("/images", func(r chi.Router) {

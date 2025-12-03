@@ -243,7 +243,49 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	// Validate production configuration
+	if err := cfg.validateProduction(); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
+
 	return &cfg, nil
+}
+
+// validateProduction ensures critical configuration is set for non-development environments.
+func (c *Config) validateProduction() error {
+	// Skip validation in development mode
+	if c.Env == "development" || c.Env == "dev" || c.Env == "test" {
+		return nil
+	}
+
+	var missingConfig []string
+
+	// Database URL must not use default credentials in production
+	if strings.Contains(c.Database.URL, "postgres:postgres@localhost") {
+		missingConfig = append(missingConfig, "RF_DATABASE_URL (must not use default localhost credentials)")
+	}
+
+	// Clerk authentication is required in production
+	if c.Clerk.SecretKey == "" {
+		missingConfig = append(missingConfig, "RF_CLERK_SECRET_KEY")
+	}
+	if c.Clerk.PublishableKey == "" {
+		missingConfig = append(missingConfig, "RF_CLERK_PUBLISHABLE_KEY")
+	}
+
+	// LLM configuration is required if orchestrator is enabled
+	if c.Orchestrator.Enabled {
+		if c.LLM.Provider == "" || (c.LLM.APIKey == "" && c.LLM.AzureEndpoint == "") {
+			missingConfig = append(missingConfig, "RF_LLM_PROVIDER and RF_LLM_API_KEY (or Azure OpenAI config)")
+		}
+	}
+
+	if len(missingConfig) > 0 {
+		return fmt.Errorf("missing required configuration for %s environment: %s",
+			c.Env, strings.Join(missingConfig, ", "))
+	}
+
+	return nil
 }
 
 func setDefaults(v *viper.Viper) {

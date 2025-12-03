@@ -2,19 +2,43 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/quantumlayerhq/ql-rf/pkg/database"
+	"github.com/quantumlayerhq/ql-rf/pkg/kafka"
 )
+
+// HealthChecker defines the interface for health checks.
+type HealthChecker interface {
+	Health(ctx context.Context) error
+}
+
+// RedisClient defines the interface for Redis client health checks.
+type RedisClient interface {
+	Ping(ctx context.Context) error
+}
 
 // HealthHandler handles health check endpoints.
 type HealthHandler struct {
 	db        *database.DB
+	kafka     *kafka.Client
+	redis     RedisClient
 	version   string
 	gitCommit string
+}
+
+// HealthHandlerConfig contains configuration for the health handler.
+type HealthHandlerConfig struct {
+	DB        *database.DB
+	Kafka     *kafka.Client
+	Redis     RedisClient
+	Version   string
+	GitCommit string
 }
 
 // NewHealthHandler creates a new HealthHandler.
@@ -23,6 +47,17 @@ func NewHealthHandler(db *database.DB, version, gitCommit string) *HealthHandler
 		db:        db,
 		version:   version,
 		gitCommit: gitCommit,
+	}
+}
+
+// NewHealthHandlerWithDeps creates a new HealthHandler with all dependencies.
+func NewHealthHandlerWithDeps(cfg HealthHandlerConfig) *HealthHandler {
+	return &HealthHandler{
+		db:        cfg.DB,
+		kafka:     cfg.Kafka,
+		redis:     cfg.Redis,
+		version:   cfg.Version,
+		gitCommit: cfg.GitCommit,
 	}
 }
 
@@ -55,16 +90,41 @@ func (h *HealthHandler) Readiness(w http.ResponseWriter, r *http.Request) {
 	checks := make(map[string]string)
 	allHealthy := true
 
+	// Use context with timeout for health checks
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
 	// Check database connection
-	if err := h.db.Health(r.Context()); err != nil {
+	if err := h.db.Health(ctx); err != nil {
 		checks["database"] = "unhealthy: " + err.Error()
 		allHealthy = false
 	} else {
 		checks["database"] = "healthy"
 	}
 
-	// TODO: Add Kafka health check
-	// TODO: Add Redis health check
+	// Check Kafka connection
+	if h.kafka != nil {
+		if err := h.kafka.Health(ctx); err != nil {
+			checks["kafka"] = "unhealthy: " + err.Error()
+			// Kafka is not critical for basic API operations
+		} else {
+			checks["kafka"] = "healthy"
+		}
+	} else {
+		checks["kafka"] = "not configured"
+	}
+
+	// Check Redis connection
+	if h.redis != nil {
+		if err := h.redis.Ping(ctx); err != nil {
+			checks["redis"] = "unhealthy: " + err.Error()
+			// Redis is not critical for basic API operations
+		} else {
+			checks["redis"] = "healthy"
+		}
+	} else {
+		checks["redis"] = "not configured"
+	}
 
 	status := "ok"
 	httpStatus := http.StatusOK

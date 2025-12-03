@@ -221,3 +221,56 @@ func (p *Producer) Health(ctx context.Context, brokers []string) error {
 
 	return nil
 }
+
+// Client is a high-level Kafka client that combines producer and consumer.
+type Client struct {
+	Producer *Producer
+	Consumer *Consumer
+	Brokers  []string
+	logger   *slog.Logger
+}
+
+// ClientConfig holds configuration for the Kafka client.
+type ClientConfig struct {
+	Brokers       []string
+	ConsumerGroup string
+	Topics        []string
+}
+
+// NewClient creates a new Kafka client.
+func NewClient(cfg config.KafkaConfig) (*Client, error) {
+	producer, err := NewProducer(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create producer: %w", err)
+	}
+
+	return &Client{
+		Producer: producer,
+		Brokers:  cfg.Brokers,
+		logger:   slog.Default().With("component", "kafka-client"),
+	}, nil
+}
+
+// Health checks the Kafka connection.
+func (c *Client) Health(ctx context.Context) error {
+	if c.Producer == nil {
+		return fmt.Errorf("kafka producer not initialized")
+	}
+	return c.Producer.Health(ctx, c.Brokers)
+}
+
+// Close closes the Kafka client.
+func (c *Client) Close() error {
+	var err error
+	if c.Producer != nil {
+		if e := c.Producer.Close(); e != nil {
+			err = e
+		}
+	}
+	if c.Consumer != nil {
+		if e := c.Consumer.Close(); e != nil {
+			err = e
+		}
+	}
+	return err
+}
