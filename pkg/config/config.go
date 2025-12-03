@@ -82,6 +82,7 @@ type ConnectorsConfig struct {
 	Azure   AzureConfig   `mapstructure:"azure"`
 	GCP     GCPConfig     `mapstructure:"gcp"`
 	VSphere VSphereConfig `mapstructure:"vsphere"`
+	K8s     K8sConfig     `mapstructure:"k8s"`
 }
 
 // AWSConfig holds AWS connector configuration.
@@ -111,6 +112,33 @@ type VSphereConfig struct {
 	User     string `mapstructure:"user"`
 	Password string `mapstructure:"password"`
 	Insecure bool   `mapstructure:"insecure"`
+}
+
+// K8sConfig holds Kubernetes connector configuration.
+type K8sConfig struct {
+	// Kubeconfig file path. If empty, uses in-cluster config or default kubeconfig location.
+	Kubeconfig string `mapstructure:"kubeconfig"`
+
+	// Context to use from kubeconfig. If empty, uses current-context.
+	Context string `mapstructure:"context"`
+
+	// Namespaces to scan. If empty, scans all namespaces.
+	Namespaces []string `mapstructure:"namespaces"`
+
+	// ExcludeNamespaces to skip during discovery (e.g., kube-system, kube-public).
+	ExcludeNamespaces []string `mapstructure:"exclude_namespaces"`
+
+	// DiscoverNodes enables node discovery in addition to pods.
+	DiscoverNodes bool `mapstructure:"discover_nodes"`
+
+	// DiscoverDeployments includes deployment metadata in asset discovery.
+	DiscoverDeployments bool `mapstructure:"discover_deployments"`
+
+	// LabelSelector to filter pods (e.g., "app=myapp,env=prod").
+	LabelSelector string `mapstructure:"label_selector"`
+
+	// ClusterName is an optional friendly name for the cluster.
+	ClusterName string `mapstructure:"cluster_name"`
 }
 
 // DriftConfig holds drift service configuration.
@@ -329,6 +357,16 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("connectors.port", 8081)
 	v.SetDefault("connectors.sync_interval", "5m")
 	v.SetDefault("connectors.enabled", []string{"aws"})
+
+	// K8s connector defaults
+	v.SetDefault("connectors.k8s.kubeconfig", "")
+	v.SetDefault("connectors.k8s.context", "")
+	v.SetDefault("connectors.k8s.namespaces", []string{})
+	v.SetDefault("connectors.k8s.exclude_namespaces", []string{"kube-system", "kube-public", "kube-node-lease"})
+	v.SetDefault("connectors.k8s.discover_nodes", true)
+	v.SetDefault("connectors.k8s.discover_deployments", true)
+	v.SetDefault("connectors.k8s.label_selector", "")
+	v.SetDefault("connectors.k8s.cluster_name", "")
 
 	// Drift
 	v.SetDefault("drift.host", "0.0.0.0")

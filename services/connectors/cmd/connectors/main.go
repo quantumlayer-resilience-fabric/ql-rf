@@ -20,6 +20,7 @@ import (
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/azure"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/connector"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/gcp"
+	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/k8s"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/vsphere"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/repository"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/sync"
@@ -166,6 +167,19 @@ func initializeConnectors(cfg *config.Config, log *logger.Logger) []connector.Co
 				Insecure: cfg.Connectors.VSphere.Insecure,
 			}, log)
 			connectors = append(connectors, vsphereConnector)
+
+		case "k8s", "kubernetes":
+			k8sConnector := k8s.New(k8s.Config{
+				Kubeconfig:          cfg.Connectors.K8s.Kubeconfig,
+				Context:             cfg.Connectors.K8s.Context,
+				Namespaces:          cfg.Connectors.K8s.Namespaces,
+				ExcludeNamespaces:   cfg.Connectors.K8s.ExcludeNamespaces,
+				DiscoverNodes:       cfg.Connectors.K8s.DiscoverNodes,
+				DiscoverDeployments: cfg.Connectors.K8s.DiscoverDeployments,
+				LabelSelector:       cfg.Connectors.K8s.LabelSelector,
+				ClusterName:         cfg.Connectors.K8s.ClusterName,
+			}, log)
+			connectors = append(connectors, k8sConnector)
 
 		default:
 			log.Warn("unknown connector", "name", name)
