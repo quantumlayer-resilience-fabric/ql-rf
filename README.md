@@ -174,7 +174,7 @@ ql-rf/
 | Workflows | Temporal (durable execution) |
 | Frontend | Next.js 16, Tailwind, shadcn/ui |
 | Auth | Clerk (OIDC/JWT) |
-| Cloud SDKs | AWS SDK v2, Azure SDK, GCP, govmomi (vSphere) |
+| Cloud SDKs | AWS SDK v2 (EC2, SSM), Azure SDK, GCP, govmomi (vSphere) |
 | IaC | Terraform + Helm + Kubernetes |
 | Contracts | YAML + JSONSchema + OPA (Rego policies) |
 | AI | Azure Anthropic (Claude) / OpenAI API |
@@ -291,7 +291,15 @@ ql-rf/
 - [x] Comprehensive unit tests for critical packages
 - [x] Frontend type safety fixes
 
-### Phase 8: Full Automation (Next)
+### Phase 8: Platform Integrations ✅
+- [x] AWS SSM native patch management integration
+- [x] Patch compliance status tracking (COMPLIANT/NON_COMPLIANT)
+- [x] MS Teams notifications with Adaptive Cards (v1.4)
+- [x] Real drift age calculation from timestamps
+
+### Phase 9: Full Automation (Next)
+- [ ] Azure Update Management integration
+- [ ] GCP OS Patch Management integration
 - [ ] Predictive risk scoring with ML models
 - [ ] Full DR failover orchestration
 - [ ] Auto-remediation mode

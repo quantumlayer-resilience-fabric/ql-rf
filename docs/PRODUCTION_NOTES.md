@@ -44,8 +44,10 @@ The following operations return simulated/mock responses and require implementat
 | Component | File | Description |
 |-----------|------|-------------|
 | DR Drill Operations | `services/orchestrator/internal/temporal/activities/dr_drill_activities.go` | Failover, failback, and sync operations are simulated |
-| Asset Patching | `services/orchestrator/internal/executor/asset_processor.go:257` | AWS SSM/Azure Update Management not yet implemented |
-| Drift Age Calculation | `services/api/internal/handlers/drift.go:148` | Returns hardcoded "14 days" |
+
+**Implemented Operations:**
+- ✅ **Asset Patching** - AWS SSM integration now implemented (`services/connectors/internal/aws/ssm_patcher.go`)
+- ✅ **Drift Age Calculation** - Now uses actual drift report timestamps
 
 **Impact**: DR drills will show successful completion but won't actually perform infrastructure changes. This is acceptable for initial deployment with proper documentation.
 
@@ -56,8 +58,10 @@ These features are stubbed but not fully implemented:
 | Feature | Location | Status |
 |---------|----------|--------|
 | Platform breakdown in asset stats | `asset_service.go:139` | Returns empty map |
-| Additional notification channels | `activities.go:140` | Slack, email, webhook work; MS Teams pending |
 | DR notification delivery | `dr_drill_activities.go:407,420` | Logged but not sent |
+
+**Implemented Features:**
+- ✅ **MS Teams Notifications** - Adaptive Cards (v1.4) format now supported (`notifier/notifier.go`)
 
 ### 3. Rate Limiting
 

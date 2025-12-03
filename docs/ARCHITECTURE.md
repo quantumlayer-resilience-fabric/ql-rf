@@ -146,10 +146,32 @@ Platform-specific adapters for infrastructure discovery and operations.
 
 | Platform | SDK | Capabilities |
 |----------|-----|--------------|
-| AWS | AWS SDK v2 | EC2 instances, AMIs, EBS, VPCs |
+| AWS | AWS SDK v2 | EC2 instances, AMIs, EBS, VPCs, **SSM Patch Management** |
 | Azure | Azure SDK for Go | VMs, managed disks, images, VNets |
 | GCP | Google Cloud Go SDK | Compute instances, images, disks |
 | vSphere | govmomi | VMs, templates, datastores |
+
+**AWS SSM Patch Management:**
+
+The AWS connector includes native SSM integration for patch operations:
+
+```go
+// SSM Patcher capabilities
+type SSMPatcher interface {
+    ApplyPatchBaseline(ctx, instanceID, operation, rebootOption string) (*PatchOperation, error)
+    ScanForPatches(ctx, instanceID string) (*PatchOperation, error)
+    InstallPatches(ctx, instanceID string) (*PatchOperation, error)
+    GetPatchComplianceStatus(ctx, instanceID string) (*PatchComplianceStatus, error)
+    GetManagedInstances(ctx context.Context) ([]ManagedInstance, error)
+    WaitForCommand(ctx, commandID, instanceID string, timeout time.Duration) (*PatchOperation, error)
+}
+```
+
+**Patch Operations:**
+- `Scan` - Check for missing patches without installing
+- `Install` - Install missing patches (uses `AWS-RunPatchBaseline` document)
+- Configurable reboot options: `RebootIfNeeded`, `NoReboot`
+- Compliance status tracking: `COMPLIANT`, `NON_COMPLIANT`, `PENDING`
 
 **Interface:**
 ```go
@@ -333,6 +355,28 @@ Multi-channel notification system for task lifecycle events.
 - **Slack**: Webhook-based notifications with rich formatting
 - **Email**: SMTP-based email notifications
 - **Webhook**: Generic HTTP webhooks with HMAC-SHA256 signatures
+- **MS Teams**: Adaptive Cards (v1.4) with rich formatting and action buttons
+
+**Configuration:**
+```bash
+# Slack
+RF_SLACK_ENABLED=true
+RF_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx
+
+# MS Teams
+RF_TEAMS_ENABLED=true
+RF_TEAMS_WEBHOOK_URL=https://outlook.office.com/webhook/xxx
+
+# Email
+RF_EMAIL_ENABLED=true
+RF_SMTP_HOST=smtp.example.com
+RF_SMTP_PORT=587
+
+# Webhooks
+RF_WEBHOOK_ENABLED=true
+RF_WEBHOOK_URL=https://your-endpoint.com/webhook
+RF_WEBHOOK_SECRET=your-hmac-secret
+```
 
 **Security:**
 - Webhooks signed with `X-QL-Signature: sha256=<hmac>` header
