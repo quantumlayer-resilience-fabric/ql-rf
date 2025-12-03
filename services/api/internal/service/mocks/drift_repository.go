@@ -20,14 +20,15 @@ type MockDriftRepository struct {
 	trends           map[uuid.UUID][]service.DriftTrendPoint
 
 	// Control behavior for testing
-	GetDriftReportFunc        func(ctx context.Context, id uuid.UUID) (*service.DriftReport, error)
-	GetLatestDriftReportFunc  func(ctx context.Context, orgID uuid.UUID) (*service.DriftReport, error)
-	GetDriftByEnvironmentFunc func(ctx context.Context, orgID uuid.UUID) ([]service.DriftByScope, error)
-	GetDriftByPlatformFunc    func(ctx context.Context, orgID uuid.UUID) ([]service.DriftByScope, error)
-	GetDriftBySiteFunc        func(ctx context.Context, orgID uuid.UUID) ([]service.DriftByScope, error)
-	GetDriftTrendFunc         func(ctx context.Context, orgID uuid.UUID, days int) ([]service.DriftTrendPoint, error)
-	ListDriftReportsFunc      func(ctx context.Context, orgID uuid.UUID, limit, offset int32) ([]service.DriftReport, error)
-	CreateDriftReportFunc     func(ctx context.Context, params service.CreateDriftReportParams) (*service.DriftReport, error)
+	GetDriftReportFunc           func(ctx context.Context, id uuid.UUID) (*service.DriftReport, error)
+	GetLatestDriftReportFunc     func(ctx context.Context, orgID uuid.UUID) (*service.DriftReport, error)
+	GetDriftByEnvironmentFunc    func(ctx context.Context, orgID uuid.UUID) ([]service.DriftByScope, error)
+	GetDriftByPlatformFunc       func(ctx context.Context, orgID uuid.UUID) ([]service.DriftByScope, error)
+	GetDriftBySiteFunc           func(ctx context.Context, orgID uuid.UUID) ([]service.DriftByScope, error)
+	GetDriftTrendFunc            func(ctx context.Context, orgID uuid.UUID, days int) ([]service.DriftTrendPoint, error)
+	ListDriftReportsFunc         func(ctx context.Context, orgID uuid.UUID, limit, offset int32) ([]service.DriftReport, error)
+	CreateDriftReportFunc        func(ctx context.Context, params service.CreateDriftReportParams) (*service.DriftReport, error)
+	GetDriftAgeDistributionFunc  func(ctx context.Context, orgID uuid.UUID) (*service.DriftAgeDistribution, error)
 }
 
 // NewMockDriftRepository creates a new MockDriftRepository.
@@ -244,4 +245,22 @@ func (m *MockDriftRepository) AddTrendPoint(point *service.DriftTrendPoint, orgI
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.trends[orgID] = append(m.trends[orgID], *point)
+}
+
+// GetDriftAgeDistribution returns drift age distribution statistics.
+func (m *MockDriftRepository) GetDriftAgeDistribution(ctx context.Context, orgID uuid.UUID) (*service.DriftAgeDistribution, error) {
+	if m.GetDriftAgeDistributionFunc != nil {
+		return m.GetDriftAgeDistributionFunc(ctx, orgID)
+	}
+
+	// Return default mock data
+	return &service.DriftAgeDistribution{
+		AverageDays: 14.0,
+		ByRange: []service.DriftAgeRange{
+			{Range: "0-7 days", Count: 25, Percentage: 25.0},
+			{Range: "8-14 days", Count: 25, Percentage: 25.0},
+			{Range: "15-30 days", Count: 25, Percentage: 25.0},
+			{Range: "30+ days", Count: 25, Percentage: 25.0},
+		},
+	}, nil
 }

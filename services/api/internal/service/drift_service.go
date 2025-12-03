@@ -242,6 +242,16 @@ func (s *DriftService) CalculateDrift(ctx context.Context, input CalculateDriftI
 	return report, nil
 }
 
+// GetDriftAgeDistributionInput contains input for getting drift age distribution.
+type GetDriftAgeDistributionInput struct {
+	OrgID uuid.UUID
+}
+
+// GetDriftAgeDistribution retrieves drift age distribution statistics.
+func (s *DriftService) GetDriftAgeDistribution(ctx context.Context, input GetDriftAgeDistributionInput) (*DriftAgeDistribution, error) {
+	return s.driftRepo.GetDriftAgeDistribution(ctx, input.OrgID)
+}
+
 // calculateStatus determines drift status based on coverage percentage.
 func calculateStatus(coveragePct float64) string {
 	if coveragePct >= 90 {

@@ -13,6 +13,9 @@ type MockPlatformClient struct {
 	TerminateInstanceFunc       func(ctx context.Context, instanceID string) error
 	GetInstanceStatusFunc       func(ctx context.Context, instanceID string) (string, error)
 	WaitForInstanceStateFunc    func(ctx context.Context, instanceID, targetState string, timeout time.Duration) error
+	ApplyPatchesFunc            func(ctx context.Context, instanceID string, params map[string]interface{}) error
+	GetPatchStatusFunc          func(ctx context.Context, instanceID string) (string, error)
+	GetPatchComplianceDataFunc  func(ctx context.Context, instanceID string) (interface{}, error)
 }
 
 // NewMockPlatformClient creates a new mock platform client with default successful implementations.
@@ -32,6 +35,20 @@ func NewMockPlatformClient() *MockPlatformClient {
 		},
 		WaitForInstanceStateFunc: func(ctx context.Context, instanceID, targetState string, timeout time.Duration) error {
 			return nil
+		},
+		ApplyPatchesFunc: func(ctx context.Context, instanceID string, params map[string]interface{}) error {
+			return nil
+		},
+		GetPatchStatusFunc: func(ctx context.Context, instanceID string) (string, error) {
+			return "COMPLIANT", nil
+		},
+		GetPatchComplianceDataFunc: func(ctx context.Context, instanceID string) (interface{}, error) {
+			return map[string]interface{}{
+				"compliance_status": "COMPLIANT",
+				"installed_count":   50,
+				"missing_count":     0,
+				"failed_count":      0,
+			}, nil
 		},
 	}
 }
@@ -74,4 +91,33 @@ func (m *MockPlatformClient) WaitForInstanceState(ctx context.Context, instanceI
 		return m.WaitForInstanceStateFunc(ctx, instanceID, targetState, timeout)
 	}
 	return nil
+}
+
+// ApplyPatches applies patches to an instance using platform-native tooling.
+func (m *MockPlatformClient) ApplyPatches(ctx context.Context, instanceID string, params map[string]interface{}) error {
+	if m.ApplyPatchesFunc != nil {
+		return m.ApplyPatchesFunc(ctx, instanceID, params)
+	}
+	return nil
+}
+
+// GetPatchStatus retrieves patch compliance status for an instance.
+func (m *MockPlatformClient) GetPatchStatus(ctx context.Context, instanceID string) (string, error) {
+	if m.GetPatchStatusFunc != nil {
+		return m.GetPatchStatusFunc(ctx, instanceID)
+	}
+	return "COMPLIANT", nil
+}
+
+// GetPatchComplianceData retrieves detailed patch compliance data.
+func (m *MockPlatformClient) GetPatchComplianceData(ctx context.Context, instanceID string) (interface{}, error) {
+	if m.GetPatchComplianceDataFunc != nil {
+		return m.GetPatchComplianceDataFunc(ctx, instanceID)
+	}
+	return map[string]interface{}{
+		"compliance_status": "COMPLIANT",
+		"installed_count":   50,
+		"missing_count":     0,
+		"failed_count":      0,
+	}, nil
 }

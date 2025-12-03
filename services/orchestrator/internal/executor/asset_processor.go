@@ -56,6 +56,15 @@ type PlatformClient interface {
 
 	// WaitForInstanceState waits for an instance to reach a specific state.
 	WaitForInstanceState(ctx context.Context, instanceID, targetState string, timeout time.Duration) error
+
+	// ApplyPatches applies patches to an instance using platform-native tooling (SSM, Azure Update, etc).
+	ApplyPatches(ctx context.Context, instanceID string, params map[string]interface{}) error
+
+	// GetPatchStatus retrieves patch compliance status for an instance.
+	GetPatchStatus(ctx context.Context, instanceID string) (string, error)
+
+	// GetPatchComplianceData retrieves detailed patch compliance data.
+	GetPatchComplianceData(ctx context.Context, instanceID string) (interface{}, error)
 }
 
 // AssetProcessor processes assets during execution.
@@ -245,17 +254,23 @@ func (p *AssetProcessor) terminateAsset(ctx context.Context, asset *AssetInfo, r
 	return nil
 }
 
-// patchAsset applies patches to an asset (via SSM or similar).
+// patchAsset applies patches to an asset via platform-native tooling (AWS SSM, Azure Update Management, etc).
 func (p *AssetProcessor) patchAsset(ctx context.Context, asset *AssetInfo, params map[string]interface{}, result *AssetProcessorResult) error {
 	// Get patch operation parameters
 	patchGroup, _ := params["patch_group"].(string)
 	baselineID, _ := params["baseline_id"].(string)
-
-	// For now, we'll use SSM Run Command or similar
-	// This is platform-specific and would be implemented in the platform client
-
-	// TODO: Implement actual patching via AWS SSM, Azure Update Management, etc.
-	// For now, we validate the asset exists and is reachable
+	operation, _ := params["operation"].(string)
+	if operation == "" {
+		operation = "Install" // Default to install
+	}
+	rebootIfNeeded := true
+	if rb, ok := params["reboot_if_needed"].(bool); ok {
+		rebootIfNeeded = rb
+	}
+	synchronous := true
+	if sync, ok := params["synchronous"].(bool); ok {
+		synchronous = sync
+	}
 
 	client, ok := p.platformClients[asset.Platform]
 	if !ok {
@@ -268,13 +283,52 @@ func (p *AssetProcessor) patchAsset(ctx context.Context, asset *AssetInfo, param
 		return fmt.Errorf("failed to get instance status: %w", err)
 	}
 	if status != "running" {
-		return fmt.Errorf("instance is not running: %s", status)
+		return fmt.Errorf("instance is not running (current state: %s)", status)
+	}
+
+	p.log.Info("starting patch operation",
+		"instance_id", asset.InstanceID,
+		"platform", asset.Platform,
+		"operation", operation,
+		"patch_group", patchGroup,
+		"baseline_id", baselineID,
+	)
+
+	// Build patch parameters for the platform client
+	patchParams := map[string]interface{}{
+		"operation":        operation,
+		"reboot_if_needed": rebootIfNeeded,
+		"synchronous":      synchronous,
+		"region":           asset.Region,
+	}
+	if baselineID != "" {
+		patchParams["baseline_override"] = baselineID
+	}
+
+	// Apply patches using platform-native tooling
+	if err := client.ApplyPatches(ctx, asset.InstanceID, patchParams); err != nil {
+		return fmt.Errorf("patch operation failed: %w", err)
+	}
+
+	// Get post-patch compliance status
+	complianceStatus, err := client.GetPatchStatus(ctx, asset.InstanceID)
+	if err != nil {
+		p.log.Warn("failed to get post-patch compliance status", "error", err)
+		complianceStatus = "unknown"
+	}
+
+	// Get detailed compliance data if available
+	complianceData, err := client.GetPatchComplianceData(ctx, asset.InstanceID)
+	if err == nil && complianceData != nil {
+		result.Metadata["compliance_data"] = complianceData
 	}
 
 	result.Metadata["patch_group"] = patchGroup
 	result.Metadata["baseline_id"] = baselineID
-	result.NeedsReboot = true // Patches typically require reboot
-	result.Output = fmt.Sprintf("Patch operation initiated for %s (patch_group: %s)", asset.InstanceID, patchGroup)
+	result.Metadata["operation"] = operation
+	result.Metadata["compliance_status"] = complianceStatus
+	result.NeedsReboot = rebootIfNeeded && operation == "Install"
+	result.Output = fmt.Sprintf("Patch operation completed for %s (operation: %s, compliance: %s)", asset.InstanceID, operation, complianceStatus)
 
 	return nil
 }

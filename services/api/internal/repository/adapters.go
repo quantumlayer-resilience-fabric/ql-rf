@@ -376,6 +376,28 @@ func (a *DriftRepositoryAdapter) GetDriftTrend(ctx context.Context, orgID uuid.U
 	return result, nil
 }
 
+// GetDriftAgeDistribution returns drift age distribution statistics.
+func (a *DriftRepositoryAdapter) GetDriftAgeDistribution(ctx context.Context, orgID uuid.UUID) (*service.DriftAgeDistribution, error) {
+	dist, err := a.repo.GetDriftAgeDistribution(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+
+	ranges := make([]service.DriftAgeRange, 0, len(dist.ByRange))
+	for _, r := range dist.ByRange {
+		ranges = append(ranges, service.DriftAgeRange{
+			Range:      r.Range,
+			Count:      r.Count,
+			Percentage: r.Percentage,
+		})
+	}
+
+	return &service.DriftAgeDistribution{
+		AverageDays: dist.AverageDays,
+		ByRange:     ranges,
+	}, nil
+}
+
 // SiteRepositoryAdapter adapts Repository to implement service.SiteRepository.
 type SiteRepositoryAdapter struct {
 	repo *Repository

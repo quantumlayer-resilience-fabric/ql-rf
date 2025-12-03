@@ -4,6 +4,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -20,13 +21,14 @@ import (
 
 // Connector implements the AWS platform connector.
 type Connector struct {
-	cfg       Config
-	awsCfg    aws.Config
-	ec2Client *ec2.Client
-	stsClient *sts.Client
-	log       *logger.Logger
-	connected bool
-	accountID string // AWS Account ID
+	cfg        Config
+	awsCfg     aws.Config
+	ec2Client  *ec2.Client
+	stsClient  *sts.Client
+	ssmPatcher *SSMPatcher
+	log        *logger.Logger
+	connected  bool
+	accountID  string // AWS Account ID
 }
 
 // Config holds AWS-specific configuration.
@@ -81,6 +83,7 @@ func (c *Connector) Connect(ctx context.Context) error {
 	c.awsCfg = awsCfg
 	c.ec2Client = ec2.NewFromConfig(awsCfg)
 	c.stsClient = sts.NewFromConfig(awsCfg)
+	c.ssmPatcher = NewSSMPatcher(awsCfg, c.log)
 	c.connected = true
 
 	// Get caller identity to retrieve account ID
@@ -351,4 +354,117 @@ func (c *Connector) DiscoverImages(ctx context.Context) ([]connector.ImageInfo, 
 	c.log.Info("image discovery completed", "count", len(images))
 
 	return images, nil
+}
+
+// SSMPatcher returns the SSM patcher for this connector.
+func (c *Connector) SSMPatcher() *SSMPatcher {
+	return c.ssmPatcher
+}
+
+// SSMPatcherForRegion returns an SSM patcher for a specific region.
+func (c *Connector) SSMPatcherForRegion(region string) *SSMPatcher {
+	return c.ssmPatcher.ForRegion(region)
+}
+
+// ApplyPatches applies patches to an EC2 instance using SSM.
+func (c *Connector) ApplyPatches(ctx context.Context, instanceID string, params map[string]interface{}) error {
+	if !c.connected {
+		return fmt.Errorf("not connected")
+	}
+
+	// Extract region from instance ID or use default
+	region := c.cfg.Region
+	if r, ok := params["region"].(string); ok && r != "" {
+		region = r
+	}
+
+	patcher := c.ssmPatcher.ForRegion(region)
+
+	// Build patch parameters
+	patchParams := ApplyPatchParams{
+		Operation:    "Install",
+		RebootOption: "NoReboot",
+	}
+
+	if op, ok := params["operation"].(string); ok {
+		patchParams.Operation = op
+	}
+	if reboot, ok := params["reboot_if_needed"].(bool); ok && reboot {
+		patchParams.RebootOption = "RebootIfNeeded"
+	}
+	if baseline, ok := params["baseline_override"].(string); ok {
+		patchParams.BaselineOverride = baseline
+	}
+
+	// Start the patch operation
+	op, err := patcher.ApplyPatchBaseline(ctx, instanceID, patchParams)
+	if err != nil {
+		return fmt.Errorf("failed to start patch operation: %w", err)
+	}
+
+	c.log.Info("patch operation started",
+		"command_id", op.CommandID,
+		"instance_id", instanceID,
+	)
+
+	// If synchronous mode requested, wait for completion
+	if sync, ok := params["synchronous"].(bool); ok && sync {
+		timeout := 30 * time.Minute
+		if t, ok := params["timeout"].(time.Duration); ok {
+			timeout = t
+		}
+
+		op, err = patcher.WaitForCommand(ctx, op.CommandID, instanceID, timeout)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// GetPatchStatus retrieves the patch compliance status for an instance.
+func (c *Connector) GetPatchStatus(ctx context.Context, instanceID string) (string, error) {
+	if !c.connected {
+		return "", fmt.Errorf("not connected")
+	}
+
+	status, err := c.ssmPatcher.GetPatchComplianceStatus(ctx, instanceID)
+	if err != nil {
+		return "", err
+	}
+
+	return status.ComplianceStatus, nil
+}
+
+// GetPatchComplianceData retrieves detailed patch compliance data for an instance.
+func (c *Connector) GetPatchComplianceData(ctx context.Context, instanceID string) (interface{}, error) {
+	if !c.connected {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	return c.ssmPatcher.GetPatchComplianceStatus(ctx, instanceID)
+}
+
+// ScanForPatches initiates a patch scan on an instance.
+func (c *Connector) ScanForPatches(ctx context.Context, instanceID, region string) (*PatchOperation, error) {
+	if !c.connected {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	patcher := c.ssmPatcher
+	if region != "" && region != c.cfg.Region {
+		patcher = c.ssmPatcher.ForRegion(region)
+	}
+
+	return patcher.ScanForPatches(ctx, instanceID)
+}
+
+// GetManagedInstances returns all SSM-managed instances.
+func (c *Connector) GetManagedInstances(ctx context.Context) ([]ManagedInstance, error) {
+	if !c.connected {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	return c.ssmPatcher.GetManagedInstances(ctx)
 }

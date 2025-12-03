@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -120,12 +121,37 @@ func (h *DriftHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Build byAge array (calculated from drift age distribution)
-	byAge := []map[string]interface{}{
-		{"range": "0-7 days", "count": int(driftedAssets / 4), "percentage": 25.0},
-		{"range": "8-14 days", "count": int(driftedAssets / 4), "percentage": 25.0},
-		{"range": "15-30 days", "count": int(driftedAssets / 4), "percentage": 25.0},
-		{"range": "30+ days", "count": int(driftedAssets / 4), "percentage": 25.0},
+	// Get drift age distribution from database
+	ageDistribution, err := h.svc.GetDriftAgeDistribution(ctx, service.GetDriftAgeDistributionInput{
+		OrgID: org.ID,
+	})
+
+	// Build byAge array from actual drift age distribution
+	byAge := make([]map[string]interface{}, 0, 4)
+	averageDriftAge := "0 days"
+	if err == nil && ageDistribution != nil {
+		for _, r := range ageDistribution.ByRange {
+			byAge = append(byAge, map[string]interface{}{
+				"range":      r.Range,
+				"count":      r.Count,
+				"percentage": r.Percentage,
+			})
+		}
+		// Format average drift age
+		avgDays := int(ageDistribution.AverageDays)
+		if avgDays == 1 {
+			averageDriftAge = "1 day"
+		} else {
+			averageDriftAge = fmt.Sprintf("%d days", avgDays)
+		}
+	} else {
+		// Fallback if query fails
+		byAge = []map[string]interface{}{
+			{"range": "0-7 days", "count": 0, "percentage": 0.0},
+			{"range": "8-14 days", "count": 0, "percentage": 0.0},
+			{"range": "15-30 days", "count": 0, "percentage": 0.0},
+			{"range": "30+ days", "count": 0, "percentage": 0.0},
+		}
 	}
 
 	// Return response matching frontend DriftSummary type
@@ -145,7 +171,7 @@ func (h *DriftHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		DriftedAssets:   driftedAssets,
 		DriftPercentage: driftPercentage,
 		CriticalDrift:   criticalDrift,
-		AverageDriftAge: "14 days", // TODO: Calculate from actual drift ages
+		AverageDriftAge: averageDriftAge,
 		ByEnvironment:   byEnvironment,
 		BySite:          bySite,
 		ByAge:           byAge,

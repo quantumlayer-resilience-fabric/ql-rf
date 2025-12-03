@@ -502,6 +502,7 @@ func TestNotify_NoChannelsEnabled(t *testing.T) {
 		SlackEnabled:   false,
 		EmailEnabled:   false,
 		WebhookEnabled: false,
+		TeamsEnabled:   false,
 	}
 
 	n := New(cfg, log)
@@ -514,4 +515,248 @@ func TestNotify_NoChannelsEnabled(t *testing.T) {
 
 	// Should succeed with no errors since no channels are enabled
 	assert.NoError(t, err)
+}
+
+func TestNotify_Teams(t *testing.T) {
+	var received map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "POST", r.Method)
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		err := json.NewDecoder(r.Body).Decode(&received)
+		require.NoError(t, err)
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	log := logger.New("debug", "json")
+	cfg := config.NotificationConfig{
+		TeamsEnabled:    true,
+		TeamsWebhookURL: server.URL,
+		AppBaseURL:      "https://example.com",
+	}
+
+	n := New(cfg, log)
+	ctx := context.Background()
+
+	event := Event{
+		Type:        EventTaskPendingApproval,
+		TaskID:      "task-teams-123",
+		TaskType:    "drift_remediation",
+		Environment: "production",
+		RiskLevel:   "high",
+		Summary:     "Fix drift on prod servers",
+		Timestamp:   time.Now(),
+	}
+
+	err := n.Notify(ctx, event)
+	require.NoError(t, err)
+
+	// Verify it's an Adaptive Card message
+	assert.Equal(t, "message", received["type"])
+	attachments := received["attachments"].([]interface{})
+	assert.Len(t, attachments, 1)
+
+	attachment := attachments[0].(map[string]interface{})
+	assert.Equal(t, "application/vnd.microsoft.card.adaptive", attachment["contentType"])
+}
+
+func TestNotify_TeamsFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	log := logger.New("debug", "json")
+	cfg := config.NotificationConfig{
+		TeamsEnabled:    true,
+		TeamsWebhookURL: server.URL,
+	}
+
+	n := New(cfg, log)
+	ctx := context.Background()
+
+	err := n.Notify(ctx, Event{
+		Type:      EventTaskApproved,
+		TaskID:    "task-456",
+		Timestamp: time.Now(),
+	})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "teams")
+}
+
+func TestBuildTeamsMessage(t *testing.T) {
+	log := logger.New("debug", "json")
+	cfg := config.NotificationConfig{
+		AppBaseURL: "https://app.example.com",
+	}
+
+	n := New(cfg, log)
+
+	tests := []struct {
+		name      string
+		event     Event
+		wantTitle string
+	}{
+		{
+			name: "pending approval",
+			event: Event{
+				Type:        EventTaskPendingApproval,
+				TaskID:      "task-123456789",
+				TaskType:    "drift_remediation",
+				Environment: "production",
+				RiskLevel:   "high",
+				Summary:     "Fix drift",
+				Timestamp:   time.Now(),
+			},
+			wantTitle: "⚠️ Task Awaiting Approval",
+		},
+		{
+			name: "approved",
+			event: Event{
+				Type:      EventTaskApproved,
+				TaskID:    "task-456789012",
+				UserID:    "admin",
+				Timestamp: time.Now(),
+			},
+			wantTitle: "✅ Task Approved",
+		},
+		{
+			name: "rejected",
+			event: Event{
+				Type:      EventTaskRejected,
+				TaskID:    "task-789012345",
+				UserID:    "admin",
+				Summary:   "Too risky",
+				Timestamp: time.Now(),
+			},
+			wantTitle: "❌ Task Rejected",
+		},
+		{
+			name: "execution started",
+			event: Event{
+				Type:   EventExecutionStarted,
+				TaskID: "task-exec1234",
+				Execution: &executor.Execution{
+					TotalPhases: 3,
+				},
+				Timestamp: time.Now(),
+			},
+			wantTitle: "🚀 Execution Started",
+		},
+		{
+			name: "execution completed",
+			event: Event{
+				Type:      EventExecutionCompleted,
+				TaskID:    "task-done1234",
+				Timestamp: time.Now(),
+			},
+			wantTitle: "🎉 Execution Completed",
+		},
+		{
+			name: "execution failed",
+			event: Event{
+				Type:   EventExecutionFailed,
+				TaskID: "task-fail1234",
+				Execution: &executor.Execution{
+					Error: "Timeout",
+				},
+				Timestamp: time.Now(),
+			},
+			wantTitle: "🚨 Execution Failed",
+		},
+		{
+			name: "phase started",
+			event: Event{
+				Type:   EventPhaseStarted,
+				TaskID: "task-phase123",
+				Phase: &executor.PhaseExecution{
+					Name: "Wave 1",
+				},
+				Timestamp: time.Now(),
+			},
+			wantTitle: "▶️ Phase Started",
+		},
+		{
+			name: "phase completed",
+			event: Event{
+				Type:   EventPhaseCompleted,
+				TaskID: "task-phase456",
+				Phase: &executor.PhaseExecution{
+					Name: "Wave 1",
+				},
+				Timestamp: time.Now(),
+			},
+			wantTitle: "☑️ Phase Completed",
+		},
+		{
+			name: "phase failed",
+			event: Event{
+				Type:   EventPhaseFailed,
+				TaskID: "task-phase789",
+				Phase: &executor.PhaseExecution{
+					Name:  "Wave 2",
+					Error: "Health check failed",
+				},
+				Timestamp: time.Now(),
+			},
+			wantTitle: "⚠️ Phase Failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := n.buildTeamsMessage(tt.event)
+
+			assert.Equal(t, "message", msg["type"])
+			attachments := msg["attachments"].([]map[string]interface{})
+			assert.Len(t, attachments, 1)
+
+			content := attachments[0]["content"].(map[string]interface{})
+			assert.Equal(t, "AdaptiveCard", content["type"])
+			assert.Equal(t, "1.4", content["version"])
+
+			// Verify the card has actions
+			actions := content["actions"].([]map[string]interface{})
+			assert.Len(t, actions, 1)
+			assert.Equal(t, "Action.OpenUrl", actions[0]["type"])
+			assert.Contains(t, actions[0]["url"], "https://app.example.com/ai/tasks/")
+		})
+	}
+}
+
+func TestBuildTeamsMessageCard(t *testing.T) {
+	log := logger.New("debug", "json")
+	cfg := config.NotificationConfig{
+		AppBaseURL: "https://app.example.com",
+	}
+
+	n := New(cfg, log)
+
+	event := Event{
+		Type:        EventTaskPendingApproval,
+		TaskID:      "task-123456789",
+		TaskType:    "drift_remediation",
+		Environment: "production",
+		RiskLevel:   "high",
+		Summary:     "Fix drift",
+		Timestamp:   time.Now(),
+	}
+
+	msg := n.buildTeamsMessageCard(event)
+
+	// Verify legacy MessageCard format
+	assert.Equal(t, "MessageCard", msg["@type"])
+	assert.Equal(t, "http://schema.org/extensions", msg["@context"])
+	assert.Equal(t, "FFA500", msg["themeColor"])
+
+	sections := msg["sections"].([]map[string]interface{})
+	assert.Len(t, sections, 1)
+	assert.Equal(t, "Task Awaiting Approval", sections[0]["activityTitle"])
+
+	potentialActions := msg["potentialAction"].([]map[string]interface{})
+	assert.Len(t, potentialActions, 1)
+	assert.Equal(t, "OpenUri", potentialActions[0]["@type"])
 }

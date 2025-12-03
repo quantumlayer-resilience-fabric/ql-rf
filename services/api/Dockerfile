@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24rc2-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
@@ -11,7 +11,8 @@ WORKDIR /app
 COPY go.mod go.sum ./
 COPY services/api/go.mod services/api/go.sum* ./services/api/
 
-# Download dependencies
+# Download dependencies (allow toolchain auto-upgrade)
+ENV GOTOOLCHAIN=auto
 RUN go mod download
 
 # Copy source code

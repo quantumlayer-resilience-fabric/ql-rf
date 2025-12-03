@@ -48,6 +48,20 @@ type DriftRepository interface {
 	GetDriftByPlatform(ctx context.Context, orgID uuid.UUID) ([]DriftByScope, error)
 	GetDriftBySite(ctx context.Context, orgID uuid.UUID) ([]DriftByScope, error)
 	GetDriftTrend(ctx context.Context, orgID uuid.UUID, days int) ([]DriftTrendPoint, error)
+	GetDriftAgeDistribution(ctx context.Context, orgID uuid.UUID) (*DriftAgeDistribution, error)
+}
+
+// DriftAgeDistribution represents drift age statistics.
+type DriftAgeDistribution struct {
+	AverageDays float64        `json:"average_days"`
+	ByRange     []DriftAgeRange `json:"by_range"`
+}
+
+// DriftAgeRange represents count of drifted assets in an age range.
+type DriftAgeRange struct {
+	Range      string  `json:"range"`
+	Count      int64   `json:"count"`
+	Percentage float64 `json:"percentage"`
 }
 
 // OrganizationRepository defines the interface for organization data access.

@@ -1285,6 +1285,79 @@ func (r *Repository) CreateActivity(ctx context.Context, params CreateActivityPa
 	return &a, nil
 }
 
+// DriftAgeDistribution represents drift age statistics.
+type DriftAgeDistribution struct {
+	AverageDays float64        `json:"average_days"`
+	ByRange     []DriftAgeRange `json:"by_range"`
+}
+
+// DriftAgeRange represents count of drifted assets in an age range.
+type DriftAgeRange struct {
+	Range      string  `json:"range"`
+	Count      int64   `json:"count"`
+	Percentage float64 `json:"percentage"`
+}
+
+// GetDriftAgeDistribution calculates drift age distribution for non-compliant assets.
+// Drift age is calculated from when an asset's image version started differing from the latest production version.
+func (r *Repository) GetDriftAgeDistribution(ctx context.Context, orgID uuid.UUID) (*DriftAgeDistribution, error) {
+	// Query to get drifted assets and their drift age
+	// We use asset's updated_at as a proxy for when drift started (when image version was last checked)
+	rows, err := r.pool.Query(ctx, `
+		WITH drifted_assets AS (
+			SELECT
+				a.id,
+				EXTRACT(EPOCH FROM (NOW() - a.updated_at)) / 86400 as drift_days
+			FROM assets a
+			LEFT JOIN images i ON a.org_id = i.org_id
+				AND a.image_ref = i.family
+				AND i.status = 'production'
+			WHERE a.org_id = $1
+				AND a.state = 'running'
+				AND (i.id IS NULL OR a.image_version != i.version)
+		)
+		SELECT
+			COALESCE(AVG(drift_days), 0) as avg_days,
+			COUNT(CASE WHEN drift_days <= 7 THEN 1 END) as range_0_7,
+			COUNT(CASE WHEN drift_days > 7 AND drift_days <= 14 THEN 1 END) as range_8_14,
+			COUNT(CASE WHEN drift_days > 14 AND drift_days <= 30 THEN 1 END) as range_15_30,
+			COUNT(CASE WHEN drift_days > 30 THEN 1 END) as range_30_plus,
+			COUNT(*) as total
+		FROM drifted_assets
+	`, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var avgDays float64
+	var range0_7, range8_14, range15_30, range30Plus, total int64
+
+	if rows.Next() {
+		if err := rows.Scan(&avgDays, &range0_7, &range8_14, &range15_30, &range30Plus, &total); err != nil {
+			return nil, err
+		}
+	}
+
+	// Calculate percentages
+	pct := func(count int64) float64 {
+		if total == 0 {
+			return 0
+		}
+		return float64(count) / float64(total) * 100
+	}
+
+	return &DriftAgeDistribution{
+		AverageDays: avgDays,
+		ByRange: []DriftAgeRange{
+			{Range: "0-7 days", Count: range0_7, Percentage: pct(range0_7)},
+			{Range: "8-14 days", Count: range8_14, Percentage: pct(range8_14)},
+			{Range: "15-30 days", Count: range15_30, Percentage: pct(range15_30)},
+			{Range: "30+ days", Count: range30Plus, Percentage: pct(range30Plus)},
+		},
+	}, nil
+}
+
 // =============================================================================
 // Helper Functions
 // =============================================================================

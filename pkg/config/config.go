@@ -212,6 +212,10 @@ type NotificationConfig struct {
 	WebhookEnabled bool   `mapstructure:"webhook_enabled"`
 	WebhookURL     string `mapstructure:"webhook_url"`
 	WebhookSecret  string `mapstructure:"webhook_secret"`
+
+	// Microsoft Teams
+	TeamsEnabled    bool   `mapstructure:"teams_enabled"`
+	TeamsWebhookURL string `mapstructure:"teams_webhook_url"`
 }
 
 // TemporalAddress returns the Temporal server address.

@@ -97,6 +97,14 @@ func (n *Notifier) Notify(ctx context.Context, event Event) error {
 		}
 	}
 
+	// Send to Microsoft Teams
+	if n.cfg.TeamsEnabled {
+		if err := n.sendTeams(ctx, event); err != nil {
+			n.log.Error("failed to send Teams notification", "error", err)
+			errs = append(errs, fmt.Sprintf("teams: %v", err))
+		}
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("notification errors: %s", strings.Join(errs, "; "))
 	}
@@ -489,4 +497,286 @@ func (n *Notifier) computeHMAC(payload []byte) string {
 	h := hmac.New(sha256.New, []byte(n.cfg.WebhookSecret))
 	h.Write(payload)
 	return "sha256=" + hex.EncodeToString(h.Sum(nil))
+}
+
+// sendTeams sends a notification to Microsoft Teams via webhook.
+func (n *Notifier) sendTeams(ctx context.Context, event Event) error {
+	if n.cfg.TeamsWebhookURL == "" {
+		return fmt.Errorf("Teams webhook URL not configured")
+	}
+
+	// Build Teams Adaptive Card message
+	message := n.buildTeamsMessage(event)
+
+	payload, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", n.cfg.TeamsWebhookURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := n.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Teams webhooks return 200 on success
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Teams webhook returned status %d", resp.StatusCode)
+	}
+
+	n.log.Debug("sent Teams notification", "event", event.Type, "task_id", event.TaskID)
+	return nil
+}
+
+// buildTeamsMessage builds a Microsoft Teams Adaptive Card message for an event.
+func (n *Notifier) buildTeamsMessage(event Event) map[string]interface{} {
+	var title, text string
+	var iconURL string
+
+	// Base URL for links
+	baseURL := n.cfg.AppBaseURL
+	if baseURL == "" {
+		baseURL = "http://localhost:3000"
+	}
+
+	switch event.Type {
+	case EventTaskPendingApproval:
+		iconURL = "https://adaptivecards.io/content/pending.png"
+		title = "⚠️ Task Awaiting Approval"
+		text = fmt.Sprintf("**%s** task requires approval\n\n**Environment:** %s\n\n**Risk Level:** %s\n\n**Summary:** %s",
+			event.TaskType, event.Environment, event.RiskLevel, event.Summary)
+
+	case EventTaskApproved:
+		iconURL = "https://adaptivecards.io/content/check.png"
+		title = "✅ Task Approved"
+		text = fmt.Sprintf("Task `%s` was approved by **%s**\n\nExecution will begin shortly.", event.TaskID[:8], event.UserID)
+
+	case EventTaskRejected:
+		iconURL = "https://adaptivecards.io/content/error.png"
+		title = "❌ Task Rejected"
+		text = fmt.Sprintf("Task `%s` was rejected by **%s**\n\n**Reason:** %s", event.TaskID[:8], event.UserID, event.Summary)
+
+	case EventExecutionStarted:
+		iconURL = "https://adaptivecards.io/content/rocket.png"
+		title = "🚀 Execution Started"
+		text = fmt.Sprintf("Execution started for task `%s`\n\n**Total Phases:** %d", event.TaskID[:8], event.Execution.TotalPhases)
+
+	case EventExecutionCompleted:
+		iconURL = "https://adaptivecards.io/content/check.png"
+		title = "🎉 Execution Completed"
+		text = fmt.Sprintf("Task `%s` execution completed successfully!", event.TaskID[:8])
+
+	case EventExecutionFailed:
+		iconURL = "https://adaptivecards.io/content/error.png"
+		title = "🚨 Execution Failed"
+		errMsg := ""
+		if event.Execution != nil {
+			errMsg = event.Execution.Error
+		}
+		text = fmt.Sprintf("Task `%s` execution failed!\n\n**Error:** %s", event.TaskID[:8], errMsg)
+
+	case EventPhaseStarted:
+		iconURL = "https://adaptivecards.io/content/pending.png"
+		phaseName := ""
+		if event.Phase != nil {
+			phaseName = event.Phase.Name
+		}
+		title = "▶️ Phase Started"
+		text = fmt.Sprintf("Phase **%s** started for task `%s`", phaseName, event.TaskID[:8])
+
+	case EventPhaseCompleted:
+		iconURL = "https://adaptivecards.io/content/check.png"
+		phaseName := ""
+		if event.Phase != nil {
+			phaseName = event.Phase.Name
+		}
+		title = "☑️ Phase Completed"
+		text = fmt.Sprintf("Phase **%s** completed for task `%s`", phaseName, event.TaskID[:8])
+
+	case EventPhaseFailed:
+		iconURL = "https://adaptivecards.io/content/error.png"
+		phaseName := ""
+		phaseError := ""
+		if event.Phase != nil {
+			phaseName = event.Phase.Name
+			phaseError = event.Phase.Error
+		}
+		title = "⚠️ Phase Failed"
+		text = fmt.Sprintf("Phase **%s** failed for task `%s`\n\n**Error:** %s", phaseName, event.TaskID[:8], phaseError)
+
+	default:
+		iconURL = "https://adaptivecards.io/content/notification.png"
+		title = "🔔 Notification"
+		text = fmt.Sprintf("Event: %s for task `%s`", event.Type, event.TaskID[:8])
+	}
+
+	// Build task URL
+	taskURL := fmt.Sprintf("%s/ai/tasks/%s", baseURL, event.TaskID)
+
+	// Build Microsoft Teams Adaptive Card payload
+	// Using the newer Adaptive Card format for better rendering
+	return map[string]interface{}{
+		"type": "message",
+		"attachments": []map[string]interface{}{
+			{
+				"contentType": "application/vnd.microsoft.card.adaptive",
+				"contentUrl":  nil,
+				"content": map[string]interface{}{
+					"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+					"type":    "AdaptiveCard",
+					"version": "1.4",
+					"msteams": map[string]interface{}{
+						"width": "Full",
+					},
+					"body": []map[string]interface{}{
+						{
+							"type":   "Container",
+							"style":  "emphasis",
+							"bleed":  true,
+							"items": []map[string]interface{}{
+								{
+									"type":   "ColumnSet",
+									"columns": []map[string]interface{}{
+										{
+											"type":  "Column",
+											"width": "auto",
+											"items": []map[string]interface{}{
+												{
+													"type": "Image",
+													"url":  iconURL,
+													"size": "Small",
+												},
+											},
+										},
+										{
+											"type":  "Column",
+											"width": "stretch",
+											"items": []map[string]interface{}{
+												{
+													"type":   "TextBlock",
+													"text":   title,
+													"weight": "Bolder",
+													"size":   "Medium",
+													"wrap":   true,
+												},
+												{
+													"type":     "TextBlock",
+													"text":     fmt.Sprintf("Task ID: %s", event.TaskID[:8]),
+													"isSubtle": true,
+													"spacing":  "None",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						{
+							"type":    "TextBlock",
+							"text":    text,
+							"wrap":    true,
+							"spacing": "Medium",
+						},
+						{
+							"type":     "TextBlock",
+							"text":     fmt.Sprintf("_Sent at %s_", event.Timestamp.Format("2006-01-02 15:04:05 MST")),
+							"isSubtle": true,
+							"wrap":     true,
+							"size":     "Small",
+							"spacing":  "Medium",
+						},
+					},
+					"actions": []map[string]interface{}{
+						{
+							"type":  "Action.OpenUrl",
+							"title": "View Task Details",
+							"url":   taskURL,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// TeamsMessageCard builds a legacy MessageCard format for older Teams webhook connectors.
+// This is kept as a fallback option.
+func (n *Notifier) buildTeamsMessageCard(event Event) map[string]interface{} {
+	var themeColor, title, text string
+
+	switch event.Type {
+	case EventTaskPendingApproval:
+		themeColor = "FFA500"
+		title = "Task Awaiting Approval"
+		text = fmt.Sprintf("**%s** task requires approval<br>**Environment:** %s<br>**Risk Level:** %s<br>**Summary:** %s",
+			event.TaskType, event.Environment, event.RiskLevel, event.Summary)
+	case EventTaskApproved:
+		themeColor = "36A64F"
+		title = "Task Approved"
+		text = fmt.Sprintf("Task %s was approved by %s", event.TaskID[:8], event.UserID)
+	case EventTaskRejected:
+		themeColor = "FF0000"
+		title = "Task Rejected"
+		text = fmt.Sprintf("Task %s was rejected by %s<br>**Reason:** %s", event.TaskID[:8], event.UserID, event.Summary)
+	case EventExecutionStarted:
+		themeColor = "36A64F"
+		title = "Execution Started"
+		text = fmt.Sprintf("Execution started for task %s", event.TaskID[:8])
+	case EventExecutionCompleted:
+		themeColor = "36A64F"
+		title = "Execution Completed"
+		text = fmt.Sprintf("Task %s execution completed successfully", event.TaskID[:8])
+	case EventExecutionFailed:
+		themeColor = "FF0000"
+		title = "Execution Failed"
+		errMsg := ""
+		if event.Execution != nil {
+			errMsg = event.Execution.Error
+		}
+		text = fmt.Sprintf("Task %s execution failed<br>**Error:** %s", event.TaskID[:8], errMsg)
+	default:
+		themeColor = "808080"
+		title = "Notification"
+		text = fmt.Sprintf("Event: %s for task %s", event.Type, event.TaskID[:8])
+	}
+
+	baseURL := n.cfg.AppBaseURL
+	if baseURL == "" {
+		baseURL = "http://localhost:3000"
+	}
+
+	// Legacy Office 365 Connector Card format
+	return map[string]interface{}{
+		"@type":      "MessageCard",
+		"@context":   "http://schema.org/extensions",
+		"themeColor": themeColor,
+		"summary":    title,
+		"sections": []map[string]interface{}{
+			{
+				"activityTitle":    title,
+				"activitySubtitle": fmt.Sprintf("Task ID: %s", event.TaskID[:8]),
+				"activityImage":    "https://adaptivecards.io/content/notification.png",
+				"text":             text,
+				"markdown":         true,
+			},
+		},
+		"potentialAction": []map[string]interface{}{
+			{
+				"@type": "OpenUri",
+				"name":  "View Task",
+				"targets": []map[string]interface{}{
+					{
+						"os":  "default",
+						"uri": fmt.Sprintf("%s/ai/tasks/%s", baseURL, event.TaskID),
+					},
+				},
+			},
+		},
+	}
 }
