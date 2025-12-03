@@ -21,6 +21,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Dev mode: no auth, use dev token
+  return <DevAuthProvider>{children}</DevAuthProvider>;
+}
+
+// Dev mode auth provider - sets dev token
+function DevAuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setAuthTokenGetter(async () => "dev-token");
   }, []);
