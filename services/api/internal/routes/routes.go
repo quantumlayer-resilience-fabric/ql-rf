@@ -52,14 +52,40 @@ func New(cfg Config) http.Handler {
 	r.Use(middleware.RateLimit(rateLimitCfg, cfg.Logger))
 
 	// CORS configuration
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000", "https://*.quantumlayer.dev"},
+	corsOptions := cors.Options{
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
 		ExposedHeaders:   []string{"X-Request-ID"},
 		AllowCredentials: true,
 		MaxAge:           300,
-	}))
+	}
+	if cfg.Config.Env == "development" {
+		// In development, allow any localhost port
+		corsOptions.AllowedOrigins = []string{
+			"http://localhost:*",
+			"http://127.0.0.1:*",
+		}
+		corsOptions.AllowOriginFunc = func(r *http.Request, origin string) bool {
+			// Allow any localhost origin in development
+			return len(origin) > 0 && (
+				origin == "http://localhost:3000" ||
+				origin == "http://localhost:3001" ||
+				origin == "http://localhost:3002" ||
+				origin == "http://127.0.0.1:3000" ||
+				origin == "http://127.0.0.1:3001" ||
+				origin == "http://127.0.0.1:3002" ||
+				// Allow any localhost port
+				(len(origin) > 17 && origin[:17] == "http://localhost:") ||
+				(len(origin) > 18 && origin[:18] == "http://127.0.0.1:"))
+		}
+	} else {
+		// In production, only allow specific origins
+		corsOptions.AllowedOrigins = []string{
+			"http://localhost:3000",
+			"https://*.quantumlayer.dev",
+		}
+	}
+	r.Use(cors.Handler(corsOptions))
 
 	// Initialize repository adapters (implement service interfaces)
 	imageRepo := repository.NewImageRepositoryAdapter(cfg.DB.Pool)
