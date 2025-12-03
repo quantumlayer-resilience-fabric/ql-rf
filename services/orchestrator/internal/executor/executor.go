@@ -130,12 +130,16 @@ type RollbackPlan struct {
 	Timeout  string           `json:"timeout,omitempty"`
 }
 
+// MaxExecutionTimeout is the maximum time an execution can run.
+const MaxExecutionTimeout = 4 * time.Hour
+
 // Engine is the execution engine that runs approved plans.
 type Engine struct {
 	db             *database.DB
 	tools          *tools.Registry
 	log            *logger.Logger
 	executions     map[string]*Execution
+	cancelFuncs    map[string]context.CancelFunc // Track cancel functions for running executions
 	mu             sync.RWMutex
 	healthChecker  *HealthChecker
 	assetProcessor *AssetProcessor
@@ -154,10 +158,11 @@ func NewEngine(db *database.DB, toolReg *tools.Registry, log *logger.Logger) *En
 	}
 
 	e := &Engine{
-		db:         db,
-		tools:      toolReg,
-		log:        log.WithComponent("executor"),
-		executions: make(map[string]*Execution),
+		db:          db,
+		tools:       toolReg,
+		log:         log.WithComponent("executor"),
+		executions:  make(map[string]*Execution),
+		cancelFuncs: make(map[string]context.CancelFunc),
 	}
 
 	// Initialize health checker
@@ -238,9 +243,13 @@ func (e *Engine) Execute(ctx context.Context, plan *ExecutionPlan) (*Execution, 
 		}
 	}
 
-	// Store execution
+	// Create execution context with timeout
+	execCtx, cancel := context.WithTimeout(context.Background(), MaxExecutionTimeout)
+
+	// Store execution and cancel function
 	e.mu.Lock()
 	e.executions[exec.ID] = exec
+	e.cancelFuncs[exec.ID] = cancel
 	e.mu.Unlock()
 
 	// Save to database
@@ -248,8 +257,8 @@ func (e *Engine) Execute(ctx context.Context, plan *ExecutionPlan) (*Execution, 
 		e.log.Error("failed to save execution", "error", err)
 	}
 
-	// Execute in background
-	go e.runExecution(context.Background(), exec, plan)
+	// Execute in background with timeout context
+	go e.runExecution(execCtx, exec, plan)
 
 	e.log.Info("started execution",
 		"execution_id", exec.ID,
@@ -270,13 +279,41 @@ func (e *Engine) runExecution(ctx context.Context, exec *Execution, plan *Execut
 		}
 		now := time.Now()
 		exec.CompletedAt = &now
-		e.saveExecution(ctx, exec)
+
+		// Clean up cancel function
+		e.mu.Lock()
+		if cancel, ok := e.cancelFuncs[exec.ID]; ok {
+			cancel() // Ensure context is cancelled
+			delete(e.cancelFuncs, exec.ID)
+		}
+		e.mu.Unlock()
+
+		// Use a fresh context for final save since exec context may be cancelled
+		saveCtx, saveCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer saveCancel()
+		e.saveExecution(saveCtx, exec)
+
 		if e.onExecutionDone != nil {
 			e.onExecutionDone(exec)
 		}
 	}()
 
 	for i, phase := range plan.Phases {
+		// Check for cancellation before starting each phase
+		select {
+		case <-ctx.Done():
+			if ctx.Err() == context.DeadlineExceeded {
+				exec.Status = StatusFailed
+				exec.Error = "execution timed out"
+			} else {
+				exec.Status = StatusCancelled
+				exec.Error = "execution cancelled"
+			}
+			e.log.Info("execution stopped", "execution_id", exec.ID, "reason", ctx.Err())
+			return
+		default:
+		}
+
 		exec.CurrentPhase = i
 		phaseExec := &exec.Phases[i]
 
@@ -778,6 +815,7 @@ func (e *Engine) ListExecutions(ctx context.Context, taskID string) ([]*Executio
 func (e *Engine) CancelExecution(ctx context.Context, execID string) error {
 	e.mu.Lock()
 	exec, ok := e.executions[execID]
+	cancel, hasCancel := e.cancelFuncs[execID]
 	e.mu.Unlock()
 
 	if !ok {
@@ -786,6 +824,12 @@ func (e *Engine) CancelExecution(ctx context.Context, execID string) error {
 
 	if exec.Status != StatusRunning && exec.Status != StatusPaused {
 		return fmt.Errorf("execution is not running: %s", exec.Status)
+	}
+
+	// Cancel the execution context to stop the running goroutine
+	if hasCancel {
+		cancel()
+		e.log.Info("execution cancellation requested", "execution_id", execID)
 	}
 
 	exec.Status = StatusCancelled

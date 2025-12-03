@@ -387,8 +387,10 @@ func (h *Handler) executeTask(w http.ResponseWriter, r *http.Request) {
 	// Send notification for pending approval
 	if taskSpec.HITLRequired && h.notifier != nil {
 		go func() {
+			notifyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
 			if err := h.notifier.NotifyTaskPendingApproval(
-				context.Background(),
+				notifyCtx,
 				taskSpec.ID,
 				string(taskSpec.TaskType),
 				taskSpec.Environment,
@@ -710,7 +712,9 @@ func (h *Handler) approveTask(w http.ResponseWriter, r *http.Request) {
 	// Send approval notification
 	if h.notifier != nil {
 		go func() {
-			if err := h.notifier.NotifyTaskApproved(context.Background(), taskID, userID); err != nil {
+			notifyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := h.notifier.NotifyTaskApproved(notifyCtx, taskID, userID); err != nil {
 				h.log.Error("failed to send approval notification", "error", err)
 			}
 		}()
@@ -784,7 +788,9 @@ func (h *Handler) rejectTask(w http.ResponseWriter, r *http.Request) {
 	// Send rejection notification
 	if h.notifier != nil {
 		go func() {
-			if err := h.notifier.NotifyTaskRejected(context.Background(), taskID, userID, req.Reason); err != nil {
+			notifyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := h.notifier.NotifyTaskRejected(notifyCtx, taskID, userID, req.Reason); err != nil {
 				h.log.Error("failed to send rejection notification", "error", err)
 			}
 		}()
@@ -999,7 +1005,9 @@ func (h *Handler) cancelTask(w http.ResponseWriter, r *http.Request) {
 	// Send cancellation notification
 	if h.notifier != nil {
 		go func() {
-			if err := h.notifier.NotifyTaskRejected(context.Background(), taskID, userID, "Task cancelled: "+req.Reason); err != nil {
+			notifyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := h.notifier.NotifyTaskRejected(notifyCtx, taskID, userID, "Task cancelled: "+req.Reason); err != nil {
 				h.log.Error("failed to send cancellation notification", "error", err)
 			}
 		}()

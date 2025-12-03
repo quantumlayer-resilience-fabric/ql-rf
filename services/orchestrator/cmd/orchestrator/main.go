@@ -135,23 +135,32 @@ func run() error {
 		"webhook_enabled", cfg.Notifications.WebhookEnabled,
 	)
 
+	// Timeout for notification and database operations in callbacks
+	const callbackTimeout = 30 * time.Second
+
 	// Set execution callbacks for notifications and task state updates
 	execEngine.SetCallbacks(
 		// On phase start
 		func(exec *executor.Execution, phase *executor.PhaseExecution) {
-			if err := notify.NotifyPhaseStarted(context.Background(), exec, phase); err != nil {
+			callbackCtx, cancel := context.WithTimeout(ctx, callbackTimeout)
+			defer cancel()
+			if err := notify.NotifyPhaseStarted(callbackCtx, exec, phase); err != nil {
 				log.Error("failed to send phase start notification", "error", err)
 			}
 		},
 		// On phase complete
 		func(exec *executor.Execution, phase *executor.PhaseExecution) {
-			if err := notify.NotifyPhaseCompleted(context.Background(), exec, phase); err != nil {
+			callbackCtx, cancel := context.WithTimeout(ctx, callbackTimeout)
+			defer cancel()
+			if err := notify.NotifyPhaseCompleted(callbackCtx, exec, phase); err != nil {
 				log.Error("failed to send phase complete notification", "error", err)
 			}
 		},
 		// On execution done
 		func(exec *executor.Execution) {
-			if err := notify.NotifyExecutionCompleted(context.Background(), exec); err != nil {
+			callbackCtx, cancel := context.WithTimeout(ctx, callbackTimeout)
+			defer cancel()
+			if err := notify.NotifyExecutionCompleted(callbackCtx, exec); err != nil {
 				log.Error("failed to send execution complete notification", "error", err)
 			}
 			// Update task state in database
@@ -161,7 +170,9 @@ func run() error {
 			} else if exec.Status == executor.StatusRolledBack {
 				taskState = "rolled_back"
 			}
-			_, err := db.Pool.Exec(context.Background(),
+			dbCtx, dbCancel := context.WithTimeout(ctx, 10*time.Second)
+			defer dbCancel()
+			_, err := db.Pool.Exec(dbCtx,
 				`UPDATE ai_tasks SET state = $1, updated_at = NOW() WHERE id = $2`,
 				taskState, exec.TaskID,
 			)

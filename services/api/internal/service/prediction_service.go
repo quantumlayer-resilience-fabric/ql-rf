@@ -82,47 +82,55 @@ type riskHistoryPoint struct {
 	Score float64
 }
 
-// getRiskHistory retrieves historical risk scores.
+// getRiskHistory retrieves historical risk scores from drift reports.
+// Risk score is calculated as: 100 - coverage_pct (so 100% coverage = 0 risk, 0% coverage = 100 risk)
 func (s *PredictionService) getRiskHistory(ctx context.Context, orgID uuid.UUID, days int) ([]riskHistoryPoint, error) {
 	query := `
 		SELECT
 			DATE(calculated_at) as date,
-			AVG(risk_score) as score
-		FROM risk_snapshots
+			AVG(100 - coverage_pct) as score
+		FROM drift_reports
 		WHERE org_id = $1
-		AND calculated_at >= NOW() - INTERVAL '%d days'
+		AND calculated_at >= NOW() - make_interval(days => $2)
 		GROUP BY DATE(calculated_at)
 		ORDER BY date ASC
 	`
 
-	// For now, generate simulated historical data
-	// In production, this would query actual stored risk snapshots
-	history := make([]riskHistoryPoint, days)
-	now := time.Now()
-	baseScore := 45.0
-
-	for i := 0; i < days; i++ {
-		// Simulate a gradual increase with some variance
-		dayOffset := days - 1 - i
-		variance := math.Sin(float64(i)/7*math.Pi) * 5 // Weekly pattern
-		trend := float64(i) * 0.3                       // Slight upward trend
-		score := baseScore + trend + variance
-
-		if score < 0 {
-			score = 0
-		}
-		if score > 100 {
-			score = 100
-		}
-
-		history[i] = riskHistoryPoint{
-			Date:  now.AddDate(0, 0, -dayOffset),
-			Score: score,
-		}
+	if s.db == nil {
+		s.log.Warn("database not available, returning empty history")
+		return []riskHistoryPoint{}, nil
 	}
 
-	// Try to get real data, fall back to simulated
-	_ = query // Suppress unused warning - would be used with real DB
+	rows, err := s.db.Pool.Query(ctx, query, orgID, days)
+	if err != nil {
+		s.log.Error("failed to query risk history", "error", err)
+		return []riskHistoryPoint{}, nil
+	}
+	defer rows.Close()
+
+	var history []riskHistoryPoint
+	for rows.Next() {
+		var date time.Time
+		var score float64
+		if err := rows.Scan(&date, &score); err != nil {
+			s.log.Error("failed to scan risk history row", "error", err)
+			continue
+		}
+		history = append(history, riskHistoryPoint{
+			Date:  date,
+			Score: score,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		s.log.Error("error iterating risk history rows", "error", err)
+	}
+
+	// If no history, return empty slice - UI will handle empty state
+	if len(history) == 0 {
+		s.log.Info("no risk history found for organization", "org_id", orgID, "days", days)
+	}
+
 	return history, nil
 }
 
@@ -344,33 +352,156 @@ func (s *PredictionService) describeAnomaly(anomalyType string, actual, expected
 		string(rune('0'+int(deviation))) + " standard deviations"
 }
 
-// getAssetTrends identifies assets with increasing/decreasing risk.
+// getAssetTrends identifies assets with increasing/decreasing risk based on drift status.
 func (s *PredictionService) getAssetTrends(ctx context.Context, orgID uuid.UUID) ([]models.AssetRiskScore, []models.AssetRiskScore, error) {
-	// In production, this would analyze historical asset-level risk data
-	// For now, return empty slices - the UI will handle empty state
-	return []models.AssetRiskScore{}, []models.AssetRiskScore{}, nil
+	if s.db == nil {
+		return []models.AssetRiskScore{}, []models.AssetRiskScore{}, nil
+	}
+
+	// Query assets with their current drift status
+	// "At risk" = assets not matching their golden image (stale or drifted)
+	// "Improving" = assets that were updated recently (within last 7 days)
+	query := `
+		SELECT
+			a.id,
+			a.name,
+			a.platform,
+			COALESCE(e.name, 'unknown') as environment,
+			COALESCE(a.site, 'unknown') as site,
+			a.state,
+			a.image_ref,
+			a.updated_at
+		FROM assets a
+		LEFT JOIN environments e ON a.env_id = e.id
+		WHERE a.org_id = $1
+		ORDER BY a.updated_at DESC
+		LIMIT 20
+	`
+
+	rows, err := s.db.Pool.Query(ctx, query, orgID)
+	if err != nil {
+		s.log.Error("failed to query assets for trends", "error", err)
+		return []models.AssetRiskScore{}, []models.AssetRiskScore{}, nil
+	}
+	defer rows.Close()
+
+	var atRisk, improving []models.AssetRiskScore
+	now := time.Now()
+
+	for rows.Next() {
+		var id uuid.UUID
+		var name, platform, environment, site, state string
+		var imageRef *string
+		var updatedAt time.Time
+
+		if err := rows.Scan(&id, &name, &platform, &environment, &site, &state, &imageRef, &updatedAt); err != nil {
+			s.log.Error("failed to scan asset row", "error", err)
+			continue
+		}
+
+		// Calculate risk score based on state and drift age
+		driftAge := int(now.Sub(updatedAt).Hours() / 24)
+		riskScore := s.calculateAssetRiskScore(state, driftAge, imageRef != nil)
+
+		assetScore := models.AssetRiskScore{
+			AssetID:     id,
+			AssetName:   name,
+			Platform:    platform,
+			Environment: environment,
+			Site:        site,
+			RiskScore:   riskScore,
+			RiskLevel:   models.CalculateRiskLevel(riskScore),
+			DriftAge:    driftAge,
+			LastUpdated: updatedAt,
+		}
+
+		// Classify based on update recency and state
+		if updatedAt.After(now.AddDate(0, 0, -7)) && state == "running" {
+			improving = append(improving, assetScore)
+		} else if riskScore >= 60 || state != "running" {
+			atRisk = append(atRisk, assetScore)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		s.log.Error("error iterating asset rows", "error", err)
+	}
+
+	// Limit to top 5 each
+	if len(atRisk) > 5 {
+		atRisk = atRisk[:5]
+	}
+	if len(improving) > 5 {
+		improving = improving[:5]
+	}
+
+	return atRisk, improving, nil
 }
 
-// generateRecommendations creates actionable recommendations.
+// calculateAssetRiskScore computes risk score for an individual asset.
+func (s *PredictionService) calculateAssetRiskScore(state string, driftAge int, hasImage bool) float64 {
+	score := 30.0 // Base score
+
+	// State factor
+	switch state {
+	case "running":
+		score -= 10
+	case "stopped", "terminated":
+		score += 20
+	case "unknown":
+		score += 30
+	}
+
+	// Drift age factor (older = higher risk)
+	if driftAge > 30 {
+		score += 30
+	} else if driftAge > 14 {
+		score += 20
+	} else if driftAge > 7 {
+		score += 10
+	}
+
+	// Image compliance factor
+	if !hasImage {
+		score += 15 // No golden image reference
+	}
+
+	// Clamp to 0-100
+	if score < 0 {
+		score = 0
+	}
+	if score > 100 {
+		score = 100
+	}
+
+	return score
+}
+
+// generateRecommendations creates actionable recommendations based on real data.
 func (s *PredictionService) generateRecommendations(ctx context.Context, orgID uuid.UUID, currentScore float64, atRiskAssets []models.AssetRiskScore) []models.RiskRecommendation {
 	var recommendations []models.RiskRecommendation
 
-	// Priority 1: Critical vulnerabilities
-	recommendations = append(recommendations, models.RiskRecommendation{
-		ID:             "rec-critical-vulns",
-		Priority:       1,
-		Category:       "vulnerability",
-		Title:          "Patch Critical Vulnerabilities",
-		Description:    "Address all critical severity CVEs across the fleet to reduce immediate risk exposure.",
-		Impact:         "Reduces risk score by up to 25 points",
-		Effort:         "medium",
-		AffectedAssets: 12, // Would be calculated from real data
-		AutoRemediable: true,
-		ActionType:     "ai_task",
-	})
+	// Get asset counts from database
+	driftedCount, nonCompliantCount, totalAssets := s.getAssetCounts(ctx, orgID)
+
+	// Priority 1: Critical - assets with high drift age
+	if len(atRiskAssets) > 0 {
+		recommendations = append(recommendations, models.RiskRecommendation{
+			ID:             "rec-critical-drift",
+			Priority:       1,
+			Category:       "drift",
+			Title:          "Address Critical Drift",
+			Description:    "Remediate assets with significant configuration drift to reduce immediate risk.",
+			Impact:         "Reduces risk score by up to 25 points",
+			Effort:         "medium",
+			AffectedAssets: len(atRiskAssets),
+			AutoRemediable: true,
+			ActionType:     "ai_task",
+		})
+	}
 
 	// Priority 2: Drift remediation
-	if currentScore >= 40 {
+	if driftedCount > 0 && currentScore >= 40 {
 		recommendations = append(recommendations, models.RiskRecommendation{
 			ID:             "rec-drift-fix",
 			Priority:       2,
@@ -379,28 +510,30 @@ func (s *PredictionService) generateRecommendations(ctx context.Context, orgID u
 			Description:    "Align drifted assets with their golden image baselines.",
 			Impact:         "Reduces risk score by up to 15 points",
 			Effort:         "low",
-			AffectedAssets: 8,
+			AffectedAssets: driftedCount,
 			AutoRemediable: true,
 			ActionType:     "ai_task",
 		})
 	}
 
 	// Priority 3: Compliance gaps
-	recommendations = append(recommendations, models.RiskRecommendation{
-		ID:             "rec-compliance",
-		Priority:       3,
-		Category:       "compliance",
-		Title:          "Address Compliance Gaps",
-		Description:    "Ensure all assets are running approved, signed golden images.",
-		Impact:         "Reduces risk score by up to 10 points",
-		Effort:         "medium",
-		AffectedAssets: 5,
-		AutoRemediable: false,
-		ActionType:     "manual",
-	})
+	if nonCompliantCount > 0 {
+		recommendations = append(recommendations, models.RiskRecommendation{
+			ID:             "rec-compliance",
+			Priority:       3,
+			Category:       "compliance",
+			Title:          "Address Compliance Gaps",
+			Description:    "Ensure all assets are running approved, signed golden images.",
+			Impact:         "Reduces risk score by up to 10 points",
+			Effort:         "medium",
+			AffectedAssets: nonCompliantCount,
+			AutoRemediable: false,
+			ActionType:     "manual",
+		})
+	}
 
-	// Priority 4: Schedule maintenance
-	if currentScore >= 60 {
+	// Priority 4: Schedule maintenance for high risk
+	if currentScore >= 60 && totalAssets > 0 {
 		recommendations = append(recommendations, models.RiskRecommendation{
 			ID:             "rec-maintenance",
 			Priority:       4,
@@ -409,9 +542,25 @@ func (s *PredictionService) generateRecommendations(ctx context.Context, orgID u
 			Description:    "Plan a maintenance window to apply pending patches to production systems.",
 			Impact:         "Reduces risk score by up to 20 points",
 			Effort:         "high",
-			AffectedAssets: 25,
+			AffectedAssets: totalAssets,
 			AutoRemediable: false,
 			ActionType:     "scheduled",
+		})
+	}
+
+	// If no specific recommendations, add a general one
+	if len(recommendations) == 0 {
+		recommendations = append(recommendations, models.RiskRecommendation{
+			ID:             "rec-monitor",
+			Priority:       5,
+			Category:       "general",
+			Title:          "Continue Monitoring",
+			Description:    "Risk levels are well controlled. Maintain current posture and monitoring.",
+			Impact:         "Maintains stable risk profile",
+			Effort:         "low",
+			AffectedAssets: totalAssets,
+			AutoRemediable: false,
+			ActionType:     "manual",
 		})
 	}
 
@@ -428,23 +577,114 @@ func (s *PredictionService) generateRecommendations(ctx context.Context, orgID u
 	return recommendations
 }
 
+// getAssetCounts retrieves asset counts for recommendations.
+func (s *PredictionService) getAssetCounts(ctx context.Context, orgID uuid.UUID) (drifted, nonCompliant, total int) {
+	if s.db == nil {
+		return 0, 0, 0
+	}
+
+	// Get total asset count
+	err := s.db.Pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM assets WHERE org_id = $1
+	`, orgID).Scan(&total)
+	if err != nil {
+		s.log.Error("failed to count assets", "error", err)
+		return 0, 0, 0
+	}
+
+	// Get drifted assets (updated more than 7 days ago)
+	err = s.db.Pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM assets
+		WHERE org_id = $1 AND updated_at < NOW() - INTERVAL '7 days'
+	`, orgID).Scan(&drifted)
+	if err != nil {
+		s.log.Error("failed to count drifted assets", "error", err)
+	}
+
+	// Get non-compliant assets (no image reference)
+	err = s.db.Pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM assets
+		WHERE org_id = $1 AND image_ref IS NULL
+	`, orgID).Scan(&nonCompliant)
+	if err != nil {
+		s.log.Error("failed to count non-compliant assets", "error", err)
+	}
+
+	return drifted, nonCompliant, total
+}
+
 // GetAssetPrediction generates a risk prediction for a specific asset.
 func (s *PredictionService) GetAssetPrediction(ctx context.Context, assetID uuid.UUID) (*models.RiskPrediction, error) {
-	// Get asset's historical risk data
-	// For now, return a simulated prediction
 	now := time.Now()
+
+	if s.db == nil {
+		return &models.RiskPrediction{
+			AssetID:           assetID,
+			CurrentScore:      0,
+			PredictedScore:    0,
+			PredictedLevel:    models.RiskLevelLow,
+			Confidence:        0,
+			PredictionHorizon: 7,
+			Velocity:          models.RiskVelocityStable,
+			VelocityValue:     0,
+			Factors:           []string{"No data available"},
+			RecommendedAction: "Connect asset data sources",
+			PredictedAt:       now,
+		}, nil
+	}
+
+	// Get asset data
+	var state string
+	var imageRef *string
+	var updatedAt time.Time
+	err := s.db.Pool.QueryRow(ctx, `
+		SELECT state, image_ref, updated_at
+		FROM assets WHERE id = $1
+	`, assetID).Scan(&state, &imageRef, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate current risk score
+	driftAge := int(now.Sub(updatedAt).Hours() / 24)
+	currentScore := s.calculateAssetRiskScore(state, driftAge, imageRef != nil)
+
+	// Predict future score based on drift age trajectory
+	predictedDriftAge := driftAge + 7
+	predictedScore := s.calculateAssetRiskScore(state, predictedDriftAge, imageRef != nil)
+
+	// Calculate velocity
+	velocityValue := (predictedScore - currentScore) / 7.0
+
+	// Determine factors
+	var factors []string
+	if driftAge > 14 {
+		factors = append(factors, "Significant drift age")
+	}
+	if imageRef == nil {
+		factors = append(factors, "No golden image reference")
+	}
+	if state != "running" {
+		factors = append(factors, "Asset not running")
+	}
+	if len(factors) == 0 {
+		factors = []string{"Asset within compliance parameters"}
+	}
+
+	// Determine action
+	action := s.recommendAction(currentScore, predictedScore)
 
 	return &models.RiskPrediction{
 		AssetID:           assetID,
-		CurrentScore:      55.0,
-		PredictedScore:    62.0,
-		PredictedLevel:    models.RiskLevelHigh,
+		CurrentScore:      currentScore,
+		PredictedScore:    predictedScore,
+		PredictedLevel:    models.CalculateRiskLevel(predictedScore),
 		Confidence:        0.85,
 		PredictionHorizon: 7,
-		Velocity:          models.RiskVelocityIncreasing,
-		VelocityValue:     1.0,
-		Factors:           []string{"Drift age increasing", "New vulnerabilities detected"},
-		RecommendedAction: "Apply pending patches within the week",
+		Velocity:          models.CalculateVelocity(velocityValue),
+		VelocityValue:     math.Round(velocityValue*100) / 100,
+		Factors:           factors,
+		RecommendedAction: action,
 		PredictedAt:       now,
 	}, nil
 }

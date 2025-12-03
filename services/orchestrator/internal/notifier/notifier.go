@@ -4,6 +4,9 @@ package notifier
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -456,8 +459,9 @@ func (n *Notifier) sendWebhook(ctx context.Context, event Event) error {
 	req.Header.Set("X-QL-Event", string(event.Type))
 
 	if n.cfg.WebhookSecret != "" {
-		// In production, would compute HMAC signature
-		req.Header.Set("X-QL-Signature", n.cfg.WebhookSecret)
+		// Compute HMAC-SHA256 signature
+		signature := n.computeHMAC(payload)
+		req.Header.Set("X-QL-Signature", signature)
 	}
 
 	resp, err := n.client.Do(req)
@@ -472,4 +476,11 @@ func (n *Notifier) sendWebhook(ctx context.Context, event Event) error {
 
 	n.log.Debug("sent webhook notification", "event", event.Type, "task_id", event.TaskID)
 	return nil
+}
+
+// computeHMAC computes an HMAC-SHA256 signature for webhook payloads.
+func (n *Notifier) computeHMAC(payload []byte) string {
+	h := hmac.New(sha256.New, []byte(n.cfg.WebhookSecret))
+	h.Write(payload)
+	return "sha256=" + hex.EncodeToString(h.Sum(nil))
 }
