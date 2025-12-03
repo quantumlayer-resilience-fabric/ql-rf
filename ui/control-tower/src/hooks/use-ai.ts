@@ -24,6 +24,7 @@ export interface AIContext {
   drReadiness?: number;
   totalSites?: number;
   criticalAlerts?: number;
+  environment?: string;
 }
 
 interface SendMessageParams {
@@ -162,7 +163,7 @@ export function useSendAIMessage() {
           body: JSON.stringify({
             intent: message,
             org_id: orgId || "default-org",
-            environment: "production", // TODO: Get from user selection
+            environment: context?.environment || "production", // Defaults to production; can be overridden via context
             context: {
               fleet_size: context?.fleetSize,
               drift_score: context?.driftScore,

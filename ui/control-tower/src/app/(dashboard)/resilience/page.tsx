@@ -1,5 +1,7 @@
 "use client";
 
+import { useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,9 +33,14 @@ import {
 } from "lucide-react";
 
 export default function ResiliencePage() {
+  const router = useRouter();
   const { data: resilienceData, isLoading, error, refetch } = useResilienceSummary();
   const triggerFailoverTest = useTriggerFailoverTest();
   const triggerSync = useTriggerDRSync();
+
+  const handleConfigureDR = useCallback(() => {
+    router.push("/sites?view=topology");
+  }, [router]);
 
   const handleFailoverTest = (pairId: string) => {
     triggerFailoverTest.mutate(pairId, {
@@ -325,7 +332,7 @@ export default function ResiliencePage() {
                   description="Configure disaster recovery pairs to enable failover capabilities."
                   action={{
                     label: "Configure DR",
-                    onClick: () => console.log("Configure DR"),
+                    onClick: handleConfigureDR,
                   }}
                 />
               </CardContent>

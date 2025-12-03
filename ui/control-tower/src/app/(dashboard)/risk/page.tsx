@@ -299,24 +299,31 @@ function PredictionCard({ prediction, label }: { prediction: RiskPrediction; lab
 }
 
 function RecommendationsList({ recommendations }: { recommendations: RiskRecommendation[] }) {
-  const priorityColors: Record<string, string> = {
-    critical: "border-l-red-500",
-    high: "border-l-orange-500",
-    medium: "border-l-yellow-500",
-    low: "border-l-green-500",
+  // Map numeric priority to color classes
+  const getPriorityColor = (priority: number): string => {
+    if (priority <= 1) return "border-l-red-500"; // Critical
+    if (priority <= 2) return "border-l-orange-500"; // High
+    if (priority <= 3) return "border-l-yellow-500"; // Medium
+    return "border-l-green-500"; // Low
+  };
+
+  // Map effort to display text
+  const getEffortLabel = (effort: "low" | "medium" | "high"): string => {
+    const labels = { low: "Low effort", medium: "Medium effort", high: "High effort" };
+    return labels[effort] || effort;
   };
 
   return (
     <div className="space-y-3">
       {recommendations.map((rec) => (
-        <Card key={rec.id} className={`border-l-4 ${priorityColors[rec.priority] || "border-l-gray-500"}`}>
+        <Card key={rec.id} className={`border-l-4 ${getPriorityColor(rec.priority)}`}>
           <CardContent className="py-4">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
                   <Lightbulb className="h-4 w-4 text-amber-500" />
                   <span className="font-semibold">{rec.title}</span>
-                  {rec.autoRemediationAvailable && (
+                  {rec.autoRemediable && (
                     <Badge variant="secondary" className="text-xs">
                       <Bot className="h-3 w-3 mr-1" />
                       Auto-fix
@@ -331,11 +338,11 @@ function RecommendationsList({ recommendations }: { recommendations: RiskRecomme
                   </span>
                   <span className="flex items-center gap-1">
                     <TrendingDown className="h-3 w-3 text-green-500" />
-                    -{rec.estimatedImpact} risk points
+                    {rec.impact}
                   </span>
                   <span className="flex items-center gap-1">
                     <Clock className="h-3 w-3" />
-                    {rec.estimatedEffort}
+                    {getEffortLabel(rec.effort)}
                   </span>
                 </div>
               </div>
@@ -371,18 +378,21 @@ function AnomalyAlerts({ anomalies }: { anomalies: RiskAnomaly[] }) {
               <Bell className="h-5 w-5 text-purple-500 mt-0.5" />
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="font-semibold">{anomaly.assetName}</span>
+                  <span className="font-semibold">{anomaly.scope || anomaly.assetId || "System"}</span>
                   <Badge variant="outline" className="text-xs">
                     {anomaly.anomalyType.replace("_", " ")}
                   </Badge>
+                  {anomaly.isActive && (
+                    <Badge variant="destructive" className="text-xs">Active</Badge>
+                  )}
                 </div>
                 <p className="text-sm text-muted-foreground mb-2">{anomaly.description}</p>
                 <div className="flex items-center gap-4 text-xs">
                   <span className="text-muted-foreground">
-                    Expected: {Math.round(anomaly.expectedValue)}
+                    Expected: {Math.round(anomaly.expectedScore)}
                   </span>
-                  <span className={anomaly.actualValue > anomaly.expectedValue ? "text-red-600" : "text-green-600"}>
-                    Actual: {Math.round(anomaly.actualValue)}
+                  <span className={anomaly.actualScore > anomaly.expectedScore ? "text-red-600" : "text-green-600"}>
+                    Actual: {Math.round(anomaly.actualScore)}
                   </span>
                   <span className="text-purple-600">
                     {anomaly.deviation.toFixed(1)} std dev
@@ -410,7 +420,7 @@ function ForecastSection({ forecast }: { forecast: RiskForecast }) {
           <CardContent>
             <VelocityIndicator
               velocity={forecast.velocity}
-              pointsPerDay={forecast.riskVelocityPointsPerDay}
+              pointsPerDay={forecast.velocityValue}
             />
           </CardContent>
         </Card>
@@ -418,9 +428,9 @@ function ForecastSection({ forecast }: { forecast: RiskForecast }) {
         {/* Predictions */}
         {forecast.predictions.map((pred, i) => (
           <PredictionCard
-            key={pred.horizonDays}
+            key={pred.predictionHorizon}
             prediction={pred}
-            label={`${pred.horizonDays}-Day Forecast`}
+            label={`${pred.predictionHorizon}-Day Forecast`}
           />
         ))}
       </div>

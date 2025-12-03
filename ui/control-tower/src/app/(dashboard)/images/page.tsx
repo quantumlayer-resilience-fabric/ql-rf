@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Fragment } from "react";
+import { useState, Fragment, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -132,6 +132,10 @@ export default function ImagesPage() {
   const handleDeprecate = (familyId: string, version: string) => {
     deprecateImage.mutate({ familyId, version });
   };
+
+  const handleCreateImage = useCallback(() => {
+    router.push("/images/new");
+  }, [router]);
 
   const formatRelativeTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -510,7 +514,7 @@ export default function ImagesPage() {
                   : "Get started by creating your first golden image"}
                 action={searchQuery || statusFilter !== "all" ? undefined : {
                   label: "Create Image",
-                  onClick: () => console.log("Create image"),
+                  onClick: handleCreateImage,
                 }}
               />
             </div>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,10 +32,16 @@ import {
 } from "lucide-react";
 
 export default function DriftPage() {
+  const router = useRouter();
   const [selectedEnv, setSelectedEnv] = useState<string>("all");
   const [selectedPlatform, setSelectedPlatform] = useState<string>("all");
 
   const { data: driftSummary, isLoading: summaryLoading, error: summaryError, refetch: refetchSummary } = useDriftSummary();
+
+  const handleSiteCellClick = useCallback((cell: { label: string; value: number }) => {
+    // Navigate to sites page filtered by the selected site
+    router.push(`/sites?search=${encodeURIComponent(cell.label)}`);
+  }, [router]);
   const { data: topOffenders, isLoading: offendersLoading, error: offendersError, refetch: refetchOffenders } = useTopOffenders(10);
   const triggerScan = useTriggerDriftScan();
 
@@ -341,7 +348,7 @@ export default function DriftPage() {
             <Heatmap
               data={siteHeatmap}
               columns={6}
-              onCellClick={(cell) => console.log("Clicked:", cell)}
+              onCellClick={handleSiteCellClick}
             />
           ) : (
             <div className="text-center text-sm text-muted-foreground py-8">

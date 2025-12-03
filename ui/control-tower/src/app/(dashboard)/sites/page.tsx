@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,12 +34,21 @@ import {
 } from "lucide-react";
 
 export default function SitesPage() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState<string>("all");
   const [envFilter, setEnvFilter] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"grid" | "topology">("grid");
 
   const { data: sites, isLoading, error, refetch } = useSites();
+
+  const handleSiteClick = useCallback((siteId: string) => {
+    router.push(`/sites/${siteId}`);
+  }, [router]);
+
+  const handleAddSite = useCallback(() => {
+    router.push("/onboarding");
+  }, [router]);
 
   if (isLoading) {
     return (
@@ -269,7 +279,7 @@ export default function SitesPage() {
                 status={site.status}
                 lastSyncAt={formatLastSync(site.lastSyncAt)}
                 drPaired={site.drPaired}
-                onClick={() => console.log("Navigate to site:", site.id)}
+                onClick={() => handleSiteClick(site.id)}
               />
             ))}
           </div>
@@ -284,7 +294,7 @@ export default function SitesPage() {
                   : "Get started by adding your first site"}
                 action={searchQuery || platformFilter !== "all" || envFilter !== "all" ? undefined : {
                   label: "Add Site",
-                  onClick: () => console.log("Add site"),
+                  onClick: handleAddSite,
                 }}
               />
             </CardContent>
