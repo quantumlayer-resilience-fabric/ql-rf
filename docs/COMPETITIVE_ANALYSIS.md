@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | **Version** | 1.0 |
-| **Last Updated** | December 2024 |
+| **Last Updated** | December 2025 |
 | **Audience** | Internal Strategy, Sales, Investors |
 | **Classification** | Confidential |
 

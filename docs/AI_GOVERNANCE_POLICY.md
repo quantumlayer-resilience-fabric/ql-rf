@@ -6,7 +6,7 @@
 |-------|-------|
 | **Document ID** | POL-AI-001 |
 | **Version** | 1.0 |
-| **Effective Date** | 2024-12-01 |
+| **Effective Date** | 2025-12-01 |
 | **Review Frequency** | Annual |
 | **Owner** | CTO / VP Engineering |
 | **Approver** | Executive Leadership |
@@ -488,4 +488,4 @@ AI capabilities MUST NOT be used for:
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| 1.0 | 2024-12-01 | AI Governance Team | Initial policy |
+| 1.0 | 2025-12-01 | AI Governance Team | Initial policy |

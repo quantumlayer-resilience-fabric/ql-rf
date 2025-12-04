@@ -77,7 +77,7 @@ All users with `execute:ai-tasks` permission submitting requests to the AI Copil
 │  GOOD EXAMPLES:                                                              │
 │  • "Show drift status for production web servers in us-east-1"              │
 │  • "Create patch plan for CVE-2024-1234 on staging database tier"           │
-│  • "Generate SOC 2 compliance evidence for Q4 2024"                         │
+│  • "Generate SOC 2 compliance evidence for Q4 2025"                         │
 │                                                                              │
 │  BAD EXAMPLES:                                                               │
 │  • "Fix the servers" (too vague)                                            │

@@ -327,16 +327,16 @@ Time: 1-2 days per audit
 Time: 5-15 minutes
 
 User: "Generate SOC 2 evidence package for CC6.1 (logical access controls)
-       for Q4 2024"
+       for Q4 2025"
 
 AI Agent (Compliance Agent):
 ├── get_compliance_status(framework=soc2, control=CC6.1)
-├── query_assets(timeframe=Q4-2024)
+├── query_assets(timeframe=Q4-2025)
 ├── check_control(control=CC6.1, assets=all)
 ├── generate_compliance_evidence(
 │     framework=soc2,
 │     control=CC6.1,
-│     period=Q4-2024,
+│     period=Q4-2025,
 │     include_narratives=true
 │   )
 └── export_report(format=pdf)
@@ -502,7 +502,7 @@ AI Agent (Image Agent):
 └── generate_rollout_plan(outdated_assets, new_image)
 
 Output:
-• New image web-tier-2024.12.04 built and validated
+• New image web-tier-2025.12.04 built and validated
 • Promoted to dev and staging registries
 • 34 production assets identified on older versions
 • Rollout plan generated for upgrade

@@ -516,7 +516,7 @@ Displays:
 ```yaml
 agent_review:
   agent_id: drift-agent
-  review_period: Q4-2024
+  review_period: Q4-2025
 
   metrics:
     tasks_completed: 342
@@ -527,7 +527,7 @@ agent_review:
 
   incidents:
     sev1: 0
-    sev2: 1  # Partial rollout failure on 2024-11-15
+    sev2: 1  # Partial rollout failure on 2025-11-15
     sev3: 3
     sev4: 8
 
