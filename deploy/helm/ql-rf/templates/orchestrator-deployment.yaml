@@ -1,0 +1,121 @@
+{{- if .Values.orchestrator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ql-rf.orchestrator.fullname" . }}
+  labels:
+    {{- include "ql-rf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: orchestrator
+spec:
+  {{- if not .Values.orchestrator.autoscaling.enabled }}
+  replicas: {{ .Values.orchestrator.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ql-rf.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: orchestrator
+  template:
+    metadata:
+      labels:
+        {{- include "ql-rf.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: orchestrator
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "ql-rf.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: orchestrator
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.orchestrator.image.repository }}:{{ .Values.orchestrator.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.orchestrator.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8083
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          env:
+            - name: RF_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ql-rf.secretName" . }}
+                  key: database-url
+            - name: RF_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ql-rf.secretName" . }}
+                  key: redis-url
+            - name: RF_LLM_PROVIDER
+              value: {{ .Values.orchestrator.llm.provider | quote }}
+            - name: RF_LLM_MODEL
+              value: {{ .Values.orchestrator.llm.model | quote }}
+            - name: RF_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ql-rf.secretName" . }}
+                  key: llm-api-key
+            - name: RF_TEMPORAL_HOST
+              value: {{ .Values.orchestrator.temporal.host | quote }}
+            - name: RF_TEMPORAL_PORT
+              value: {{ .Values.orchestrator.temporal.port | quote }}
+            - name: RF_TEMPORAL_NAMESPACE
+              value: {{ .Values.orchestrator.temporal.namespace | quote }}
+            - name: RF_TEMPORAL_TASK_QUEUE
+              value: {{ .Values.orchestrator.temporal.taskQueue | quote }}
+            - name: RF_CLERK_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ql-rf.secretName" . }}
+                  key: clerk-secret-key
+            {{- range $key, $value := .Values.orchestrator.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.orchestrator.resources | nindent 12 }}
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ql-rf.orchestrator.fullname" . }}
+  labels:
+    {{- include "ql-rf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: orchestrator
+spec:
+  type: {{ .Values.orchestrator.service.type }}
+  ports:
+    - port: {{ .Values.orchestrator.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "ql-rf.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: orchestrator
+{{- end }}

@@ -1,0 +1,29 @@
+apiVersion: v2
+name: ql-rf
+description: QuantumLayer Resilience Fabric - AI-powered infrastructure resilience platform
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - infrastructure
+  - ai
+  - resilience
+  - multi-cloud
+  - compliance
+  - drift-detection
+  - disaster-recovery
+home: https://github.com/quantumlayerhq/ql-rf
+sources:
+  - https://github.com/quantumlayerhq/ql-rf
+maintainers:
+  - name: QuantumLayer
+    email: support@quantumlayer.io
+dependencies:
+  - name: postgresql
+    version: "13.2.0"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: "18.0.0"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled

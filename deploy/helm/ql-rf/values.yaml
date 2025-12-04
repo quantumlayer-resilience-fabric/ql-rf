@@ -1,0 +1,399 @@
+# QL-RF Helm Values
+# Default values for QuantumLayer Resilience Fabric
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+# =============================================================================
+# API Service
+# =============================================================================
+api:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ghcr.io/quantumlayerhq/ql-rf-api
+    tag: ""  # Defaults to appVersion
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  env:
+    RF_LOG_LEVEL: info
+    RF_LOG_FORMAT: json
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# =============================================================================
+# Orchestrator Service (AI)
+# =============================================================================
+orchestrator:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ghcr.io/quantumlayerhq/ql-rf-orchestrator
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8083
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 60
+
+  # LLM Configuration
+  llm:
+    provider: anthropic  # anthropic, azure_openai, openai
+    model: claude-3-5-sonnet-20241022
+    # apiKey is set via secret
+
+  # Temporal Configuration
+  temporal:
+    host: temporal-frontend
+    port: 7233
+    namespace: default
+    taskQueue: ql-rf-orchestrator
+
+  env:
+    RF_LOG_LEVEL: info
+    RF_ORCHESTRATOR_DEV_MODE: "false"
+
+# =============================================================================
+# Connectors Service
+# =============================================================================
+connectors:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ghcr.io/quantumlayerhq/ql-rf-connectors
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8081
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Cloud connector configurations
+  # Credentials should be provided via secrets
+  aws:
+    enabled: true
+    regions:
+      - us-east-1
+      - us-west-2
+      - eu-west-1
+
+  azure:
+    enabled: true
+    # subscriptionId and tenantId via secrets
+
+  gcp:
+    enabled: true
+    # projectId via secrets
+
+  vsphere:
+    enabled: false
+    # vcenterUrl, username, password via secrets
+
+  kubernetes:
+    enabled: true
+    # Uses in-cluster config by default
+
+# =============================================================================
+# Drift Service
+# =============================================================================
+drift:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ghcr.io/quantumlayerhq/ql-rf-drift
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8082
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+  # Drift calculation schedule (cron)
+  schedule: "*/15 * * * *"  # Every 15 minutes
+
+# =============================================================================
+# Control Tower UI
+# =============================================================================
+ui:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ghcr.io/quantumlayerhq/ql-rf-ui
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  env:
+    NEXT_PUBLIC_API_URL: ""  # Set via ingress or service URL
+    NEXT_PUBLIC_ORCHESTRATOR_URL: ""
+
+# =============================================================================
+# Ingress
+# =============================================================================
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: qlrf.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: ui
+        - path: /api
+          pathType: Prefix
+          service: api
+        - path: /ai
+          pathType: Prefix
+          service: orchestrator
+  tls:
+    - secretName: qlrf-tls
+      hosts:
+        - qlrf.example.com
+
+# =============================================================================
+# Database
+# =============================================================================
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: ""  # Set via secret
+    username: qlrf
+    password: ""  # Set via secret
+    database: qlrf
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+# External database (if postgresql.enabled=false)
+externalDatabase:
+  host: ""
+  port: 5432
+  database: qlrf
+  username: qlrf
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# =============================================================================
+# Redis
+# =============================================================================
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    password: ""  # Set via secret
+  master:
+    persistence:
+      enabled: true
+      size: 5Gi
+
+# External Redis (if redis.enabled=false)
+externalRedis:
+  host: ""
+  port: 6379
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# =============================================================================
+# Kafka
+# =============================================================================
+kafka:
+  enabled: false
+  # Use external Kafka for production
+
+externalKafka:
+  brokers: []
+  # - kafka-0.kafka:9092
+  # - kafka-1.kafka:9092
+
+# =============================================================================
+# Temporal
+# =============================================================================
+temporal:
+  enabled: false
+  # Deploy Temporal separately for production
+  # See: https://github.com/temporalio/helm-charts
+
+externalTemporal:
+  host: temporal-frontend
+  port: 7233
+  namespace: default
+
+# =============================================================================
+# Authentication (Clerk)
+# =============================================================================
+auth:
+  provider: clerk
+  clerk:
+    publishableKey: ""  # Set via secret
+    secretKey: ""  # Set via secret
+    domain: ""  # e.g., your-app.clerk.accounts.dev
+
+# =============================================================================
+# Secrets
+# =============================================================================
+secrets:
+  # Create secrets for sensitive values
+  # Or reference existing secrets
+  createSecrets: true
+
+  # LLM API Key
+  llmApiKey: ""
+
+  # Database password (if using bundled postgresql)
+  databasePassword: ""
+
+  # Redis password (if using bundled redis)
+  redisPassword: ""
+
+  # Clerk credentials
+  clerkSecretKey: ""
+  clerkPublishableKey: ""
+
+  # Cloud credentials (optional, can use IAM roles)
+  aws:
+    accessKeyId: ""
+    secretAccessKey: ""
+  azure:
+    clientId: ""
+    clientSecret: ""
+    tenantId: ""
+    subscriptionId: ""
+  gcp:
+    serviceAccountKey: ""
+
+# =============================================================================
+# Service Account
+# =============================================================================
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # For AWS IRSA:
+  # annotations:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/qlrf-role
+
+# =============================================================================
+# Pod Security
+# =============================================================================
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# =============================================================================
+# Network Policies
+# =============================================================================
+networkPolicy:
+  enabled: true
+  # Allow traffic from ingress and between services
+  allowExternal: false
+
+# =============================================================================
+# Pod Disruption Budget
+# =============================================================================
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# =============================================================================
+# Monitoring
+# =============================================================================
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    namespace: ""
+    labels: {}
+
+# =============================================================================
+# Common Labels
+# =============================================================================
+commonLabels:
+  app.kubernetes.io/part-of: ql-rf
+  app.kubernetes.io/managed-by: helm
