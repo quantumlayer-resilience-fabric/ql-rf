@@ -651,6 +651,14 @@ func (h *Handler) approveTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	now := time.Now().UTC()
 
+	// Check if task exists first
+	var taskExists bool
+	err := h.db.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM ai_tasks WHERE id = $1)`, taskID).Scan(&taskExists)
+	if err != nil || !taskExists {
+		h.respondError(w, http.StatusNotFound, "task not found", nil)
+		return
+	}
+
 	h.log.Info("task approved",
 		"task_id", taskID,
 		"user_id", userID,
@@ -671,7 +679,7 @@ func (h *Handler) approveTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update task state in database
-	_, err := h.db.Pool.Exec(ctx, `
+	_, err = h.db.Pool.Exec(ctx, `
 		UPDATE ai_tasks
 		SET state = 'approved', updated_at = $1
 		WHERE id = $2
@@ -752,6 +760,14 @@ func (h *Handler) rejectTask(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
+	// Check if task exists first
+	var taskExists bool
+	err := h.db.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM ai_tasks WHERE id = $1)`, taskID).Scan(&taskExists)
+	if err != nil || !taskExists {
+		h.respondError(w, http.StatusNotFound, "task not found", nil)
+		return
+	}
+
 	h.log.Info("task rejected",
 		"task_id", taskID,
 		"user_id", userID,
@@ -771,7 +787,7 @@ func (h *Handler) rejectTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update task status in database
-	_, err := h.db.Pool.Exec(ctx, `
+	_, err = h.db.Pool.Exec(ctx, `
 		UPDATE ai_tasks
 		SET state = 'rejected', updated_at = $1
 		WHERE id = $2

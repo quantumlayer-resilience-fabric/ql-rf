@@ -6,7 +6,8 @@
         run-api run-connectors run-drift run-orchestrator \
         migrate-up migrate-down migrate-create sqlc-generate \
         docker-build docker-push \
-        opa-test opa-fmt
+        opa-test opa-fmt \
+        contracts-generate contracts-validate contracts-check
 
 # Variables
 BINARY_DIR := bin
@@ -242,6 +243,31 @@ clean:
 
 # ============================================================================
 # Help
+# ============================================================================
+# API Contracts
+# ============================================================================
+
+## contracts-generate: Generate TypeScript types from OpenAPI spec
+contracts-generate:
+	cd ui/control-tower && npm run generate:api-types
+
+## contracts-validate: Validate API contracts (OpenAPI spec + TypeScript types)
+contracts-validate:
+	@echo "Validating API contracts..."
+	cd ui/control-tower && npm run validate:contracts
+	@echo "API contracts are valid!"
+
+## contracts-check: Check if generated types are up to date
+contracts-check:
+	@echo "Checking if API types are up to date..."
+	cd ui/control-tower && npm run generate:api-types
+	@if git diff --quiet ui/control-tower/src/lib/api-types/schema.ts; then \
+		echo "API types are up to date!"; \
+	else \
+		echo "ERROR: API types are out of date. Run 'make contracts-generate' and commit the changes."; \
+		exit 1; \
+	fi
+
 # ============================================================================
 
 ## help: Show this help message

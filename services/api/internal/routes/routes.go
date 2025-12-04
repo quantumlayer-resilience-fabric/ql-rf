@@ -135,7 +135,9 @@ func New(cfg Config) http.Handler {
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Apply authentication middleware to all API routes
-		devMode := cfg.Config.Env == "development"
+		// Only use dev mode if Clerk is NOT configured
+		clerkConfigured := cfg.Config.Clerk.PublishableKey != "" && cfg.Config.Clerk.SecretKey != ""
+		devMode := !clerkConfigured
 		authConfig := middleware.AuthConfig{
 			ClerkPublishableKey: cfg.Config.Clerk.PublishableKey,
 			ClerkSecretKey:      cfg.Config.Clerk.SecretKey,

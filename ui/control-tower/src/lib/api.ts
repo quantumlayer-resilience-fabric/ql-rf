@@ -7,17 +7,15 @@
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
 
-// Dev bypass flag - if true, use dev-token immediately
-// Check both string "true" and boolean coercion for build-time env vars
-const devAuthBypass = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true" ||
-                      process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "1";
-const isDevelopment = process.env.NODE_ENV === "development";
+// Token getter function - set by the auth provider (Clerk)
+// This will be initialized by the AuthProvider component
+let getAuthToken: (() => Promise<string | null>) | null = null;
 
-// Token getter function - set by the auth provider
-// Initialize with dev-token getter if in dev bypass mode OR if Clerk is not configured
-const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-let getAuthToken: (() => Promise<string | null>) | null =
-  (devAuthBypass || isDevelopment || !clerkConfigured) ? (async () => "dev-token") : null;
+// Promise that resolves when auth is ready
+let authReadyResolve: (() => void) | null = null;
+const authReadyPromise = new Promise<void>((resolve) => {
+  authReadyResolve = resolve;
+});
 
 /**
  * Set the auth token getter function.
@@ -25,6 +23,25 @@ let getAuthToken: (() => Promise<string | null>) | null =
  */
 export function setAuthTokenGetter(getter: () => Promise<string | null>) {
   getAuthToken = getter;
+  // Signal that auth is ready
+  if (authReadyResolve) {
+    authReadyResolve();
+    authReadyResolve = null;
+  }
+}
+
+/**
+ * Wait for auth to be ready before making API calls.
+ * Returns after auth getter is set or after timeout.
+ */
+async function waitForAuth(timeoutMs = 5000): Promise<void> {
+  if (getAuthToken) return;
+
+  // Race between auth being ready and timeout
+  await Promise.race([
+    authReadyPromise,
+    new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
 }
 
 // Backend Asset type (what the API returns in snake_case)
@@ -198,14 +215,15 @@ export interface Alert {
 
 export interface Activity {
   id: string;
-  type: "info" | "warning" | "success" | "critical";
+  orgId: string;
+  type: string;
   action: string;
   detail: string;
   userId?: string;
   siteId?: string;
   assetId?: string;
   imageId?: string;
-  createdAt: string;
+  timestamp: string;  // Required - matches OpenAPI spec
 }
 
 export interface ComplianceFramework {
@@ -684,6 +702,9 @@ async function apiFetch<T>(
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
 
+  // Wait for auth to be ready before making API calls
+  await waitForAuth();
+
   // Get auth token if available
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -807,6 +828,19 @@ export const api = {
         updated_at: string;
       }
 
+      // Map backend status to frontend status
+      const mapStatus = (backendStatus: string): Image["status"] => {
+        const statusMap: Record<string, Image["status"]> = {
+          "published": "production",
+          "production": "production",
+          "staging": "staging",
+          "testing": "testing",
+          "deprecated": "deprecated",
+          "pending": "pending",
+        };
+        return statusMap[backendStatus] || "pending";
+      };
+
       const response = await apiFetch<{ images: BackendImage[]; total: number }>("/images");
       const backendImages = response.images || [];
 
@@ -836,7 +870,7 @@ export const api = {
           familyName: familyName,
           version: img.version,
           description: `${img.os_name || ''} ${img.os_version || ''}`.trim(),
-          status: (img.status as Image["status"]) || "pending",
+          status: mapStatus(img.status),
           platforms: ["aws"] as Image["platforms"], // Default, could be derived from coordinates
           compliance: {
             cis: false,
@@ -854,7 +888,7 @@ export const api = {
           description: `${latestImage?.os_name || ''} ${latestImage?.os_version || ''}`.trim() || "Golden image family",
           owner: "system",
           latestVersion: latestImage?.version || "0.0.0",
-          status: (latestImage?.status as ImageFamily["status"]) || "pending",
+          status: mapStatus(latestImage?.status || "pending"),
           totalDeployed: 0,
           versions: transformedVersions,
           createdAt: sortedImages[sortedImages.length - 1]?.created_at || new Date().toISOString(),

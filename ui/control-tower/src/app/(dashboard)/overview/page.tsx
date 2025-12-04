@@ -16,6 +16,12 @@ import {
   AlertTriangle,
   Clock,
 } from "lucide-react";
+import {
+  mapAlertSeverityToUIStatus,
+  mapDriftStatusToUIStatus,
+  type AlertSeverity,
+  type DriftStatus,
+} from "@/lib/api-types";
 
 export default function OverviewPage() {
   const { data: metrics, isLoading, error, refetch } = useOverviewMetrics();
@@ -78,18 +84,18 @@ export default function OverviewPage() {
   const alertsSummary = metrics?.alerts || [];
   const recentActivity = metrics?.recentActivity || [];
 
-  // Transform alert data for display
+  // Transform alert data for display using generated type mappings
   const alerts = alertsSummary.map((a) => ({
-    severity: a.severity,
+    severity: mapAlertSeverityToUIStatus(a.severity as AlertSeverity),
     count: a.count,
     label: a.severity.charAt(0).toUpperCase() + a.severity.slice(1),
   }));
 
-  // Transform drift API site data for heatmap
+  // Transform drift API site data for heatmap using generated type mappings
   const siteHeatmap = (driftSummary?.bySite || []).map((site) => ({
     name: site.siteName || site.siteId,
     coverage: site.coverage,
-    status: site.status,
+    status: mapDriftStatusToUIStatus(site.status as DriftStatus),
   }));
 
   // Get status for metrics
@@ -288,7 +294,7 @@ export default function OverviewPage() {
                       </div>
                     </div>
                     <span className="text-xs text-muted-foreground whitespace-nowrap">
-                      {formatRelativeTime(activity.createdAt)}
+                      {formatRelativeTime(activity.timestamp)}
                     </span>
                   </div>
                 ))

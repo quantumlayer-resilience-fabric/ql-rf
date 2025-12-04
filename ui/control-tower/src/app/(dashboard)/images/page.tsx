@@ -77,6 +77,34 @@ export default function ImagesPage() {
     router.push("/images/new");
   }, [router]);
 
+  const families = imageFamilies || [];
+
+  // Calculate metrics from real data
+  const imageMetrics = useMemo(() => ({
+    totalFamilies: families.length,
+    activeVersions: families.reduce((acc, f) => acc + (f.versions?.length || 0), 0),
+    pendingPromotions: families.filter((f) => f.status === "pending").length,
+    deprecatedImages: families.filter((f) => f.status === "deprecated").length,
+  }), [families]);
+
+  const filteredFamilies = useMemo(() => {
+    return families.filter((family) => {
+      const matchesSearch =
+        family.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        family.description.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesStatus =
+        statusFilter === "all" || family.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [families, searchQuery, statusFilter]);
+
+  // Paginate filtered results
+  const totalPages = Math.ceil(filteredFamilies.length / PAGE_SIZE);
+  const paginatedFamilies = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredFamilies.slice(start, start + PAGE_SIZE);
+  }, [filteredFamilies, currentPage]);
+
   if (isLoading) {
     return (
       <div className="page-transition space-y-6">
@@ -115,34 +143,6 @@ export default function ImagesPage() {
       </div>
     );
   }
-
-  const families = imageFamilies || [];
-
-  // Calculate metrics from real data
-  const imageMetrics = {
-    totalFamilies: families.length,
-    activeVersions: families.reduce((acc, f) => acc + (f.versions?.length || 0), 0),
-    pendingPromotions: families.filter((f) => f.status === "pending").length,
-    deprecatedImages: families.filter((f) => f.status === "deprecated").length,
-  };
-
-  const filteredFamilies = useMemo(() => {
-    return families.filter((family) => {
-      const matchesSearch =
-        family.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        family.description.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesStatus =
-        statusFilter === "all" || family.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    });
-  }, [families, searchQuery, statusFilter]);
-
-  // Paginate filtered results
-  const totalPages = Math.ceil(filteredFamilies.length / PAGE_SIZE);
-  const paginatedFamilies = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return filteredFamilies.slice(start, start + PAGE_SIZE);
-  }, [filteredFamilies, currentPage]);
 
   // Reset to page 1 when filters change
   const handleSearchChange = (value: string) => {

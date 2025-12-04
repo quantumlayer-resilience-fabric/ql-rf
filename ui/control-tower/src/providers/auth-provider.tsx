@@ -1,106 +1,61 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { setAuthTokenGetter } from "@/lib/api";
-
-// Check environment
-const isDevelopment = process.env.NODE_ENV === "development";
-
-// Dev bypass - set NEXT_PUBLIC_DEV_AUTH_BYPASS=true to skip Clerk entirely
-const devAuthBypass = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
-
-// Check if Clerk is configured with a real key (and dev bypass is not enabled)
-const hasClerkKey =
-  !devAuthBypass &&
-  typeof process !== "undefined" &&
-  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
-  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_") &&
-  !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.includes("xxxxx");
 
 /**
  * AuthProvider component that connects Clerk's auth to our API client.
- * Must be rendered within ClerkProvider (when Clerk is configured).
+ * Must be rendered within ClerkProvider.
  *
- * PRODUCTION: Requires Clerk to be properly configured
- * DEVELOPMENT: Falls back to dev-token when Clerk is not configured
+ * This component sets up the token getter for the API client to use
+ * Clerk's JWT tokens for authentication with the backend.
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // In development without proper Clerk config, always use dev auth
-  // This avoids "useAuth can only be used within ClerkProvider" errors
-  if (isDevelopment && !hasClerkKey) {
-    return <DevAuthProvider>{children}</DevAuthProvider>;
-  }
+  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const tokenGetterRef = useRef(getToken);
+  const isLoadedRef = useRef(isLoaded);
 
-  // In development with Clerk config but possibly not wrapped in ClerkProvider,
-  // still use dev auth to avoid errors
-  if (isDevelopment) {
-    return <DevAuthProvider>{children}</DevAuthProvider>;
-  }
+  // Keep refs in sync with latest values
+  tokenGetterRef.current = getToken;
+  isLoadedRef.current = isLoaded;
 
-  // Production with Clerk - use Clerk auth
-  if (hasClerkKey) {
-    return <ClerkAuthProvider>{children}</ClerkAuthProvider>;
-  }
-
-  // Production without Clerk - this is a configuration error
-  console.error("[Auth] CRITICAL: Clerk is not configured in production. Authentication will fail.");
-  return <ProductionAuthErrorProvider>{children}</ProductionAuthErrorProvider>;
-}
-
-// Dev mode auth provider - sets dev token (ONLY for development)
-function DevAuthProvider({ children }: { children: React.ReactNode }) {
+  // Set up the token getter immediately on first render
+  // The getter will wait for auth to be loaded before returning a token
   useEffect(() => {
-    setAuthTokenGetter(async () => "dev-token");
-  }, []);
-
-  return <>{children}</>;
-}
-
-// Production error state - no auth available
-function ProductionAuthErrorProvider({ children }: { children: React.ReactNode }) {
-  useEffect(() => {
-    // In production without Clerk, return null to force auth errors
-    // This will cause API calls to fail, alerting operators to misconfiguration
-    setAuthTokenGetter(async () => null);
-  }, []);
-
-  return <>{children}</>;
-}
-
-// Separate component that uses Clerk hooks
-function ClerkAuthProvider({ children }: { children: React.ReactNode }) {
-  // Dynamic import to avoid loading Clerk when not configured
-  const { useAuth } = require("@clerk/nextjs");
-  const { getToken } = useAuth();
-
-  useEffect(() => {
-    // Set up the token getter for the API client
     setAuthTokenGetter(async () => {
+      // Wait for Clerk to be loaded (with timeout)
+      let attempts = 0;
+      while (!isLoadedRef.current && attempts < 50) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+      }
+
+      if (!isLoadedRef.current) {
+        console.warn("[Auth] Clerk not loaded after 5s timeout");
+        return null;
+      }
+
       try {
-        const token = await getToken();
+        const token = await tokenGetterRef.current();
         if (!token) {
-          // In development, fallback to dev-token for convenience
-          if (isDevelopment) {
-            console.warn("[Auth] Clerk returned no token - using dev-token fallback");
-            return "dev-token";
-          }
-          // In production, return null - user needs to sign in
           console.warn("[Auth] No auth token available - user may need to sign in");
           return null;
         }
         return token;
       } catch (error) {
-        // In development, fallback to dev-token for convenience
-        if (isDevelopment) {
-          console.warn("[Auth] Clerk error - using dev-token fallback:", error);
-          return "dev-token";
-        }
-        // In production, return null and log the error
         console.error("[Auth] Failed to get auth token:", error);
         return null;
       }
     });
-  }, [getToken]);
+  }, []); // Only run once on mount
+
+  // Log when auth state changes (for debugging)
+  useEffect(() => {
+    if (isLoaded) {
+      console.log("[Auth] Clerk loaded, signed in:", isSignedIn);
+    }
+  }, [isLoaded, isSignedIn]);
 
   return <>{children}</>;
 }

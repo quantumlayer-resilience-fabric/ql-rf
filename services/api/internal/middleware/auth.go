@@ -318,17 +318,25 @@ func Tenant(cfg TenantConfig) func(next http.Handler) http.Handler {
 				}
 			}
 
-			// Development mode fallback - use first org for the user or create default
-			if org == nil && cfg.DevMode {
+			// If still no org, try to look up by user's external ID from database
+			// This supports users who are provisioned in the database without Clerk org membership
+			if org == nil && user.ExternalID != "" {
 				org = lookupOrgByUserExternalID(ctx, cfg.DB, user.ExternalID)
-
-				// If still no org in dev mode, try to find default org
-				if org == nil {
-					org = lookupDefaultOrg(ctx, cfg.DB)
+				if org != nil && cfg.Log != nil {
+					cfg.Log.Debug("resolved org from user record",
+						"user_external_id", user.ExternalID,
+						"org_id", org.ID,
+						"org_name", org.Name,
+					)
 				}
+			}
+
+			// Development mode fallback - use default org
+			if org == nil && cfg.DevMode {
+				org = lookupDefaultOrg(ctx, cfg.DB)
 
 				if org != nil && cfg.Log != nil {
-					cfg.Log.Debug("dev mode: resolved org for user",
+					cfg.Log.Debug("dev mode: using default org",
 						"user_external_id", user.ExternalID,
 						"org_id", org.ID,
 						"org_name", org.Name,
