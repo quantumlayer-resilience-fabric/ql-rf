@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { PageSkeleton, ErrorState, EmptyState } from "@/components/feedback";
 import { PermissionGate } from "@/components/auth/permission-gate";
 import { Permissions } from "@/hooks/use-permissions";
 import { useResilienceSummary, useTriggerFailoverTest, useTriggerDRSync } from "@/hooks/use-resilience";
+import { useSendAIMessage, useAIContext, usePendingTasks } from "@/hooks/use-ai";
 import {
   RefreshCw,
   Shield,
@@ -30,6 +31,7 @@ import {
   History,
   Loader2,
   ShieldAlert,
+  Sparkles,
 } from "lucide-react";
 
 export default function ResiliencePage() {
@@ -37,6 +39,19 @@ export default function ResiliencePage() {
   const { data: resilienceData, isLoading, error, refetch } = useResilienceSummary();
   const triggerFailoverTest = useTriggerFailoverTest();
   const triggerSync = useTriggerDRSync();
+  const [isCreatingAITask, setIsCreatingAITask] = useState(false);
+
+  // AI hooks
+  const aiContext = useAIContext();
+  const sendAIMessage = useSendAIMessage();
+  const { data: pendingTasks = [] } = usePendingTasks();
+
+  // Check if there's already a pending DR-related task
+  const hasPendingDRTask = pendingTasks.some(
+    (task) => task.user_intent?.toLowerCase().includes("dr") ||
+              task.user_intent?.toLowerCase().includes("disaster") ||
+              task.user_intent?.toLowerCase().includes("resilience")
+  );
 
   const handleConfigureDR = useCallback(() => {
     router.push("/sites?view=topology");
@@ -56,6 +71,36 @@ export default function ResiliencePage() {
         refetch();
       },
     });
+  };
+
+  // Handle AI analysis for DR readiness
+  const handleAIDRAnalysis = async () => {
+    setIsCreatingAITask(true);
+    try {
+      const unpairedCount = resilienceData?.unpairedSites?.length || 0;
+      const healthyPairs = resilienceData?.healthyPairs || 0;
+      const totalPairs = resilienceData?.totalPairs || 0;
+      const drReadiness = resilienceData?.drReadiness || 0;
+
+      let intent = "";
+      if (drReadiness < 80) {
+        intent = `Analyze DR readiness (currently ${drReadiness.toFixed(1)}%) and generate improvement recommendations. ${unpairedCount} sites are unprotected, ${totalPairs - healthyPairs} pairs have issues.`;
+      } else if (unpairedCount > 0) {
+        intent = `Review ${unpairedCount} unprotected sites and recommend DR pairing strategy based on criticality, location, and workload patterns.`;
+      } else {
+        intent = `Optimize DR configuration for ${totalPairs} pairs. Analyze RTO/RPO compliance and suggest improvements for failover efficiency.`;
+      }
+
+      await sendAIMessage.mutateAsync({
+        message: intent,
+        context: aiContext,
+      });
+      router.push("/ai");
+    } catch (error) {
+      console.error("Failed to create AI task:", error);
+    } finally {
+      setIsCreatingAITask(false);
+    }
   };
 
   if (isLoading) {
@@ -174,6 +219,92 @@ export default function ResiliencePage() {
           icon={<Calendar className="h-5 w-5" />}
         />
       </div>
+
+      {/* AI Insight Card */}
+      {(drMetrics.readiness < 95 || unpairedSites.length > 0 || drMetrics.healthyPairs < drMetrics.drPairs) && (
+        <Card className={`border-l-4 ${
+          drMetrics.readiness < 80
+            ? "border-l-status-red bg-gradient-to-r from-status-red/5 to-transparent"
+            : drMetrics.readiness < 95 || unpairedSites.length > 0
+            ? "border-l-status-amber bg-gradient-to-r from-status-amber/5 to-transparent"
+            : "border-l-brand-accent bg-gradient-to-r from-brand-accent/5 to-transparent"
+        }`}>
+          <CardContent className="flex items-start gap-4 p-6">
+            <div className={`rounded-lg p-2 ${
+              drMetrics.readiness < 80 ? "bg-status-red/10" :
+              drMetrics.readiness < 95 || unpairedSites.length > 0 ? "bg-status-amber/10" : "bg-brand-accent/10"
+            }`}>
+              <Sparkles className={`h-5 w-5 ${
+                drMetrics.readiness < 80 ? "text-status-red" :
+                drMetrics.readiness < 95 || unpairedSites.length > 0 ? "text-status-amber" : "text-brand-accent"
+              }`} />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold">
+                  {drMetrics.readiness < 80
+                    ? "DR Readiness Needs Attention"
+                    : unpairedSites.length > 0
+                    ? `${unpairedSites.length} Site${unpairedSites.length > 1 ? "s" : ""} Unprotected`
+                    : drMetrics.healthyPairs < drMetrics.drPairs
+                    ? "DR Pair Issues Detected"
+                    : "DR Optimization Available"}
+                </h3>
+                <Badge
+                  variant="outline"
+                  className={`text-xs ${
+                    drMetrics.readiness < 80
+                      ? "border-status-red/50 text-status-red"
+                      : drMetrics.readiness < 95 || unpairedSites.length > 0
+                      ? "border-status-amber/50 text-status-amber"
+                      : ""
+                  }`}
+                >
+                  {drMetrics.readiness < 80 ? "critical" : unpairedSites.length > 0 ? "warning" : "optimization"}
+                </Badge>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {drMetrics.readiness < 80
+                  ? `Current DR readiness is ${drMetrics.readiness.toFixed(1)}%. AI can analyze gaps and generate improvement recommendations.`
+                  : unpairedSites.length > 0
+                  ? `AI can recommend optimal DR pairing strategies for unprotected sites based on workload patterns.`
+                  : `AI can analyze RTO/RPO compliance and suggest failover optimization strategies.`}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {hasPendingDRTask ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => router.push("/ai")}
+                >
+                  <Clock className="mr-2 h-4 w-4" />
+                  View Pending Task
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={handleAIDRAnalysis}
+                  disabled={isCreatingAITask}
+                  className={drMetrics.readiness < 80 ? "bg-status-red hover:bg-status-red/90" : ""}
+                >
+                  {isCreatingAITask ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="mr-2 h-4 w-4" />
+                      Analyze with AI
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="pairs" className="space-y-4">
