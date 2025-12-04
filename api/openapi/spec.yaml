@@ -1,0 +1,467 @@
+openapi: 3.1.0
+info:
+  title: QuantumLayer Resilience Fabric API
+  description: |
+    API for managing infrastructure resilience, golden images, drift detection,
+    compliance, and disaster recovery across multi-cloud environments.
+  version: 1.0.0
+  contact:
+    name: QuantumLayer
+    url: https://quantumlayer.io
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+  - url: https://api.quantumlayer.io/api/v1
+    description: Production
+
+tags:
+  - name: Overview
+    description: Dashboard overview metrics
+  - name: Drift
+    description: Patch drift detection and management
+  - name: Alerts
+    description: Alert management
+  - name: Assets
+    description: Asset management
+  - name: Images
+    description: Golden image management
+  - name: Compliance
+    description: Compliance frameworks and controls
+
+paths:
+  /overview/metrics:
+    get:
+      tags: [Overview]
+      summary: Get dashboard overview metrics
+      operationId: getOverviewMetrics
+      responses:
+        '200':
+          description: Overview metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverviewMetrics'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /drift/summary:
+    get:
+      tags: [Drift]
+      summary: Get drift summary
+      operationId: getDriftSummary
+      responses:
+        '200':
+          description: Drift summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriftSummaryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /alerts:
+    get:
+      tags: [Alerts]
+      summary: List alerts
+      operationId: listAlerts
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: severity
+          in: query
+          schema:
+            $ref: '#/components/schemas/AlertSeverity'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/AlertStatus'
+      responses:
+        '200':
+          description: List of alerts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid authorization
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    # ==================== Common Types ====================
+    UUID:
+      type: string
+      format: uuid
+      example: "550e8400-e29b-41d4-a716-446655440000"
+
+    Timestamp:
+      type: string
+      format: date-time
+      example: "2025-12-04T10:30:00Z"
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Error message
+        code:
+          type: string
+          description: Error code for programmatic handling
+
+    # ==================== Trend Types ====================
+    TrendDirection:
+      type: string
+      enum: [up, down, neutral]
+      description: Direction of the metric trend
+
+    MetricTrend:
+      type: object
+      required: [direction, value, period]
+      properties:
+        direction:
+          $ref: '#/components/schemas/TrendDirection'
+        value:
+          type: string
+          description: Trend value (e.g., "+5%", "-2%")
+          example: "+5%"
+        period:
+          type: string
+          description: Comparison period
+          example: "vs last 7 days"
+
+    MetricWithTrend:
+      type: object
+      required: [value, trend]
+      properties:
+        value:
+          type: integer
+          format: int64
+          description: Current metric value
+        trend:
+          $ref: '#/components/schemas/MetricTrend'
+
+    FloatMetricWithTrend:
+      type: object
+      required: [value, trend]
+      properties:
+        value:
+          type: number
+          format: double
+          description: Current metric value as percentage
+        trend:
+          $ref: '#/components/schemas/MetricTrend'
+
+    # ==================== Platform Types ====================
+    Platform:
+      type: string
+      enum: [aws, azure, gcp, vsphere, k8s]
+      description: Infrastructure platform
+
+    PlatformCount:
+      type: object
+      required: [platform, count, percentage]
+      properties:
+        platform:
+          $ref: '#/components/schemas/Platform'
+        count:
+          type: integer
+          description: Number of assets on this platform
+        percentage:
+          type: number
+          format: double
+          description: Percentage of total assets
+
+    # ==================== Alert Types ====================
+    AlertSeverity:
+      type: string
+      enum: [critical, high, medium, warning, low, info]
+      description: |
+        Alert severity level:
+        - critical: Immediate action required
+        - high: Urgent attention needed
+        - medium: Should be addressed soon
+        - warning: Potential issue
+        - low: Minor issue
+        - info: Informational
+
+    AlertStatus:
+      type: string
+      enum: [open, acknowledged, resolved]
+      description: Current alert status
+
+    AlertCount:
+      type: object
+      required: [severity, count]
+      properties:
+        severity:
+          $ref: '#/components/schemas/AlertSeverity'
+        count:
+          type: integer
+          description: Number of alerts with this severity
+
+    Alert:
+      type: object
+      required: [id, orgId, severity, title, description, source, status, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        orgId:
+          $ref: '#/components/schemas/UUID'
+        severity:
+          $ref: '#/components/schemas/AlertSeverity'
+        title:
+          type: string
+        description:
+          type: string
+        source:
+          type: string
+          enum: [drift, compliance, connector, system]
+        siteId:
+          $ref: '#/components/schemas/UUID'
+        assetId:
+          $ref: '#/components/schemas/UUID'
+        imageId:
+          $ref: '#/components/schemas/UUID'
+        status:
+          $ref: '#/components/schemas/AlertStatus'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        acknowledgedAt:
+          $ref: '#/components/schemas/Timestamp'
+        acknowledgedBy:
+          $ref: '#/components/schemas/UUID'
+        resolvedAt:
+          $ref: '#/components/schemas/Timestamp'
+        resolvedBy:
+          $ref: '#/components/schemas/UUID'
+
+    AlertListResponse:
+      type: object
+      required: [alerts, total, page, pageSize, totalPages]
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Alert'
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalPages:
+          type: integer
+
+    # ==================== Activity Types ====================
+    ActivityType:
+      type: string
+      enum: [info, warning, success, critical, patch, image, compliance, dr_test, ai_task]
+      description: Type of activity event
+
+    Activity:
+      type: object
+      required: [id, orgId, type, action, detail, timestamp]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        orgId:
+          $ref: '#/components/schemas/UUID'
+        type:
+          $ref: '#/components/schemas/ActivityType'
+        action:
+          type: string
+          description: Brief description of the action
+        detail:
+          type: string
+          description: Detailed description
+        userId:
+          $ref: '#/components/schemas/UUID'
+        siteId:
+          $ref: '#/components/schemas/UUID'
+        assetId:
+          $ref: '#/components/schemas/UUID'
+        imageId:
+          $ref: '#/components/schemas/UUID'
+        timestamp:
+          $ref: '#/components/schemas/Timestamp'
+
+    # ==================== Drift Types ====================
+    DriftStatus:
+      type: string
+      enum: [healthy, warning, critical]
+      description: |
+        Drift status based on coverage percentage:
+        - healthy: >= 90% coverage
+        - warning: 70-89% coverage
+        - critical: < 70% coverage
+
+    DriftBySite:
+      type: object
+      required: [siteId, siteName, coverage, status]
+      properties:
+        siteId:
+          type: string
+          description: Site identifier
+        siteName:
+          type: string
+          description: Human-readable site name
+        coverage:
+          type: number
+          format: double
+          description: Coverage percentage (0-100)
+        status:
+          $ref: '#/components/schemas/DriftStatus'
+
+    DriftByEnvironment:
+      type: object
+      required: [environment, total, compliant, percentage]
+      properties:
+        environment:
+          type: string
+          description: Environment name (production, staging, etc.)
+        total:
+          type: integer
+          description: Total assets in environment
+        compliant:
+          type: integer
+          description: Compliant assets in environment
+        percentage:
+          type: number
+          format: double
+          description: Compliance percentage
+
+    DriftByAge:
+      type: object
+      required: [range, count, percentage]
+      properties:
+        range:
+          type: string
+          description: Age range (e.g., "0-7 days", "8-14 days")
+        count:
+          type: integer
+        percentage:
+          type: number
+          format: double
+
+    DriftSummaryResponse:
+      type: object
+      required:
+        - totalAssets
+        - compliantAssets
+        - driftedAssets
+        - driftPercentage
+        - criticalDrift
+        - averageDriftAge
+        - byEnvironment
+        - bySite
+        - byAge
+      properties:
+        totalAssets:
+          type: integer
+          description: Total number of assets
+        compliantAssets:
+          type: integer
+          description: Number of compliant assets
+        driftedAssets:
+          type: integer
+          description: Number of drifted assets
+        driftPercentage:
+          type: number
+          format: double
+          description: Percentage of assets that are drifted
+        criticalDrift:
+          type: integer
+          description: Number of assets with critical drift
+        averageDriftAge:
+          type: string
+          description: Human-readable average drift age
+        byEnvironment:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriftByEnvironment'
+        bySite:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriftBySite'
+        byAge:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriftByAge'
+
+    # ==================== Overview Types ====================
+    OverviewMetrics:
+      type: object
+      required:
+        - fleetSize
+        - driftScore
+        - compliance
+        - drReadiness
+        - platformDistribution
+        - alerts
+        - recentActivity
+      properties:
+        fleetSize:
+          $ref: '#/components/schemas/MetricWithTrend'
+        driftScore:
+          $ref: '#/components/schemas/FloatMetricWithTrend'
+        compliance:
+          $ref: '#/components/schemas/FloatMetricWithTrend'
+        drReadiness:
+          $ref: '#/components/schemas/FloatMetricWithTrend'
+        platformDistribution:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformCount'
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlertCount'
+        recentActivity:
+          type: array
+          items:
+            $ref: '#/components/schemas/Activity'
+
+security:
+  - bearerAuth: []
