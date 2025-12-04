@@ -11,7 +11,7 @@ global:
 # =============================================================================
 api:
   enabled: true
-  replicaCount: 2
+  replicaCount: 3  # Aligned with production K8s manifests
   image:
     repository: ghcr.io/quantumlayerhq/ql-rf-api
     tag: ""  # Defaults to appVersion

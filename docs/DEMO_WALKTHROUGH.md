@@ -259,7 +259,7 @@ What specific changes would achieve 15% cost reduction?
 ### AI Agent Architecture
 
 Show the AI page to explain:
-- 11 specialist agents (Drift, Patch, Compliance, DR, etc.)
+- 10 specialist agents (Drift, Patch, Compliance, DR, etc.)
 - 29 tools with different risk levels (query, analyze, plan, execute)
 - Human-in-the-loop for state-changing operations
 - Tool invocation audit trail

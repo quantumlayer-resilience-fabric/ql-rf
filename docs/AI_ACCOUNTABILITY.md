@@ -58,7 +58,7 @@ We treat each AI agent as a **team member** with:
 
 ### Agent Profile Structure
 
-Each of the 11 agents in QL-RF has a defined identity:
+Each of the 10 agents in QL-RF has a defined identity:
 
 ```yaml
 # Example: Drift Agent Profile

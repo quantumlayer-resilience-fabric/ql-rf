@@ -506,7 +506,7 @@ QuantumLayer Resilience Fabric (QL-RF) transforms infrastructure operations from
 | Capability | Description | Business Value |
 |------------|-------------|----------------|
 | **AI Accountability Framework** | Treat AI as auditable team member | Trust & compliance |
-| **11 Specialist Agents** | Domain-specific AI expertise | Higher quality plans |
+| **10 Specialist Agents** | Domain-specific AI expertise | Higher quality plans |
 | **Human-in-the-Loop** | Approval workflow for safety | Zero uncontrolled changes |
 | **OPA Policy Engine** | Declarative safety guardrails | Consistent enforcement |
 | **Multi-Cloud Support** | AWS, Azure, GCP, vSphere | Single tool for all |

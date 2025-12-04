@@ -99,7 +99,7 @@ LLM-first operations engine that converts natural language to executed infrastru
 │  └─────────────────────────────────────────────────────────┘    │
 │                              ↓                                   │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │           LAYER 2: SPECIALIST AGENTS (11 total)         │    │
+│  │           LAYER 2: SPECIALIST AGENTS (10 total)         │    │
 │  │  ┌─────────┐ ┌─────────┐ ┌──────────┐ ┌──────────┐     │    │
 │  │  │ Drift   │ │ Patch   │ │Compliance│ │ Incident │     │    │
 │  │  │ Agent   │ │ Agent   │ │  Agent   │ │  Agent   │     │    │
@@ -108,10 +108,10 @@ LLM-first operations engine that converts natural language to executed infrastru
 │  │  │   DR    │ │  Cost   │ │ Security │ │  Image   │     │    │
 │  │  │  Agent  │ │  Agent  │ │  Agent   │ │  Agent   │     │    │
 │  │  └─────────┘ └─────────┘ └──────────┘ └──────────┘     │    │
-│  │  ┌─────────┐ ┌─────────┐ ┌──────────┐                  │    │
-│  │  │   SOP   │ │ Adapter │ │  Base    │                  │    │
-│  │  │  Agent  │ │  Agent  │ │  Agent   │                  │    │
-│  │  └─────────┘ └─────────┘ └──────────┘                  │    │
+│  │  ┌─────────┐ ┌─────────┐                               │    │
+│  │  │   SOP   │ │ Adapter │  (+ shared BaseAgent)         │    │
+│  │  │  Agent  │ │  Agent  │                               │    │
+│  │  └─────────┘ └─────────┘                               │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │                              ↓                                   │
 │  ┌─────────────────────────────────────────────────────────┐    │
@@ -788,3 +788,192 @@ make test-e2e          # Full E2E tests
 | [ADR-003](adr/ADR-003-cosign-signing.md) | Image signing with Cosign |
 | [ADR-005](adr/ADR-005-opa-policy-engine.md) | OPA for policy validation |
 | [ADR-006](adr/ADR-006-sbom-spdx.md) | SBOM with SPDX format |
+
+---
+
+## Phase 4: Automation Features
+
+### Autonomy Modes (`services/orchestrator/internal/autonomy/`)
+
+Five levels of AI autonomy with progressive automation:
+
+| Mode | Description | Human Approval |
+|------|-------------|----------------|
+| `plan_only` | AI generates plans, humans execute manually | Always |
+| `approve_all` | Human approval required for all operations | Always |
+| `canary_only` | Auto-execute canary phases, approve full rollout | Canary: Auto, Full: Manual |
+| `risk_based` | Auto-execute low/medium risk, approve high/critical | Low/Medium: Auto, High+: Manual |
+| `full_auto` | Full automation with guardrails and alerting | Never (alerts only) |
+
+**Configuration:**
+```go
+type AutonomyConfig struct {
+    Mode              AutonomyMode
+    MaxRiskLevel      string            // risk_based: max auto-approve level
+    RequireCanary     bool              // full_auto: require canary first
+    NotifyOnAuto      bool              // Send alerts on auto-execution
+    AllowedHours      []int             // Time windows for auto-execution
+    ExcludedEnvs      []string          // Environments requiring approval
+}
+```
+
+**Usage:**
+```go
+engine := autonomy.NewEngine(config)
+decision := engine.ShouldAutoApprove(task, riskLevel)
+// Returns: AutoApprove, RequireApproval, or Block
+```
+
+### Risk Scoring Service (`services/orchestrator/internal/risk/`)
+
+Calculates operation risk to inform autonomy decisions and batch sizing.
+
+**Risk Factors (8 total):**
+
+| Factor | Weight | Description |
+|--------|--------|-------------|
+| Asset Criticality | 20% | Production: 100, DR: 70, Staging: 40, Dev: 20 |
+| Change Type | 20% | Reimage: 100, Patch: 60, Config: 40, Status: 20 |
+| Blast Radius | 15% | % of environment affected |
+| Time of Day | 10% | Business hours: 100, Off-hours: 30 |
+| Historical Failure | 15% | Past failure rate for similar operations |
+| Rollback Complexity | 10% | Easy: 20, Medium: 50, Hard: 100 |
+| Dependencies | 5% | Count of dependent services |
+| Compliance Impact | 5% | Affects compliance controls: 100, No: 0 |
+
+**Risk Levels:**
+- **Low** (0-24): Safe for automation
+- **Medium** (25-49): Automation with monitoring
+- **High** (50-74): Requires approval
+- **Critical** (75-100): Escalation required
+
+**Batch Recommendations:**
+```go
+scorer.GetBatchSizeRecommendation(riskLevel)
+// Low: 25%, Medium: 10%, High: 5%, Critical: 1 asset
+```
+
+### Canary Analysis (`services/orchestrator/internal/canary/`)
+
+Progressive rollout validation with metrics-driven promotion.
+
+**Metrics Providers:**
+- Prometheus (default)
+- CloudWatch (AWS)
+- Datadog
+- Custom webhook
+
+**Analysis Templates:**
+
+| Template | Duration | Metrics |
+|----------|----------|---------|
+| Basic | 5 min | Error rate only |
+| Standard | 10 min | Error rate, latency |
+| Comprehensive | 30 min | Error rate, latency, CPU, memory, custom |
+
+**Thresholds:**
+```yaml
+thresholds:
+  error_rate: 0.01        # 1% max error rate
+  latency_p99: 500ms      # p99 latency
+  cpu_utilization: 80%    # Max CPU
+  memory_utilization: 85% # Max memory
+```
+
+**Canary Phases:**
+1. Deploy canary (5% traffic)
+2. Monitor baseline period
+3. Promote to 25% (if passing)
+4. Promote to 50% (if passing)
+5. Full rollout (100%)
+6. Cleanup canary deployment
+
+### Patch-as-Code (`contracts/patch.contract.yaml`)
+
+Declarative patch policies in YAML with JSONSchema validation.
+
+**Contract Structure:**
+```yaml
+apiVersion: qlrf.io/v1
+kind: PatchPolicy
+metadata:
+  name: critical-security-patches
+  namespace: production
+spec:
+  # Target Selection
+  selector:
+    platform: [aws, azure, gcp]
+    environment: production
+    tags:
+      compliance: [pci-dss, hipaa]
+
+  # Patch Configuration
+  patches:
+    severity: [critical, high]
+    categories: [security]
+    excludeKBs: []
+
+  # Rollout Strategy
+  strategy:
+    type: canary           # immediate, rolling, canary, blue-green, maintenance-window
+    canary:
+      initialPercent: 5
+      increment: 15
+      interval: 10m
+      analysisTemplate: standard
+
+    rollback:
+      automatic: true
+      threshold: 0.05      # 5% failure triggers rollback
+
+  # Schedule
+  schedule:
+    type: maintenance-window
+    windows:
+      - day: saturday
+        start: "02:00"
+        end: "06:00"
+        timezone: UTC
+
+  # Notifications
+  notifications:
+    slack:
+      channel: "#ops-alerts"
+      events: [started, completed, failed, rollback]
+```
+
+**Strategy Types:**
+
+| Strategy | Description | Use Case |
+|----------|-------------|----------|
+| `immediate` | Apply to all targets at once | Dev/test environments |
+| `rolling` | Sequential batches with health checks | Standard deployments |
+| `canary` | Progressive rollout with metrics | Production critical |
+| `blue-green` | Full parallel deployment swap | Zero-downtime required |
+| `maintenance-window` | Scheduled during defined windows | Change-controlled envs |
+
+### CI/CD Pipeline (`.github/workflows/`)
+
+Automated build, test, and deployment pipeline.
+
+**CI Pipeline (`ci.yml`):**
+- Go lint (golangci-lint)
+- Go test (with PostgreSQL service)
+- Go build (matrix: api, connectors, drift, orchestrator)
+- Frontend lint & build
+- Docker image build & push (main branch)
+- Security scan (Trivy)
+
+**CD Pipeline (`cd.yml`):**
+- Triggered by CI success on main
+- Staging deployment with Helm
+- Integration tests on staging
+- Canary analysis
+- Production approval gate
+- Progressive production rollout (5% → 25% → 50% → 100%)
+- Automatic rollback on failure
+
+**Deployment Environments:**
+- `staging`: Auto-deploy on CI pass
+- `production-approval`: Manual approval gate
+- `production`: Progressive canary deployment

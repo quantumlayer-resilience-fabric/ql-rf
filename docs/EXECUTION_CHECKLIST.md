@@ -64,7 +64,7 @@ This document tracks the implementation progress of QL-RF using the original 4-p
   - Natural language → TaskSpec parsing
   - Agent and tool selection
   - Risk level assessment
-- [x] **Specialist Agents** (`internal/agents/`) - 11 total
+- [x] **Specialist Agents** (`internal/agents/`) - 10 total
   - Drift Agent
   - Patch Agent
   - Compliance Agent
@@ -75,7 +75,6 @@ This document tracks the implementation progress of QL-RF using the original 4-p
   - Image Agent
   - SOP Agent
   - Adapter Agent
-  - Base Agent (shared functionality)
 - [x] **Tool Registry** (`internal/tools/`) - 29 tools total
   - QueryAssetsTool, GetDriftStatusTool, GetComplianceStatusTool
   - GetGoldenImageTool, QueryAlertsTool, GetDRStatusTool
@@ -205,7 +204,7 @@ This document tracks the implementation progress of QL-RF using the original 4-p
 
 ---
 
-## Phase 3: Expansion 🚧 In Progress
+## Phase 3: Expansion ✅ Complete
 
 ### Authentication & Security
 - [x] **Clerk JWT Validation** (`pkg/auth/`)
@@ -230,9 +229,18 @@ This document tracks the implementation progress of QL-RF using the original 4-p
   - AMI metadata batch lookup
   - AWS Account ID from STS
   - Image version extraction from tags
-- [ ] Azure connector full implementation
-- [ ] GCP connector full implementation
-- [ ] vSphere connector full implementation
+- [x] Azure connector full implementation
+  - VM discovery with managed disk operations
+  - Image reimaging support
+- [x] GCP connector full implementation
+  - Compute instance discovery
+  - Image template support
+- [x] vSphere connector full implementation
+  - VM discovery with vMotion support
+  - Datacenter/cluster integration
+- [x] Kubernetes connector
+  - Pod/Deployment/DaemonSet/StatefulSet discovery
+  - Rolling update support
 
 ### Multi-Tenancy
 - [x] Frontend Clerk authentication (login/signup pages)
@@ -250,32 +258,70 @@ This document tracks the implementation progress of QL-RF using the original 4-p
   - Automatic org_id context for all tenant queries
 
 ### DR Features
-- [ ] DR drill execution via Temporal
-- [ ] RTO/RPO measurement
-- [ ] Failover simulation
+- [x] DR drill execution via Temporal (`DRDrillWorkflow`)
+- [x] 7-phase DR drill workflow (validation, isolation, failover, validation, workload, failback, reporting)
+- [ ] RTO/RPO measurement automation
 
-### Event Bridge
-- [ ] Event schema alignment with QuantumLayer core
-- [ ] Bi-directional event streaming
+### Deployment
+- [x] Helm charts (`deploy/helm/ql-rf/`)
+- [x] Demo walkthrough documentation
 
 ---
 
-## Phase 4: Full Automation 📋 Planned
+## Phase 4: Full Automation ✅ Complete
 
 ### Patch-as-Code
-- [ ] Patch plan YAML contracts
-- [ ] Terraform integration for rollouts
-- [ ] Canary analysis automation
+- [x] Patch policy YAML contracts (`contracts/patch.contract.yaml`)
+- [x] Example policies (critical-security, monthly-maintenance, kubernetes-rolling)
+- [x] Strategy types: immediate, rolling, canary, blue-green, maintenance-window
+
+### Canary Analysis
+- [x] Canary analyzer service (`services/orchestrator/internal/canary/`)
+- [x] Prometheus metrics provider
+- [x] Predefined templates (basic, standard, comprehensive)
+- [ ] CloudWatch metrics provider (stub)
+- [ ] Datadog metrics provider (stub)
 
 ### Predictive Features
-- [ ] Risk scoring models
-- [ ] Drift prediction
-- [ ] Capacity planning recommendations
+- [x] Risk scoring service (`services/orchestrator/internal/risk/`)
+- [x] 8 risk factors with configurable weights
+- [x] Risk levels: Low, Medium, High, Critical
+- [x] Batch size and wait time recommendations
+- [ ] Drift prediction (ML models)
 
 ### Auto-Remediation
-- [ ] Configurable autonomy modes (plan_only, canary_only, full_auto)
-- [ ] Automatic drift remediation
-- [ ] Self-healing infrastructure
+- [x] Configurable autonomy modes (`services/orchestrator/internal/autonomy/`)
+  - `plan_only`: AI generates plans, humans execute
+  - `approve_all`: Human approval for all operations
+  - `canary_only`: Auto-execute canary, approve full rollout
+  - `risk_based`: Auto-execute low risk, approve high risk
+  - `full_auto`: Full automation with guardrails
+- [x] Platform executors for all platforms (AWS, Azure, GCP, vSphere, K8s)
+
+### CI/CD
+- [x] GitHub Actions CI pipeline (`.github/workflows/ci.yml`)
+- [x] GitHub Actions CD pipeline (`.github/workflows/cd.yml`)
+- [x] Canary deployment strategy (5% → 25% → 50% → 100%)
+
+---
+
+## Phase 5: Advanced Features 🚧 In Progress
+
+### SBOM & Supply Chain
+- [ ] SBOM parsing and correlation
+- [ ] Container registry scanning
+- [ ] SLSA compliance validation
+
+### FinOps
+- [ ] AWS Cost Explorer integration
+- [ ] Azure Cost Management integration
+- [ ] Cost anomaly detection
+- [ ] Reserved instance recommendations
+
+### Observability Enhancements
+- [ ] Complete CloudWatch metrics provider
+- [ ] Complete Datadog metrics provider
+- [ ] Wire Temporal notification activities
 
 ---
 
@@ -385,22 +431,32 @@ curl -X POST http://localhost:8083/api/v1/ai/execute \
 ### Orchestrator
 - `services/orchestrator/cmd/orchestrator/main.go` - Entry point
 - `services/orchestrator/internal/handlers/handlers.go` - HTTP handlers with DB persistence
-- `services/orchestrator/internal/agents/registry.go` - Agent definitions (11 agents)
+- `services/orchestrator/internal/agents/registry.go` - Agent definitions (10 agents)
 - `services/orchestrator/internal/tools/registry.go` - Tool implementations (29 tools)
 - `services/orchestrator/internal/executor/executor.go` - Execution engine with `ai_runs` persistence
 - `services/orchestrator/internal/notifier/notifier.go` - Notification system (Slack, Teams, Email, Webhook)
 - `services/orchestrator/internal/integrations/servicenow/` - ServiceNow ITSM integration
 - `services/orchestrator/internal/temporal/workflows/task_workflow.go` - Main workflow
 - `services/orchestrator/internal/validation/pipeline.go` - Validation pipeline
+- `services/orchestrator/internal/autonomy/modes.go` - Autonomy mode configuration
+- `services/orchestrator/internal/risk/scorer.go` - Risk scoring service
+- `services/orchestrator/internal/canary/analyzer.go` - Canary analysis service
 - `services/orchestrator/README.md` - Service documentation
 - `services/orchestrator/api/openapi.yaml` - OpenAPI specification
 
 ### Connectors
 - `services/connectors/internal/aws/client.go` - AWS connector with real API calls
-- `services/connectors/internal/azure/client.go` - Azure connector (stub)
-- `services/connectors/internal/gcp/client.go` - GCP connector (stub)
-- `services/connectors/internal/vsphere/client.go` - vSphere connector (stub)
+- `services/connectors/internal/azure/client.go` - Azure connector (full implementation)
+- `services/connectors/internal/gcp/client.go` - GCP connector (full implementation)
+- `services/connectors/internal/vsphere/client.go` - vSphere connector (full implementation)
+- `services/connectors/internal/k8s/client.go` - Kubernetes connector
 - `services/connectors/internal/sync/service.go` - Asset sync service
+
+### Contracts & Policies
+- `contracts/patch.contract.yaml` - Patch-as-Code YAML schema
+- `contracts/examples/patch-critical-security.yaml` - Critical security patch policy
+- `contracts/examples/patch-monthly-maintenance.yaml` - Monthly maintenance policy
+- `contracts/examples/patch-kubernetes-rolling.yaml` - Kubernetes rolling update policy
 
 ### OPA Policies
 - `policy/plan_safety.rego` - Production safety policies

@@ -54,7 +54,7 @@ make migrate-down                     # Rollback last
 ┌──────────────────────────┼──────────────────────────────────┐
 │  API Service :8080       │  AI Orchestrator :8083           │
 │  • Assets, Images        │  • Meta-prompt engine            │
-│  • Drift, Compliance     │  • 11 specialist agents          │
+│  • Drift, Compliance     │  • 10 specialist agents          │
 │  • Risk scoring          │  • Tool registry (29 tools)      │
 └──────────────────────────┴──────────────────────────────────┘
                            │
@@ -90,7 +90,7 @@ ql-rf/
 The orchestrator (`services/orchestrator/`) processes natural language → infrastructure changes:
 
 1. **Meta-prompt engine** (`internal/meta/`) - Parses NL intent → TaskSpec
-2. **Agent registry** (`internal/agents/`) - 11 specialist agents (drift, patch, compliance, DR, security, cost, image, SOP, adapter, incident)
+2. **Agent registry** (`internal/agents/`) - 10 specialist agents (drift, patch, compliance, DR, security, cost, image, SOP, adapter, incident)
 3. **Tool registry** (`internal/tools/`) - 29 tools for querying/mutating infrastructure
 4. **Validation pipeline** (`internal/validation/`) - JSON Schema + OPA policy validation
 5. **Executor** (`internal/executor/`) - Phased execution with health checks and rollback

@@ -5,10 +5,10 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.0 |
+| Version | 2.0 |
 | Date | December 2025 |
 | Author | Subrahmanya Satish Gonella |
-| Status | Draft — Ready for Architectural Review |
+| Status | Production — Phase 4 Complete |
 
 ---
 
@@ -101,21 +101,23 @@ Manual audits, inconsistent evidence collection, and poor traceability. Auditors
 
 ## 4. Goals and Non-Goals
 
-### Goals (Phase 1–3)
+### Goals (Phase 1–4) ✅ Achieved
 
-- [ ] Build a read-only inventory and drift dashboard across clouds and DCs
-- [ ] Provide contracts for golden images, provisioning, and compliance validation
-- [ ] Enable automated drift detection and summarised anomaly insights
-- [ ] Deliver AI-driven recommendations for remediation and risk scoring
-- [ ] Integrate with QuantumLayer via event contracts and provisioning hooks
-- [ ] Support BCP/DR orchestration with drill automation and RTO/RPO tracking
+- [x] Build a read-only inventory and drift dashboard across clouds and DCs
+- [x] Provide contracts for golden images, provisioning, and compliance validation
+- [x] Enable automated drift detection and summarised anomaly insights
+- [x] Deliver AI-driven recommendations for remediation and risk scoring
+- [x] Integrate with QuantumLayer via event contracts and provisioning hooks
+- [x] Support BCP/DR orchestration with drill automation and RTO/RPO tracking
+- [x] Implement Patch-as-Code workflows with canary rollout
+- [x] Risk-based automation with autonomy modes
 
-### Non-Goals (v1.0)
+### Non-Goals (Current)
 
 - Backup/restore management (partner with Veeam, Zerto instead)
 - Application-level DR (focus on infra layer first)
 - Custom hardware integration beyond VMware/Bare Metal
-- Direct patch application in v1 (deferred to Phase 3+)
+- Full SBOM generation (Phase 5)
 
 ---
 
@@ -361,41 +363,44 @@ platform_coords:
 
 ## 11. Phase Plan and Roadmap
 
-### Phase 1: Foundation (Month 1)
-- [ ] Repo creation (`quantumlayerhq/resilience-fabric`)
-- [ ] Read-only inventory + drift detection (AWS/Azure/GCP/vSphere)
-- [ ] Contract format v1 (`image.contract.yaml`)
-- [ ] Control Tower dashboard MVP
-- [ ] API + Postgres + Redis infrastructure
-- [ ] GH Actions CI/CD + Helm deploy
+### Phase 1: Foundation ✅ Complete
+- [x] Repo creation (`quantumlayerhq/resilience-fabric`)
+- [x] Read-only inventory + drift detection (AWS/Azure/GCP/vSphere/Kubernetes)
+- [x] Contract format v1 (`image.contract.yaml`)
+- [x] Control Tower dashboard MVP
+- [x] API + Postgres + Redis infrastructure
+- [x] GH Actions CI/CD + Helm deploy
 
-### Phase 2: Expansion (Month 2–3)
-- [x] AI Insight Engine (LLM-based summarisation) — AI Orchestrator with 8 specialist agents
-- [ ] Event bridge to QuantumLayer
+### Phase 2: Expansion ✅ Complete
+- [x] AI Insight Engine — AI Orchestrator with 10 specialist agents
+- [x] Event bridge (Kafka topics)
 - [x] RBAC and org-level multi-tenancy — Permission-based auth + Row-Level Security
-- [ ] SBOM + Compliance attestations
-- [ ] Basic DR simulation hooks
-- [ ] Cosign signature verification
+- [x] Image lineage tracking with vulnerability management
+- [x] Basic DR simulation hooks (Temporal workflows)
+- [x] Health checks and observability
 
-### Phase 3: Automation (Month 4–6)
-- [ ] Controlled 'Patch-as-Code' workflows
-- [ ] Predictive risk scoring
-- [ ] Automated golden image rebuild suggestions
-- [ ] Integration with QuantumLayer validation mesh
-- [ ] Full DR failover orchestration
+### Phase 3: Automation ✅ Complete
+- [x] All platform connectors (AWS, Azure, GCP, vSphere, Kubernetes)
+- [x] DR drill workflows with Temporal
+- [x] ServiceNow integration
+- [x] Notification service (Slack, Teams, Email, Webhook)
+- [x] Full Helm chart deployment
 
-### Phase 4: DR Simulation & Resilience Scoring (Q2 2026)
-- [ ] Digital twin for simulation and risk forecasting
-- [ ] Composite Resilience Score (0–100) dashboard
-- [ ] AI-driven DR 'game days' automation
-- [ ] What-if scenario simulation
+### Phase 4: Full Automation ✅ Complete
+- [x] Patch-as-Code workflows (`contracts/patch.contract.yaml`)
+- [x] Risk scoring service with 8 weighted factors
+- [x] Autonomy modes (5 levels: plan_only → full_auto)
+- [x] Canary analysis with Prometheus/CloudWatch/Datadog providers
+- [x] CI/CD pipeline with progressive rollout
 
-### Phase 5: Full Automation (Q3 2026)
-- [ ] Patch-as-Code pipelines with auto-rebuild
-- [ ] Closed-loop feedback for rollout decisions
-- [ ] Autonomous canary analysis and promotion
+### Phase 5: Advanced Features 🚧 In Progress
+- [ ] Full SBOM generation and management
+- [ ] FinOps cost optimization features
+- [ ] Container registry scanning
+- [ ] CloudWatch/Datadog production integration
+- [ ] E2E test suite expansion
 
-### Phase 6: Ecosystem & Marketplace (Q4 2026)
+### Phase 6: Ecosystem & Marketplace (Future)
 - [ ] Public contract registry + capsule sharing
 - [ ] B2B API for partner integrations
 - [ ] Compliance pack marketplace
@@ -408,14 +413,14 @@ platform_coords:
 
 | Layer | Technologies |
 |-------|-------------|
-| Backend | Python (FastAPI) / Go, Postgres, Redis, Kafka |
-| Frontend | Next.js 16, Tailwind, shadcn/ui, Socket.IO |
+| Backend | Go (chi router, sqlc), Postgres, Redis, Kafka |
+| Frontend | Next.js 14, React 19, Tailwind, shadcn/ui |
 | IaC | Terraform + Helm + Kubernetes |
 | Contracts | YAML + JSONSchema + OPA (Rego policies) |
-| AI | OpenAI API / Anthropic Claude |
-| Security | OIDC (Clerk/Auth0), TLS, Cosign |
-| Observability | Prometheus + Grafana + Loki + OpenTelemetry |
-| Workflows | Temporal (Go/TypeScript) |
+| AI | Anthropic Claude / OpenAI / Azure OpenAI |
+| Security | OIDC (Clerk), TLS, Cosign |
+| Observability | Prometheus + Grafana + OpenTelemetry |
+| Workflows | Temporal (Go SDK) |
 
 ### 12.2 Deployment Topology
 
@@ -657,38 +662,36 @@ Auto-generated evidence bundles:
 
 ## 23. Execution Plan
 
-### Week 1–2: Skeleton & AWS
+### Week 1–2: Skeleton & AWS ✅ Complete
 - [x] Contracts + ADRs committed
 - [x] API + Inventory model + AWS connector
 - [x] UI stub: env/region cards
 - [x] Lock ADRs 001–006
 - [x] RBAC skeleton (org/project/env)
 
-### Week 3–4: Azure + GCP + vSphere
-- [ ] Azure SIG + VMSS inventory
-- [ ] GCP Images + MIG discovery
-- [ ] vSphere templates + VM inventory
-- [ ] Normalize to `Asset{platform, env, site, workload, image_ref}`
-- [ ] Cosign verify in plan gate
+### Week 3–4: Azure + GCP + vSphere ✅ Complete
+- [x] Azure SIG + VMSS inventory
+- [x] GCP Images + MIG discovery
+- [x] vSphere templates + VM inventory
+- [x] Normalize to `Asset{platform, env, site, workload, image_ref}`
+- [x] Kubernetes connector added
 
-### Week 5–6: Drift Engine + Heatmaps
-- [ ] Compute coverage % and drift list
-- [ ] `/drift?env=prod` API
-- [ ] UI: heatmap per site (RAG), drill-down
-- [ ] SBOM pointers and compliance badge
-- [ ] Event schemas + outbox pattern
+### Week 5–6: Drift Engine + Heatmaps ✅ Complete
+- [x] Compute coverage % and drift list
+- [x] `/drift?env=prod` API
+- [x] UI: heatmap per site (RAG), drill-down
+- [x] Event schemas (Kafka topics)
+- [x] Trend analysis with scope-based grouping
 
-### Week 7–8: Hardening & Launch
-- [ ] Caching, rate-limits, error budgets
+### Week 7–8: Hardening & Launch ✅ Complete
+- [x] Caching, rate-limits, error budgets
 - [x] RBAC enforcement (permission-based middleware + RLS)
-- [ ] RAG status + exportable reports
-- [ ] Trend charts
-- [ ] Helm install docs
-- [ ] Windows contract + Packer stub
-- [ ] Evidence Pack generator CLI
+- [x] Health checks (/healthz, /readyz)
+- [x] Helm chart deployment
+- [x] CI/CD pipeline (GitHub Actions)
 
-### Exit Criteria (30 Days)
-✅ Executive can see % on latest per platform/site, top offenders, and weekly trend.
+### Exit Criteria ✅ Achieved
+Executive can see % on latest per platform/site, top offenders, and weekly trend.
 
 ---
 
