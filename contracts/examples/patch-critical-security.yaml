@@ -1,0 +1,194 @@
+# Critical Security Patch Policy
+# This policy defines how critical security patches are rolled out across production
+#
+# Usage:
+#   qlrf apply -f contracts/examples/patch-critical-security.yaml
+#   qlrf patch run critical-security-patches
+
+apiVersion: ql-rf.io/v1
+kind: PatchPolicy
+metadata:
+  name: critical-security-patches
+  namespace: production
+  labels:
+    severity: critical
+    team: security
+    compliance: required
+  annotations:
+    description: "Emergency security patch policy for critical CVEs"
+    owner: security-team@acme.com
+    sla: "7-days"
+
+spec:
+  # Target all production Linux servers
+  selector:
+    platforms:
+      - aws
+      - azure
+      - gcp
+    environments:
+      - production
+    imageFamilies:
+      - ql-base-ubuntu
+      - ql-base-amazon
+      - ql-base-rhel
+    tags:
+      tier: production
+    excludeTags:
+      maintenance-exempt: "true"
+
+  # Patch source configuration
+  source:
+    type: golden-image
+    goldenImage:
+      version: latest  # Always use latest approved golden image
+    severity:
+      - critical
+      - high
+    classifications:
+      - security
+
+  # Canary rollout with automatic analysis
+  strategy:
+    type: canary
+    canary:
+      initialPercentage: 5
+      steps:
+        - percentage: 5
+          pauseDuration: 30m
+          analysis:
+            metrics:
+              - name: error-rate
+                threshold: 0.01
+                comparison: less-than
+              - name: latency-p99
+                threshold: 500
+                comparison: less-than
+            duration: 30m
+            provider: prometheus
+        - percentage: 25
+          pauseDuration: 1h
+          analysis:
+            metrics:
+              - name: error-rate
+                threshold: 0.01
+                comparison: less-than
+            duration: 1h
+        - percentage: 50
+          pauseDuration: 2h
+        - percentage: 100
+          pauseDuration: 0s
+      autoPromote: true  # Auto-promote if analysis passes
+
+  # Pre/post hooks
+  hooks:
+    preRollout:
+      - name: create-change-ticket
+        type: webhook
+        target: https://servicenow.acme.com/api/change
+        timeout: 2m
+        failPolicy: abort
+        args:
+          priority: critical
+          type: emergency
+      - name: notify-oncall
+        type: webhook
+        target: https://pagerduty.com/api/alert
+        timeout: 30s
+        failPolicy: continue
+    prePatch:
+      - name: drain-from-lb
+        type: ssm-document
+        target: AWS-DrainFromLoadBalancer
+        timeout: 5m
+        failPolicy: abort
+      - name: create-snapshot
+        type: lambda
+        target: arn:aws:lambda:us-east-1:123456789012:function:create-ebs-snapshot
+        timeout: 10m
+        failPolicy: abort
+    postPatch:
+      - name: verify-services
+        type: script
+        target: /opt/qlrf/scripts/verify-services.sh
+        timeout: 5m
+        failPolicy: abort
+      - name: add-to-lb
+        type: ssm-document
+        target: AWS-AddToLoadBalancer
+        timeout: 5m
+        failPolicy: warn
+    onFailure:
+      - name: notify-security
+        type: webhook
+        target: https://slack.com/api/chat.postMessage
+        args:
+          channel: "#security-alerts"
+          priority: critical
+
+  # Health checks after patching
+  healthCheck:
+    enabled: true
+    initialDelay: 2m
+    interval: 30s
+    timeout: 10s
+    successThreshold: 3
+    failureThreshold: 3
+    checks:
+      - type: http
+        target: http://localhost:8080/health
+        expectedStatus: 200
+      - type: ssm-ping
+        target: instance
+      - type: exec
+        target: systemctl is-active nginx
+
+  # Automatic rollback configuration
+  rollback:
+    enabled: true
+    automatic: true
+    onFailurePercentage: 10  # Rollback if >10% fail
+    strategy: revert-image
+    retainFailedAssets: true  # Keep for debugging
+
+  # Approval requirements
+  approval:
+    required: true
+    minApprovers: 1
+    allowedApprovers:
+      - role:security-admin
+      - role:platform-admin
+    autoApproveFor: []  # No auto-approve for critical patches
+    timeout: 4h  # Must be approved within 4 hours
+
+  # Notifications
+  notifications:
+    channels:
+      - type: slack
+        target: "#security-patches"
+        events: [started, progress, completed, failed, rollback]
+      - type: email
+        target: security-team@acme.com
+        events: [completed, failed]
+      - type: pagerduty
+        target: security-oncall
+        events: [failed, rollback]
+    onStart: true
+    onComplete: true
+    onFailure: true
+    progressInterval: 15m
+
+  # Trigger configuration
+  schedule:
+    type: cve-triggered
+    cveSeverity:
+      - critical
+
+  # Compliance requirements
+  compliance:
+    patchWithin:
+      critical: 7d
+      high: 14d
+    reportTo:
+      - https://compliance.acme.com/api/patch-report
+    requireEvidence: true

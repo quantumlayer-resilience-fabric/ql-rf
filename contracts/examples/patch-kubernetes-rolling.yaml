@@ -1,0 +1,151 @@
+# Kubernetes Rolling Update Policy
+# Container image updates with blue-green deployment
+#
+# Usage:
+#   qlrf apply -f contracts/examples/patch-kubernetes-rolling.yaml
+
+apiVersion: ql-rf.io/v1
+kind: PatchPolicy
+metadata:
+  name: k8s-container-updates
+  namespace: production
+  labels:
+    platform: kubernetes
+    team: devops
+    type: container
+  annotations:
+    description: "Rolling updates for Kubernetes workloads"
+    owner: devops-team@acme.com
+
+spec:
+  selector:
+    platforms:
+      - k8s
+    environments:
+      - staging
+      - production
+    imageFamilies:
+      - ql-app-api
+      - ql-app-worker
+      - ql-app-frontend
+    tags:
+      managed-by: qlrf
+    excludeTags:
+      update: manual
+
+  source:
+    type: golden-image
+    goldenImage:
+      version: latest
+    severity:
+      - critical
+      - high
+      - medium
+
+  strategy:
+    type: canary
+    canary:
+      initialPercentage: 10
+      steps:
+        - percentage: 10
+          pauseDuration: 5m
+          analysis:
+            metrics:
+              - name: error-rate
+                threshold: 0.005
+                comparison: less-than
+                query: 'sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))'
+              - name: latency-p99
+                threshold: 200
+                comparison: less-than
+                query: 'histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))'
+            duration: 5m
+            provider: prometheus
+        - percentage: 25
+          pauseDuration: 10m
+          analysis:
+            metrics:
+              - name: error-rate
+                threshold: 0.005
+                comparison: less-than
+            duration: 10m
+        - percentage: 50
+          pauseDuration: 15m
+        - percentage: 100
+          pauseDuration: 0s
+      autoPromote: true
+
+  hooks:
+    preRollout:
+      - name: run-integration-tests
+        type: webhook
+        target: https://ci.acme.com/api/trigger/integration-tests
+        timeout: 30m
+        failPolicy: abort
+    prePatch:
+      - name: scale-up-replicas
+        type: script
+        target: kubectl scale deployment --replicas=+2
+        timeout: 5m
+        failPolicy: warn
+    postPatch:
+      - name: run-smoke-tests
+        type: webhook
+        target: https://ci.acme.com/api/trigger/smoke-tests
+        timeout: 10m
+        failPolicy: abort
+    postRollout:
+      - name: scale-down-replicas
+        type: script
+        target: kubectl scale deployment --replicas=-2
+        timeout: 5m
+        failPolicy: continue
+      - name: update-argocd
+        type: webhook
+        target: https://argocd.acme.com/api/v1/applications/sync
+
+  healthCheck:
+    enabled: true
+    initialDelay: 1m
+    interval: 15s
+    timeout: 5s
+    successThreshold: 3
+    failureThreshold: 3
+    checks:
+      - type: http
+        target: /healthz
+        expectedStatus: 200
+      - type: http
+        target: /readyz
+        expectedStatus: 200
+
+  rollback:
+    enabled: true
+    automatic: true
+    onFailurePercentage: 5
+    strategy: revert-image  # Rolls back to previous image
+
+  approval:
+    required: true
+    minApprovers: 1
+    autoApproveFor:
+      - staging
+      - development
+    timeout: 12h
+
+  notifications:
+    channels:
+      - type: slack
+        target: "#deployments"
+        events: [started, progress, completed, failed, rollback]
+    progressInterval: 5m
+
+  schedule:
+    type: drift-triggered
+    driftThreshold: 7  # Trigger if image is >7 days old
+
+  compliance:
+    patchWithin:
+      critical: 3d
+      high: 7d
+    requireEvidence: true

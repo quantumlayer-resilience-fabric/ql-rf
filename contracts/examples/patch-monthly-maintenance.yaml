@@ -1,0 +1,142 @@
+# Monthly Maintenance Patch Policy
+# Regular monthly patching during maintenance windows
+#
+# Usage:
+#   qlrf apply -f contracts/examples/patch-monthly-maintenance.yaml
+
+apiVersion: ql-rf.io/v1
+kind: PatchPolicy
+metadata:
+  name: monthly-os-updates
+  namespace: production
+  labels:
+    frequency: monthly
+    team: platform
+    compliance: standard
+  annotations:
+    description: "Regular monthly OS patching during maintenance windows"
+    owner: platform-team@acme.com
+
+spec:
+  selector:
+    platforms:
+      - aws
+      - azure
+      - gcp
+      - vsphere
+    environments:
+      - staging
+      - production
+    tags:
+      patching: enabled
+    excludeTags:
+      patching: manual
+      critical: "true"
+
+  source:
+    type: golden-image
+    goldenImage:
+      family: "*"  # All families
+      version: latest
+    severity:
+      - critical
+      - high
+      - medium
+    classifications:
+      - security
+      - bugfix
+
+  strategy:
+    type: maintenance-window
+    maintenanceWindow:
+      timezone: "America/New_York"
+      windows:
+        # Staging: Tuesday 2am-6am
+        - dayOfWeek: tuesday
+          startTime: "02:00"
+          duration: "4h"
+        # Production: Saturday 2am-8am
+        - dayOfWeek: saturday
+          startTime: "02:00"
+          duration: "6h"
+    rolling:
+      maxUnavailable: "20%"
+      pauseBetweenBatches: "10m"
+
+  hooks:
+    preRollout:
+      - name: create-change-ticket
+        type: webhook
+        target: https://servicenow.acme.com/api/change
+        args:
+          type: standard
+          category: maintenance
+    prePatch:
+      - name: backup-config
+        type: script
+        target: /opt/qlrf/scripts/backup-config.sh
+        timeout: 5m
+        failPolicy: warn
+    postPatch:
+      - name: verify-services
+        type: script
+        target: /opt/qlrf/scripts/verify-all-services.sh
+        timeout: 10m
+        failPolicy: abort
+    postRollout:
+      - name: close-change-ticket
+        type: webhook
+        target: https://servicenow.acme.com/api/change/close
+
+  healthCheck:
+    enabled: true
+    initialDelay: 3m
+    interval: 1m
+    timeout: 30s
+    successThreshold: 2
+    failureThreshold: 5
+    checks:
+      - type: http
+        target: http://localhost:8080/health
+        expectedStatus: 200
+      - type: tcp
+        target: "443"
+
+  rollback:
+    enabled: true
+    automatic: true
+    onFailurePercentage: 15
+    strategy: revert-image
+
+  approval:
+    required: true
+    minApprovers: 1
+    allowedApprovers:
+      - role:platform-engineer
+      - role:platform-admin
+    autoApproveFor:
+      - staging
+    timeout: 48h
+
+  notifications:
+    channels:
+      - type: slack
+        target: "#platform-ops"
+        events: [started, completed, failed]
+      - type: email
+        target: platform-team@acme.com
+        events: [completed, failed]
+    progressInterval: 30m
+
+  schedule:
+    type: scheduled
+    # Second Saturday of each month at 2am ET
+    cron: "0 2 8-14 * 6"
+
+  compliance:
+    patchWithin:
+      critical: 14d
+      high: 30d
+      medium: 60d
+      low: 90d
+    requireEvidence: true

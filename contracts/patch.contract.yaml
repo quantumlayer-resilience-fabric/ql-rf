@@ -1,0 +1,523 @@
+# QL-RF Patch Contract Schema
+# Version: 1.0.0
+#
+# This schema defines the structure for Patch-as-Code contracts.
+# Patch contracts declaratively define patching policies and rollout strategies.
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://ql-rf.io/schemas/patch-contract-v1.json"
+
+title: "Patch Contract"
+description: "Contract defining patching policies, schedules, and rollout strategies"
+type: object
+
+required:
+  - apiVersion
+  - kind
+  - metadata
+  - spec
+
+properties:
+  apiVersion:
+    type: string
+    const: "ql-rf.io/v1"
+    description: "API version for this contract"
+
+  kind:
+    type: string
+    const: "PatchPolicy"
+    description: "Resource type"
+
+  metadata:
+    type: object
+    required:
+      - name
+    properties:
+      name:
+        type: string
+        pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        minLength: 3
+        maxLength: 63
+        description: "Policy name (e.g., critical-security-patches, monthly-os-updates)"
+      namespace:
+        type: string
+        default: "default"
+        description: "Organizational namespace"
+      labels:
+        type: object
+        additionalProperties:
+          type: string
+        description: "Labels for categorization and selection"
+      annotations:
+        type: object
+        additionalProperties:
+          type: string
+
+  spec:
+    type: object
+    required:
+      - selector
+      - strategy
+    properties:
+      # Target Selection
+      selector:
+        type: object
+        description: "Criteria for selecting target assets"
+        properties:
+          platforms:
+            type: array
+            items:
+              type: string
+              enum: [aws, azure, gcp, vsphere, k8s]
+            description: "Target platforms"
+          environments:
+            type: array
+            items:
+              type: string
+              enum: [development, staging, production, dr]
+            description: "Target environments"
+          regions:
+            type: array
+            items:
+              type: string
+            description: "Target regions"
+          imageFamilies:
+            type: array
+            items:
+              type: string
+            description: "Target image families"
+          tags:
+            type: object
+            additionalProperties:
+              type: string
+            description: "Match assets by tags"
+          excludeTags:
+            type: object
+            additionalProperties:
+              type: string
+            description: "Exclude assets by tags"
+          excludeAssets:
+            type: array
+            items:
+              type: string
+            description: "Explicit asset IDs to exclude"
+
+      # Patch Source
+      source:
+        type: object
+        description: "Patch source configuration"
+        properties:
+          type:
+            type: string
+            enum: [os-vendor, golden-image, custom-repository]
+            default: golden-image
+            description: "Source of patches"
+          goldenImage:
+            type: object
+            description: "Golden image source configuration"
+            properties:
+              family:
+                type: string
+              version:
+                type: string
+                description: "Specific version or 'latest'"
+              minVersion:
+                type: string
+                description: "Minimum acceptable version"
+          repository:
+            type: object
+            description: "Custom repository configuration"
+            properties:
+              url:
+                type: string
+                format: uri
+              credentials:
+                type: string
+                description: "Secret reference for credentials"
+          severity:
+            type: array
+            items:
+              type: string
+              enum: [critical, high, medium, low]
+            default: [critical, high]
+            description: "Patch severity levels to include"
+          classifications:
+            type: array
+            items:
+              type: string
+              enum: [security, bugfix, enhancement, feature]
+            default: [security]
+            description: "Patch classifications to include"
+
+      # Rollout Strategy
+      strategy:
+        type: object
+        required:
+          - type
+        properties:
+          type:
+            type: string
+            enum: [immediate, rolling, canary, blue-green, maintenance-window]
+            description: "Rollout strategy type"
+
+          # Rolling Strategy Options
+          rolling:
+            type: object
+            properties:
+              maxUnavailable:
+                type: string
+                pattern: "^(\\d+|\\d+%)$"
+                default: "25%"
+                description: "Max assets unavailable during rollout"
+              maxSurge:
+                type: string
+                pattern: "^(\\d+|\\d+%)$"
+                default: "0"
+                description: "Max additional assets during rollout"
+              pauseBetweenBatches:
+                type: string
+                pattern: "^\\d+[smh]$"
+                default: "5m"
+                description: "Pause duration between batches"
+
+          # Canary Strategy Options
+          canary:
+            type: object
+            properties:
+              initialPercentage:
+                type: integer
+                minimum: 1
+                maximum: 50
+                default: 10
+                description: "Initial canary percentage"
+              steps:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    percentage:
+                      type: integer
+                      minimum: 1
+                      maximum: 100
+                    pauseDuration:
+                      type: string
+                      pattern: "^\\d+[smh]$"
+                    analysis:
+                      $ref: "#/$defs/analysisConfig"
+                description: "Canary rollout steps"
+              autoPromote:
+                type: boolean
+                default: false
+                description: "Auto-promote if analysis passes"
+
+          # Blue-Green Strategy Options
+          blueGreen:
+            type: object
+            properties:
+              previewDuration:
+                type: string
+                pattern: "^\\d+[smh]$"
+                default: "30m"
+                description: "Duration to run preview before switch"
+              autoPromote:
+                type: boolean
+                default: false
+
+          # Maintenance Window Options
+          maintenanceWindow:
+            type: object
+            properties:
+              timezone:
+                type: string
+                default: "UTC"
+              windows:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    dayOfWeek:
+                      type: string
+                      enum: [sunday, monday, tuesday, wednesday, thursday, friday, saturday]
+                    startTime:
+                      type: string
+                      pattern: "^([01]\\d|2[0-3]):[0-5]\\d$"
+                    duration:
+                      type: string
+                      pattern: "^\\d+[smh]$"
+                description: "Allowed maintenance windows"
+
+      # Pre/Post Actions
+      hooks:
+        type: object
+        properties:
+          preRollout:
+            type: array
+            items:
+              $ref: "#/$defs/hookConfig"
+            description: "Actions before rollout starts"
+          prePatch:
+            type: array
+            items:
+              $ref: "#/$defs/hookConfig"
+            description: "Actions before each asset is patched"
+          postPatch:
+            type: array
+            items:
+              $ref: "#/$defs/hookConfig"
+            description: "Actions after each asset is patched"
+          postRollout:
+            type: array
+            items:
+              $ref: "#/$defs/hookConfig"
+            description: "Actions after rollout completes"
+          onFailure:
+            type: array
+            items:
+              $ref: "#/$defs/hookConfig"
+            description: "Actions on rollout failure"
+
+      # Health Checks
+      healthCheck:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          initialDelay:
+            type: string
+            pattern: "^\\d+[smh]$"
+            default: "2m"
+            description: "Wait before starting health checks"
+          interval:
+            type: string
+            pattern: "^\\d+[smh]$"
+            default: "30s"
+          timeout:
+            type: string
+            pattern: "^\\d+[smh]$"
+            default: "10s"
+          successThreshold:
+            type: integer
+            minimum: 1
+            default: 3
+          failureThreshold:
+            type: integer
+            minimum: 1
+            default: 3
+          checks:
+            type: array
+            items:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [http, tcp, exec, ssm-ping]
+                target:
+                  type: string
+                  description: "URL, port, or command"
+                expectedStatus:
+                  type: integer
+                  description: "Expected HTTP status code"
+
+      # Rollback Configuration
+      rollback:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          automatic:
+            type: boolean
+            default: true
+            description: "Auto-rollback on failure"
+          onFailurePercentage:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+            description: "Failure percentage triggering rollback"
+          strategy:
+            type: string
+            enum: [revert-image, restore-snapshot, manual]
+            default: revert-image
+          retainFailedAssets:
+            type: boolean
+            default: false
+            description: "Keep failed assets for debugging"
+
+      # Approval Requirements
+      approval:
+        type: object
+        properties:
+          required:
+            type: boolean
+            default: true
+          minApprovers:
+            type: integer
+            minimum: 1
+            default: 1
+          allowedApprovers:
+            type: array
+            items:
+              type: string
+            description: "User IDs or roles allowed to approve"
+          autoApproveFor:
+            type: array
+            items:
+              type: string
+              enum: [development, staging]
+            description: "Environments with auto-approval"
+          timeout:
+            type: string
+            pattern: "^\\d+[smh]$"
+            default: "24h"
+            description: "Approval timeout"
+
+      # Notifications
+      notifications:
+        type: object
+        properties:
+          channels:
+            type: array
+            items:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [slack, email, webhook, pagerduty]
+                target:
+                  type: string
+                  description: "Channel ID, email, or URL"
+                events:
+                  type: array
+                  items:
+                    type: string
+                    enum: [started, progress, paused, completed, failed, rollback]
+          onStart:
+            type: boolean
+            default: true
+          onComplete:
+            type: boolean
+            default: true
+          onFailure:
+            type: boolean
+            default: true
+          progressInterval:
+            type: string
+            pattern: "^\\d+[smh]$"
+            default: "15m"
+
+      # Scheduling
+      schedule:
+        type: object
+        properties:
+          type:
+            type: string
+            enum: [manual, scheduled, drift-triggered, cve-triggered]
+            default: manual
+          cron:
+            type: string
+            description: "Cron expression for scheduled runs"
+          driftThreshold:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 14
+            description: "Days of drift before triggering"
+          cveSeverity:
+            type: array
+            items:
+              type: string
+              enum: [critical, high]
+            description: "CVE severities that trigger patching"
+
+      # Compliance Requirements
+      compliance:
+        type: object
+        properties:
+          patchWithin:
+            type: object
+            properties:
+              critical:
+                type: string
+                pattern: "^\\d+[dhw]$"
+                default: "7d"
+                description: "SLA for critical patches"
+              high:
+                type: string
+                pattern: "^\\d+[dhw]$"
+                default: "14d"
+              medium:
+                type: string
+                pattern: "^\\d+[dhw]$"
+                default: "30d"
+              low:
+                type: string
+                pattern: "^\\d+[dhw]$"
+                default: "90d"
+          reportTo:
+            type: array
+            items:
+              type: string
+            description: "Compliance reporting endpoints"
+          requireEvidence:
+            type: boolean
+            default: true
+            description: "Require evidence collection"
+
+$defs:
+  hookConfig:
+    type: object
+    required:
+      - name
+      - type
+    properties:
+      name:
+        type: string
+      type:
+        type: string
+        enum: [webhook, script, ssm-document, lambda]
+      target:
+        type: string
+        description: "URL, script path, document name, or function ARN"
+      timeout:
+        type: string
+        pattern: "^\\d+[smh]$"
+        default: "5m"
+      failPolicy:
+        type: string
+        enum: [abort, continue, warn]
+        default: abort
+      args:
+        type: object
+        additionalProperties:
+          type: string
+
+  analysisConfig:
+    type: object
+    properties:
+      metrics:
+        type: array
+        items:
+          type: object
+          properties:
+            name:
+              type: string
+              enum: [error-rate, latency-p99, cpu-usage, memory-usage, custom]
+            threshold:
+              type: number
+            comparison:
+              type: string
+              enum: [less-than, greater-than, equals]
+            query:
+              type: string
+              description: "Prometheus/CloudWatch query for custom metrics"
+      duration:
+        type: string
+        pattern: "^\\d+[smh]$"
+        default: "10m"
+        description: "Analysis duration"
+      provider:
+        type: string
+        enum: [prometheus, cloudwatch, datadog, custom]
+        default: prometheus
