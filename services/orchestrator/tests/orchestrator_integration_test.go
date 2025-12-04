@@ -3,7 +3,7 @@
 // Package integration contains end-to-end integration tests for QL-RF services.
 // These tests require a running Docker environment with all dependencies.
 // Run with: go test -tags=integration -v ./tests/integration/...
-package integration
+package tests
 
 import (
 	"bytes"

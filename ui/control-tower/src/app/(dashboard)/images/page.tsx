@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, Fragment, useCallback } from "react";
+import { useState, Fragment, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
+import { PaginationFooter } from "@/components/ui/pagination";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -58,11 +59,14 @@ const statusConfig: Record<ImageStatus, { label: string; variant: "success" | "w
   pending: { label: "Pending", variant: "info" },
 };
 
+const PAGE_SIZE = 10;
+
 export default function ImagesPage() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [expandedFamily, setExpandedFamily] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const { data: imageFamilies, isLoading, error, refetch } = useImageFamilies();
   const promoteImage = usePromoteImage();
@@ -122,14 +126,34 @@ export default function ImagesPage() {
     deprecatedImages: families.filter((f) => f.status === "deprecated").length,
   };
 
-  const filteredFamilies = families.filter((family) => {
-    const matchesSearch =
-      family.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      family.description.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus =
-      statusFilter === "all" || family.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredFamilies = useMemo(() => {
+    return families.filter((family) => {
+      const matchesSearch =
+        family.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        family.description.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesStatus =
+        statusFilter === "all" || family.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [families, searchQuery, statusFilter]);
+
+  // Paginate filtered results
+  const totalPages = Math.ceil(filteredFamilies.length / PAGE_SIZE);
+  const paginatedFamilies = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredFamilies.slice(start, start + PAGE_SIZE);
+  }, [filteredFamilies, currentPage]);
+
+  // Reset to page 1 when filters change
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    setCurrentPage(1);
+  };
+
+  const handleStatusFilterChange = (value: string) => {
+    setStatusFilter(value);
+    setCurrentPage(1);
+  };
 
   const handlePromote = (familyId: string, version: string) => {
     promoteImage.mutate({ familyId, version, targetStatus: "production" });
@@ -156,9 +180,12 @@ export default function ImagesPage() {
   return (
     <div className="page-transition space-y-6">
       {/* Page Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between animate-in fade-in-0 slide-in-from-bottom-2 duration-500">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+          <h1
+            className="text-2xl font-bold tracking-tight text-foreground"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
             Golden Images
           </h1>
           <p className="text-muted-foreground">
@@ -170,7 +197,7 @@ export default function ImagesPage() {
             <Upload className="mr-2 h-4 w-4" />
             Import
           </Button>
-          <Button size="sm">
+          <Button variant="brand" size="sm">
             <Plus className="mr-2 h-4 w-4" />
             New Image
           </Button>
@@ -178,7 +205,7 @@ export default function ImagesPage() {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 stagger-children">
         <MetricCard
           title="Image Families"
           value={imageMetrics.totalFamilies}
@@ -210,18 +237,18 @@ export default function ImagesPage() {
       </div>
 
       {/* Filters */}
-      <Card>
+      <Card variant="elevated" className="animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
         <CardContent className="flex items-center gap-4 p-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search images..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-9"
             />
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
@@ -237,9 +264,9 @@ export default function ImagesPage() {
       </Card>
 
       {/* Image Families Table */}
-      <Card>
+      <Card variant="elevated" className="animate-in fade-in-0 slide-in-from-bottom-3 duration-700" style={{ animationDelay: '300ms', animationFillMode: 'backwards' }}>
         <CardContent className="p-0">
-          {filteredFamilies.length > 0 ? (
+          {paginatedFamilies.length > 0 ? (
             <div className="rounded-lg border">
               <table className="w-full">
                 <thead>
@@ -271,7 +298,7 @@ export default function ImagesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredFamilies.map((family, i) => {
+                  {paginatedFamilies.map((family, i) => {
                     const latestVersion = family.versions?.[0];
                     const config = statusConfig[family.status as ImageStatus] || statusConfig.pending;
                     const isExpanded = expandedFamily === family.id;
@@ -280,7 +307,7 @@ export default function ImagesPage() {
                       <Fragment key={family.id}>
                         <tr
                           className={`cursor-pointer hover:bg-muted/50 ${
-                            i !== filteredFamilies.length - 1 && !isExpanded
+                            i !== paginatedFamilies.length - 1 && !isExpanded
                               ? "border-b"
                               : ""
                           }`}
@@ -505,6 +532,15 @@ export default function ImagesPage() {
                   })}
                 </tbody>
               </table>
+              {totalPages > 1 && (
+                <PaginationFooter
+                  currentPage={currentPage}
+                  pageSize={PAGE_SIZE}
+                  totalItems={filteredFamilies.length}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                />
+              )}
             </div>
           ) : (
             <div className="p-8">

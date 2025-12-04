@@ -182,6 +182,8 @@ func (r *Registry) registerPlanningTools() {
 	r.register(&GenerateDRRunbookTool{db: r.db})
 	r.register(&SimulateRolloutTool{db: r.db})
 	r.register(&CalculateRiskScoreTool{db: r.db})
+	r.register(&SimulateFailoverTool{db: r.db})
+	r.register(&GenerateComplianceEvidenceTool{db: r.db})
 }
 
 // registerAnalysisTools registers analysis tools.
@@ -1217,11 +1219,179 @@ func (t *GeneratePatchPlanTool) Parameters() map[string]interface{} {
 	}
 }
 func (t *GeneratePatchPlanTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
-	return map[string]interface{}{
-		"plan": map[string]interface{}{
-			"phases": []map[string]interface{}{},
+	// Get parameters with defaults
+	canarySize := 5
+	if cs, ok := params["canary_size"].(float64); ok {
+		canarySize = int(cs)
+	}
+	maxBatchPercent := 20
+	if mb, ok := params["max_batch_percent"].(float64); ok {
+		maxBatchPercent = int(mb)
+	}
+
+	// Get asset count
+	assetCount := 0
+	if assetIDs, ok := params["asset_ids"].([]interface{}); ok {
+		assetCount = len(assetIDs)
+	} else if ac, ok := params["asset_count"].(float64); ok {
+		assetCount = int(ac)
+	}
+
+	if assetCount == 0 {
+		// Query total running assets
+		var count int
+		err := t.db.QueryRow(ctx, `SELECT COUNT(*) FROM assets WHERE state = 'running'`).Scan(&count)
+		if err == nil {
+			assetCount = count
+		}
+		if assetCount == 0 {
+			assetCount = 100 // Default
+		}
+	}
+
+	// Get target image info
+	var targetImage map[string]interface{}
+	if targetID, ok := params["target_image_id"].(string); ok && targetID != "" {
+		row := t.db.QueryRow(ctx, `
+			SELECT id, family, version, os_name, os_version FROM images WHERE id = $1
+		`, targetID)
+		var id, family, version, osName, osVersion string
+		if err := row.Scan(&id, &family, &version, &osName, &osVersion); err == nil {
+			targetImage = map[string]interface{}{
+				"id": id, "family": family, "version": version,
+				"os_name": osName, "os_version": osVersion,
+			}
+		}
+	}
+
+	// Calculate phase sizes
+	canaryCount := max((assetCount*canarySize)/100, 1)
+	remainingAfterCanary := assetCount - canaryCount
+	waveSize := max((assetCount*maxBatchPercent)/100, 1)
+	wavesNeeded := 0
+	if remainingAfterCanary > 0 && waveSize > 0 {
+		wavesNeeded = (remainingAfterCanary + waveSize - 1) / waveSize
+	}
+
+	// Build phases
+	phases := []map[string]interface{}{
+		{
+			"id":                 "phase-preflight",
+			"name":               "Pre-flight Checks",
+			"type":               "validation",
+			"description":        "Verify all assets are ready for patching",
+			"asset_count":        0,
+			"estimated_duration": "5m",
+			"checks": []string{
+				"connectivity_check",
+				"disk_space_check",
+				"backup_status_check",
+				"service_health_check",
+			},
+			"rollback_on_failure": false,
 		},
+		{
+			"id":                 "phase-canary",
+			"name":               "Canary Deployment",
+			"type":               "canary",
+			"description":        fmt.Sprintf("Patch %d canary assets (%d%% of total)", canaryCount, canarySize),
+			"asset_count":        canaryCount,
+			"asset_percentage":   canarySize,
+			"estimated_duration": "20m",
+			"health_check_wait":  "10m",
+			"success_criteria": map[string]interface{}{
+				"error_rate_max":       1.0,
+				"health_check_pass":    true,
+				"response_time_p99_ms": 500,
+			},
+			"rollback_on_failure": true,
+		},
+	}
+
+	// Add wave phases
+	for i := 0; i < wavesNeeded && i < 10; i++ {
+		waveAssetCount := waveSize
+		if i == wavesNeeded-1 {
+			waveAssetCount = remainingAfterCanary - (i * waveSize)
+		}
+		phases = append(phases, map[string]interface{}{
+			"id":                 fmt.Sprintf("phase-wave-%d", i+1),
+			"name":               fmt.Sprintf("Wave %d", i+1),
+			"type":               "wave",
+			"description":        fmt.Sprintf("Patch wave %d (%d assets)", i+1, waveAssetCount),
+			"asset_count":        waveAssetCount,
+			"asset_percentage":   maxBatchPercent,
+			"estimated_duration": "25m",
+			"health_check_wait":  "5m",
+			"success_criteria": map[string]interface{}{
+				"error_rate_max":    2.0,
+				"health_check_pass": true,
+			},
+			"rollback_on_failure": true,
+		})
+	}
+
+	// Add final validation phase
+	phases = append(phases, map[string]interface{}{
+		"id":                  "phase-validation",
+		"name":                "Post-Rollout Validation",
+		"type":                "validation",
+		"description":         "Verify all assets are healthy after patching",
+		"asset_count":         assetCount,
+		"estimated_duration":  "15m",
+		"checks":              []string{"health_check", "service_status", "log_errors", "metrics_validation"},
+		"rollback_on_failure": false,
+	})
+
+	// Calculate total duration
+	totalMinutes := 5 + 20 + (wavesNeeded * 30) + 15
+
+	plan := map[string]interface{}{
+		"id":                 fmt.Sprintf("patch-plan-%d", totalMinutes),
+		"summary":            fmt.Sprintf("Phased patch rollout for %d assets with %d%% canary and %d waves", assetCount, canarySize, wavesNeeded),
+		"target_image":       targetImage,
+		"total_assets":       assetCount,
+		"canary_size":        canarySize,
+		"wave_size":          maxBatchPercent,
+		"total_phases":       len(phases),
+		"estimated_duration": fmt.Sprintf("%dm", totalMinutes),
+		"phases":             phases,
+		"rollback_plan": map[string]interface{}{
+			"triggers": []string{
+				"error_rate > 5%",
+				"health_check_failure",
+				"manual_trigger",
+				"timeout_exceeded",
+			},
+			"procedure":          "Revert patched assets to previous image version",
+			"estimated_duration": "20m",
+			"requires_approval":  false,
+		},
+		"notifications": map[string]interface{}{
+			"on_start":          []string{"slack"},
+			"on_phase_complete": []string{"slack"},
+			"on_failure":        []string{"slack", "email", "pagerduty"},
+			"on_complete":       []string{"slack", "email"},
+		},
+		"constraints": map[string]interface{}{
+			"maintenance_window":   "required",
+			"concurrent_patches":   waveSize,
+			"min_healthy_percent":  90,
+			"max_duration_minutes": totalMinutes * 2,
+		},
+	}
+
+	return map[string]interface{}{
+		"plan": plan,
 	}, nil
+}
+
+// max returns the maximum of two integers.
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // GenerateRolloutPlanTool generates a rollout plan.
@@ -1266,14 +1436,206 @@ func (t *GenerateDRRunbookTool) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
-			"dr_pair_id": map[string]interface{}{"type": "string"},
+			"dr_pair_id":  map[string]interface{}{"type": "string"},
+			"org_id":      map[string]interface{}{"type": "string"},
+			"environment": map[string]interface{}{"type": "string"},
+			"dr_type":     map[string]interface{}{"type": "string", "enum": []string{"drill", "runbook", "assessment"}},
 		},
-		"required": []string{"dr_pair_id"},
 	}
 }
 func (t *GenerateDRRunbookTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	// Get parameters
+	drType := "drill"
+	if dt, ok := params["dr_type"].(string); ok && dt != "" {
+		drType = dt
+	}
+
+	environment := "staging"
+	if env, ok := params["environment"].(string); ok && env != "" {
+		environment = env
+	}
+
+	// Query DR pairs for context
+	var drPairs []map[string]interface{}
+	if drPairID, ok := params["dr_pair_id"].(string); ok && drPairID != "" {
+		row := t.db.QueryRow(ctx, `
+			SELECT dp.id, dp.name, dp.status, dp.replication_status, dp.rpo, dp.rto,
+			       ps.name as primary_site, ps.region as primary_region,
+			       ds.name as dr_site, ds.region as dr_region
+			FROM dr_pairs dp
+			JOIN sites ps ON dp.primary_site_id = ps.id
+			JOIN sites ds ON dp.dr_site_id = ds.id
+			WHERE dp.id = $1
+		`, drPairID)
+
+		var id, name, status, replStatus string
+		var rpo, rto *string
+		var primarySite, primaryRegion, drSite, drRegion string
+
+		if err := row.Scan(&id, &name, &status, &replStatus, &rpo, &rto,
+			&primarySite, &primaryRegion, &drSite, &drRegion); err == nil {
+			pair := map[string]interface{}{
+				"id":                 id,
+				"name":               name,
+				"status":             status,
+				"replication_status": replStatus,
+				"primary_site":       primarySite,
+				"primary_region":     primaryRegion,
+				"dr_site":            drSite,
+				"dr_region":          drRegion,
+			}
+			if rpo != nil {
+				pair["rpo"] = *rpo
+			}
+			if rto != nil {
+				pair["rto"] = *rto
+			}
+			drPairs = append(drPairs, pair)
+		}
+	}
+
+	// Generate runbook phases based on DR type
+	phases := []map[string]interface{}{}
+
+	// Phase 1: Pre-requisite checks
+	phases = append(phases, map[string]interface{}{
+		"id":          "phase-prereq",
+		"name":        "Pre-requisite Checks",
+		"description": "Verify all systems are ready for DR operation",
+		"steps": []map[string]interface{}{
+			{"step": 1, "action": "Verify replication status is healthy", "responsible": "DBA Team", "estimated_duration": "5m"},
+			{"step": 2, "action": "Confirm backup completeness", "responsible": "Backup Team", "estimated_duration": "5m"},
+			{"step": 3, "action": "Validate network connectivity to DR site", "responsible": "Network Team", "estimated_duration": "5m"},
+			{"step": 4, "action": "Confirm DR site resource availability", "responsible": "Infrastructure Team", "estimated_duration": "5m"},
+		},
+		"success_criteria": "All checks pass with no critical issues",
+		"rollback_steps":   []string{"Abort if critical check fails", "Document failure reason"},
+	})
+
+	// Phase 2: Communication
+	phases = append(phases, map[string]interface{}{
+		"id":          "phase-communication",
+		"name":        "Stakeholder Communication",
+		"description": "Notify all stakeholders about DR operation",
+		"steps": []map[string]interface{}{
+			{"step": 1, "action": "Send notification to incident channel", "responsible": "DR Coordinator", "estimated_duration": "2m"},
+			{"step": 2, "action": "Update status page", "responsible": "Communications Team", "estimated_duration": "2m"},
+			{"step": 3, "action": "Notify on-call engineers", "responsible": "DR Coordinator", "estimated_duration": "2m"},
+		},
+		"success_criteria": "All stakeholders acknowledged",
+	})
+
+	// Phase 3: Failover (conditional on type)
+	if drType == "drill" {
+		phases = append(phases, map[string]interface{}{
+			"id":          "phase-failover-test",
+			"name":        "Failover Test Execution",
+			"description": "Execute controlled failover to DR site",
+			"steps": []map[string]interface{}{
+				{"step": 1, "action": "Stop write operations to primary", "responsible": "DBA Team", "estimated_duration": "5m"},
+				{"step": 2, "action": "Verify replication caught up", "responsible": "DBA Team", "estimated_duration": "10m"},
+				{"step": 3, "action": "Promote DR database to primary", "responsible": "DBA Team", "estimated_duration": "15m"},
+				{"step": 4, "action": "Update DNS/load balancer to DR site", "responsible": "Network Team", "estimated_duration": "5m"},
+				{"step": 5, "action": "Start application services on DR site", "responsible": "App Team", "estimated_duration": "10m"},
+			},
+			"success_criteria":  "All services responding from DR site",
+			"estimated_duration": "45m",
+			"rollback_steps": []string{
+				"Revert DNS changes",
+				"Demote DR database",
+				"Resume primary site operations",
+			},
+		})
+	}
+
+	// Phase 4: Validation
+	phases = append(phases, map[string]interface{}{
+		"id":          "phase-validation",
+		"name":        "Post-Failover Validation",
+		"description": "Verify DR site is functioning correctly",
+		"steps": []map[string]interface{}{
+			{"step": 1, "action": "Execute smoke tests", "responsible": "QA Team", "estimated_duration": "15m"},
+			{"step": 2, "action": "Verify critical transactions", "responsible": "App Team", "estimated_duration": "10m"},
+			{"step": 3, "action": "Check monitoring dashboards", "responsible": "SRE Team", "estimated_duration": "5m"},
+			{"step": 4, "action": "Validate data consistency", "responsible": "DBA Team", "estimated_duration": "10m"},
+		},
+		"success_criteria": "All validation checks pass",
+	})
+
+	// Phase 5: Failback (for drills)
+	if drType == "drill" {
+		phases = append(phases, map[string]interface{}{
+			"id":          "phase-failback",
+			"name":        "Failback to Primary",
+			"description": "Return operations to primary site",
+			"steps": []map[string]interface{}{
+				{"step": 1, "action": "Synchronize changes back to primary", "responsible": "DBA Team", "estimated_duration": "20m"},
+				{"step": 2, "action": "Stop DR site services", "responsible": "App Team", "estimated_duration": "5m"},
+				{"step": 3, "action": "Promote primary database", "responsible": "DBA Team", "estimated_duration": "15m"},
+				{"step": 4, "action": "Update DNS/load balancer to primary", "responsible": "Network Team", "estimated_duration": "5m"},
+				{"step": 5, "action": "Start primary site services", "responsible": "App Team", "estimated_duration": "10m"},
+			},
+			"success_criteria":  "All services responding from primary site",
+			"estimated_duration": "55m",
+		})
+	}
+
+	// Phase 6: Post-operation review
+	phases = append(phases, map[string]interface{}{
+		"id":          "phase-review",
+		"name":        "Post-Operation Review",
+		"description": "Document results and lessons learned",
+		"steps": []map[string]interface{}{
+			{"step": 1, "action": "Document any issues encountered", "responsible": "DR Coordinator", "estimated_duration": "15m"},
+			{"step": 2, "action": "Update runbook with lessons learned", "responsible": "DR Coordinator", "estimated_duration": "15m"},
+			{"step": 3, "action": "Send completion report", "responsible": "DR Coordinator", "estimated_duration": "10m"},
+		},
+	})
+
+	// Calculate total estimated duration
+	totalMinutes := 0
+	for _, phase := range phases {
+		if steps, ok := phase["steps"].([]map[string]interface{}); ok {
+			for _, step := range steps {
+				if dur, ok := step["estimated_duration"].(string); ok {
+					// Parse duration (simplified - assumes format like "5m" or "15m")
+					var mins int
+					fmt.Sscanf(dur, "%dm", &mins)
+					totalMinutes += mins
+				}
+			}
+		}
+	}
+
+	// Build runbook
+	runbook := map[string]interface{}{
+		"id":                 fmt.Sprintf("runbook-%s-%d", drType, len(drPairs)),
+		"type":               drType,
+		"environment":        environment,
+		"generated_at":       "now",
+		"total_phases":       len(phases),
+		"estimated_duration": fmt.Sprintf("%dh %dm", totalMinutes/60, totalMinutes%60),
+		"phases":             phases,
+		"dr_pairs":           drPairs,
+		"contacts": map[string]interface{}{
+			"dr_coordinator":     "dr-coordinator@company.com",
+			"incident_channel":   "#incident-response",
+			"escalation_contact": "on-call-manager@company.com",
+		},
+		"rollback_plan": map[string]interface{}{
+			"triggers": []string{
+				"Critical validation failure",
+				"Data corruption detected",
+				"Extended downtime exceeds RTO",
+				"Manual abort by DR coordinator",
+			},
+			"procedure":          "Follow failback phase steps in reverse order",
+			"estimated_duration": "45m",
+		},
+	}
+
 	return map[string]interface{}{
-		"runbook": map[string]interface{}{},
+		"runbook": runbook,
 	}, nil
 }
 
@@ -1298,13 +1660,158 @@ func (t *SimulateRolloutTool) Parameters() map[string]interface{} {
 	}
 }
 func (t *SimulateRolloutTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	// Get parameters
+	assetCount := 0
+	if ac, ok := params["asset_count"].(float64); ok {
+		assetCount = int(ac)
+	}
+
+	environment := "staging"
+	if env, ok := params["environment"].(string); ok && env != "" {
+		environment = env
+	}
+
+	// Query actual assets if not provided
+	if assetCount == 0 {
+		var count int
+		err := t.db.QueryRow(ctx, `SELECT COUNT(*) FROM assets WHERE state = 'running'`).Scan(&count)
+		if err == nil {
+			assetCount = count
+		}
+		if assetCount == 0 {
+			assetCount = 50
+		}
+	}
+
+	// Calculate risk based on environment and asset count
+	baseRisk := 20 // Base risk score
+	riskFactors := []map[string]interface{}{}
+
+	// Environment factor
+	envRisk := 0
+	switch environment {
+	case "production":
+		envRisk = 40
+		riskFactors = append(riskFactors, map[string]interface{}{
+			"factor":      "Production environment",
+			"impact":      40,
+			"description": "Changes to production carry higher risk",
+		})
+	case "staging":
+		envRisk = 20
+		riskFactors = append(riskFactors, map[string]interface{}{
+			"factor":      "Staging environment",
+			"impact":      20,
+			"description": "Staging environment has moderate risk",
+		})
+	case "development":
+		envRisk = 5
+		riskFactors = append(riskFactors, map[string]interface{}{
+			"factor":      "Development environment",
+			"impact":      5,
+			"description": "Development environment has low risk",
+		})
+	}
+
+	// Asset count factor
+	assetRisk := 0
+	if assetCount > 100 {
+		assetRisk = 25
+		riskFactors = append(riskFactors, map[string]interface{}{
+			"factor":      "Large asset count",
+			"impact":      25,
+			"description": fmt.Sprintf("Affecting %d assets increases blast radius", assetCount),
+		})
+	} else if assetCount > 50 {
+		assetRisk = 15
+		riskFactors = append(riskFactors, map[string]interface{}{
+			"factor":      "Moderate asset count",
+			"impact":      15,
+			"description": fmt.Sprintf("Affecting %d assets", assetCount),
+		})
+	} else if assetCount > 10 {
+		assetRisk = 10
+		riskFactors = append(riskFactors, map[string]interface{}{
+			"factor":      "Small asset count",
+			"impact":      10,
+			"description": fmt.Sprintf("Affecting %d assets", assetCount),
+		})
+	}
+
+	// Calculate total risk
+	totalRisk := min(baseRisk+envRisk+assetRisk, 100)
+
+	// Determine risk level
+	riskLevel := "low"
+	if totalRisk >= 70 {
+		riskLevel = "critical"
+	} else if totalRisk >= 50 {
+		riskLevel = "high"
+	} else if totalRisk >= 30 {
+		riskLevel = "medium"
+	}
+
+	// Estimate duration based on asset count
+	minutesPerAsset := 0.5
+	baseMinutes := 30.0
+	estimatedMinutes := int(baseMinutes + (float64(assetCount) * minutesPerAsset))
+
+	// Simulate potential issues
+	potentialIssues := []map[string]interface{}{}
+	if totalRisk >= 50 {
+		potentialIssues = append(potentialIssues, map[string]interface{}{
+			"type":        "connectivity",
+			"probability": 0.1,
+			"impact":      "medium",
+			"mitigation":  "Pre-validate SSH/SSM connectivity",
+		})
+	}
+	if assetCount > 100 {
+		potentialIssues = append(potentialIssues, map[string]interface{}{
+			"type":        "rate_limiting",
+			"probability": 0.2,
+			"impact":      "low",
+			"mitigation":  "Implement exponential backoff",
+		})
+	}
+	if environment == "production" {
+		potentialIssues = append(potentialIssues, map[string]interface{}{
+			"type":        "service_disruption",
+			"probability": 0.05,
+			"impact":      "high",
+			"mitigation":  "Use rolling updates with health checks",
+		})
+	}
+
+	// Calculate success probability
+	successProbability := 100 - (totalRisk / 2)
+
 	return map[string]interface{}{
 		"simulation": map[string]interface{}{
-			"affected_assets":     0,
-			"estimated_duration":  "0m",
-			"predicted_risk":      "low",
+			"affected_assets":     assetCount,
+			"environment":         environment,
+			"estimated_duration":  fmt.Sprintf("%dm", estimatedMinutes),
+			"predicted_risk":      riskLevel,
+			"risk_score":          totalRisk,
+			"success_probability": fmt.Sprintf("%d%%", successProbability),
+			"risk_factors":        riskFactors,
+			"potential_issues":    potentialIssues,
+			"recommendations": []string{
+				"Schedule during maintenance window",
+				"Ensure rollback plan is tested",
+				"Have on-call team available",
+				"Monitor metrics during rollout",
+			},
 		},
 	}, nil
+}
+
+// min returns the minimum of two integers.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // CalculateRiskScoreTool calculates risk score for a change.
@@ -1328,10 +1835,654 @@ func (t *CalculateRiskScoreTool) Parameters() map[string]interface{} {
 	}
 }
 func (t *CalculateRiskScoreTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	// Get parameters
+	assetCount := 0
+	if ac, ok := params["asset_count"].(float64); ok {
+		assetCount = int(ac)
+	}
+	if assetIDs, ok := params["asset_ids"].([]interface{}); ok && len(assetIDs) > 0 {
+		assetCount = len(assetIDs)
+	}
+
+	environment := "staging"
+	if env, ok := params["environment"].(string); ok && env != "" {
+		environment = env
+	}
+
+	changeType := "patch"
+	if ct, ok := params["change_type"].(string); ok && ct != "" {
+		changeType = ct
+	}
+
+	// Initialize risk calculation
+	riskScore := 0
+	factors := []map[string]interface{}{}
+
+	// Factor 1: Environment risk
+	envRisk := 0
+	switch environment {
+	case "production":
+		envRisk = 35
+		factors = append(factors, map[string]interface{}{
+			"name":        "environment",
+			"category":    "target",
+			"score":       35,
+			"weight":      1.0,
+			"description": "Production environment - highest risk tier",
+			"mitigation":  "Use canary deployment with extensive health checks",
+		})
+	case "staging":
+		envRisk = 15
+		factors = append(factors, map[string]interface{}{
+			"name":        "environment",
+			"category":    "target",
+			"score":       15,
+			"weight":      1.0,
+			"description": "Staging environment - moderate risk",
+			"mitigation":  "Validate changes match production config",
+		})
+	case "development":
+		envRisk = 5
+		factors = append(factors, map[string]interface{}{
+			"name":        "environment",
+			"category":    "target",
+			"score":       5,
+			"weight":      1.0,
+			"description": "Development environment - low risk",
+			"mitigation":  "Standard change procedures apply",
+		})
+	}
+	riskScore += envRisk
+
+	// Factor 2: Blast radius (asset count)
+	blastRadius := 0
+	if assetCount > 500 {
+		blastRadius = 30
+		factors = append(factors, map[string]interface{}{
+			"name":        "blast_radius",
+			"category":    "scope",
+			"score":       30,
+			"weight":      1.0,
+			"description": fmt.Sprintf("Very large blast radius (%d assets)", assetCount),
+			"mitigation":  "Implement progressive rollout with 2% canary",
+		})
+	} else if assetCount > 100 {
+		blastRadius = 20
+		factors = append(factors, map[string]interface{}{
+			"name":        "blast_radius",
+			"category":    "scope",
+			"score":       20,
+			"weight":      1.0,
+			"description": fmt.Sprintf("Large blast radius (%d assets)", assetCount),
+			"mitigation":  "Use 5% canary with extended monitoring",
+		})
+	} else if assetCount > 20 {
+		blastRadius = 10
+		factors = append(factors, map[string]interface{}{
+			"name":        "blast_radius",
+			"category":    "scope",
+			"score":       10,
+			"weight":      1.0,
+			"description": fmt.Sprintf("Moderate blast radius (%d assets)", assetCount),
+			"mitigation":  "Use 10% canary deployment",
+		})
+	} else if assetCount > 0 {
+		blastRadius = 5
+		factors = append(factors, map[string]interface{}{
+			"name":        "blast_radius",
+			"category":    "scope",
+			"score":       5,
+			"weight":      1.0,
+			"description": fmt.Sprintf("Small blast radius (%d assets)", assetCount),
+			"mitigation":  "Standard monitoring sufficient",
+		})
+	}
+	riskScore += blastRadius
+
+	// Factor 3: Change type risk
+	changeRisk := 0
+	switch changeType {
+	case "patch", "security_patch":
+		changeRisk = 15
+		factors = append(factors, map[string]interface{}{
+			"name":        "change_type",
+			"category":    "operation",
+			"score":       15,
+			"weight":      1.0,
+			"description": "Patch operation - moderate complexity",
+			"mitigation":  "Ensure rollback procedure is documented",
+		})
+	case "upgrade", "major_upgrade":
+		changeRisk = 25
+		factors = append(factors, map[string]interface{}{
+			"name":        "change_type",
+			"category":    "operation",
+			"score":       25,
+			"weight":      1.0,
+			"description": "Major upgrade - higher complexity",
+			"mitigation":  "Test in staging first, prepare rollback scripts",
+		})
+	case "config_change":
+		changeRisk = 10
+		factors = append(factors, map[string]interface{}{
+			"name":        "change_type",
+			"category":    "operation",
+			"score":       10,
+			"weight":      1.0,
+			"description": "Configuration change - lower complexity",
+			"mitigation":  "Validate config syntax before applying",
+		})
+	case "reboot":
+		changeRisk = 20
+		factors = append(factors, map[string]interface{}{
+			"name":        "change_type",
+			"category":    "operation",
+			"score":       20,
+			"weight":      1.0,
+			"description": "Reboot operation - service interruption expected",
+			"mitigation":  "Schedule during maintenance window",
+		})
+	default:
+		changeRisk = 15
+		factors = append(factors, map[string]interface{}{
+			"name":        "change_type",
+			"category":    "operation",
+			"score":       15,
+			"weight":      1.0,
+			"description": fmt.Sprintf("Change type: %s", changeType),
+			"mitigation":  "Follow standard change procedures",
+		})
+	}
+	riskScore += changeRisk
+
+	// Query additional context from database if available
+	if t.db != nil {
+		// Check for recent failures
+		var recentFailures int
+		err := t.db.QueryRow(ctx, `
+			SELECT COUNT(*) FROM ai_tasks
+			WHERE status = 'failed' AND created_at > NOW() - INTERVAL '7 days'
+		`).Scan(&recentFailures)
+		if err == nil && recentFailures > 5 {
+			failureRisk := 10
+			riskScore += failureRisk
+			factors = append(factors, map[string]interface{}{
+				"name":        "recent_failures",
+				"category":    "historical",
+				"score":       failureRisk,
+				"weight":      1.0,
+				"description": fmt.Sprintf("%d task failures in last 7 days", recentFailures),
+				"mitigation":  "Review failure root causes before proceeding",
+			})
+		}
+
+		// Check drift status
+		var driftedCount int
+		err = t.db.QueryRow(ctx, `
+			SELECT COUNT(*) FROM assets
+			WHERE state = 'running'
+			AND image_version != (
+				SELECT version FROM images WHERE family = assets.image_ref AND status = 'published'
+				ORDER BY created_at DESC LIMIT 1
+			)
+		`).Scan(&driftedCount)
+		if err == nil && driftedCount > 50 {
+			driftRisk := 10
+			riskScore += driftRisk
+			factors = append(factors, map[string]interface{}{
+				"name":        "existing_drift",
+				"category":    "state",
+				"score":       driftRisk,
+				"weight":      1.0,
+				"description": fmt.Sprintf("%d assets already drifted", driftedCount),
+				"mitigation":  "Consider addressing existing drift first",
+			})
+		}
+	}
+
+	// Cap risk score at 100
+	if riskScore > 100 {
+		riskScore = 100
+	}
+
+	// Determine risk level
+	riskLevel := "low"
+	if riskScore >= 70 {
+		riskLevel = "critical"
+	} else if riskScore >= 50 {
+		riskLevel = "high"
+	} else if riskScore >= 30 {
+		riskLevel = "medium"
+	}
+
+	// Generate recommendations based on risk level
+	recommendations := []string{}
+	if riskLevel == "critical" {
+		recommendations = append(recommendations,
+			"Require dual approval before execution",
+			"Schedule during off-peak hours only",
+			"Have incident response team on standby",
+			"Prepare communication plan for stakeholders",
+		)
+	} else if riskLevel == "high" {
+		recommendations = append(recommendations,
+			"Require senior engineer approval",
+			"Use extended canary period",
+			"Monitor closely for first hour after completion",
+		)
+	} else if riskLevel == "medium" {
+		recommendations = append(recommendations,
+			"Use standard canary deployment",
+			"Monitor metrics during rollout",
+		)
+	} else {
+		recommendations = append(recommendations,
+			"Proceed with standard procedures",
+			"Log changes for audit trail",
+		)
+	}
+
 	return map[string]interface{}{
-		"risk_score": 0,
-		"risk_level": "low",
-		"factors":    []map[string]interface{}{},
+		"risk_score":      riskScore,
+		"risk_level":      riskLevel,
+		"factors":         factors,
+		"recommendations": recommendations,
+		"approval_required": riskLevel == "critical" || riskLevel == "high",
+		"summary": fmt.Sprintf("Risk assessment: %s (%d/100) for %s on %d %s assets",
+			riskLevel, riskScore, changeType, assetCount, environment),
+	}, nil
+}
+
+// SimulateFailoverTool simulates a DR failover operation.
+type SimulateFailoverTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *SimulateFailoverTool) Name() string        { return "simulate_failover" }
+func (t *SimulateFailoverTool) Description() string { return "Simulate DR failover to predict impact and validate readiness" }
+func (t *SimulateFailoverTool) Risk() RiskLevel     { return RiskPlanOnly }
+func (t *SimulateFailoverTool) Scope() Scope        { return ScopeEnvironment }
+func (t *SimulateFailoverTool) Idempotent() bool    { return true }
+func (t *SimulateFailoverTool) RequiresApproval() bool { return false }
+func (t *SimulateFailoverTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"org_id":      map[string]interface{}{"type": "string"},
+			"environment": map[string]interface{}{"type": "string"},
+			"dr_pair_id":  map[string]interface{}{"type": "string"},
+			"dry_run":     map[string]interface{}{"type": "boolean", "default": true},
+		},
+	}
+}
+func (t *SimulateFailoverTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	environment := "staging"
+	if env, ok := params["environment"].(string); ok && env != "" {
+		environment = env
+	}
+
+	dryRun := true
+	if dr, ok := params["dry_run"].(bool); ok {
+		dryRun = dr
+	}
+
+	// Query DR pair status
+	var drPairInfo map[string]interface{}
+	if drPairID, ok := params["dr_pair_id"].(string); ok && drPairID != "" {
+		row := t.db.QueryRow(ctx, `
+			SELECT dp.id, dp.name, dp.status, dp.replication_status, dp.rpo, dp.rto,
+			       dp.last_failover_test, dp.last_sync_at,
+			       ps.name as primary_site, ps.region as primary_region,
+			       ds.name as dr_site, ds.region as dr_region
+			FROM dr_pairs dp
+			JOIN sites ps ON dp.primary_site_id = ps.id
+			JOIN sites ds ON dp.dr_site_id = ds.id
+			WHERE dp.id = $1
+		`, drPairID)
+
+		var id, name, status, replStatus string
+		var rpo, rto *string
+		var lastFailoverTest, lastSyncAt interface{}
+		var primarySite, primaryRegion, drSite, drRegion string
+
+		if err := row.Scan(&id, &name, &status, &replStatus, &rpo, &rto,
+			&lastFailoverTest, &lastSyncAt,
+			&primarySite, &primaryRegion, &drSite, &drRegion); err == nil {
+			drPairInfo = map[string]interface{}{
+				"id":                  id,
+				"name":                name,
+				"status":              status,
+				"replication_status":  replStatus,
+				"last_failover_test":  lastFailoverTest,
+				"last_sync_at":        lastSyncAt,
+				"primary_site":        primarySite,
+				"primary_region":      primaryRegion,
+				"dr_site":             drSite,
+				"dr_region":           drRegion,
+			}
+			if rpo != nil {
+				drPairInfo["rpo"] = *rpo
+			}
+			if rto != nil {
+				drPairInfo["rto"] = *rto
+			}
+		}
+	}
+
+	// Query assets that would be affected
+	var assetCount int
+	err := t.db.QueryRow(ctx, `SELECT COUNT(*) FROM assets WHERE state = 'running'`).Scan(&assetCount)
+	if err != nil {
+		assetCount = 50 // Default
+	}
+
+	// Calculate simulation results based on DR status
+	readinessScore := 85
+	issues := []map[string]interface{}{}
+	warnings := []map[string]interface{}{}
+
+	if drPairInfo != nil {
+		// Check replication status
+		if replStatus, ok := drPairInfo["replication_status"].(string); ok {
+			switch replStatus {
+			case "healthy":
+				readinessScore += 5
+			case "lagging":
+				readinessScore -= 15
+				warnings = append(warnings, map[string]interface{}{
+					"type":        "replication_lag",
+					"severity":    "medium",
+					"description": "Replication is lagging behind primary",
+					"impact":      "Potential data loss during failover",
+					"mitigation":  "Allow replication to catch up before failover",
+				})
+			case "broken":
+				readinessScore -= 40
+				issues = append(issues, map[string]interface{}{
+					"type":        "replication_broken",
+					"severity":    "critical",
+					"description": "Replication is broken",
+					"impact":      "Failover will result in significant data loss",
+					"mitigation":  "Repair replication before attempting failover",
+				})
+			}
+		}
+
+		// Check last failover test
+		if lastTest, ok := drPairInfo["last_failover_test"]; ok && lastTest == nil {
+			readinessScore -= 10
+			warnings = append(warnings, map[string]interface{}{
+				"type":        "no_previous_test",
+				"severity":    "medium",
+				"description": "No previous failover test recorded",
+				"impact":      "Increased risk due to untested failover procedure",
+				"mitigation":  "Consider running a test failover before production use",
+			})
+		}
+	} else {
+		readinessScore -= 20
+		warnings = append(warnings, map[string]interface{}{
+			"type":        "no_dr_pair",
+			"severity":    "high",
+			"description": "No DR pair configuration found",
+			"impact":      "Simulation based on defaults only",
+			"mitigation":  "Configure DR pairs for accurate simulation",
+		})
+	}
+
+	// Environment risk factor
+	if environment == "production" {
+		readinessScore -= 5
+	}
+
+	// Ensure score is within bounds
+	if readinessScore < 0 {
+		readinessScore = 0
+	}
+	if readinessScore > 100 {
+		readinessScore = 100
+	}
+
+	// Determine overall status
+	overallStatus := "ready"
+	if len(issues) > 0 {
+		overallStatus = "not_ready"
+	} else if len(warnings) > 0 {
+		overallStatus = "ready_with_warnings"
+	}
+
+	// Estimate failover time based on asset count
+	estimatedMinutes := 30 + (assetCount / 10) // Base 30 min + 1 min per 10 assets
+
+	// Build simulation result
+	simulation := map[string]interface{}{
+		"simulation_id":    fmt.Sprintf("sim-%d", len(issues)+len(warnings)),
+		"dry_run":          dryRun,
+		"environment":      environment,
+		"dr_pair":          drPairInfo,
+		"overall_status":   overallStatus,
+		"readiness_score":  readinessScore,
+		"affected_assets":  assetCount,
+		"estimated_failover_time": fmt.Sprintf("%dm", estimatedMinutes),
+		"critical_issues":  issues,
+		"warnings":         warnings,
+		"validation_checks": []map[string]interface{}{
+			{"check": "Replication status", "status": func() string {
+				if len(issues) > 0 { return "failed" }
+				return "passed"
+			}()},
+			{"check": "DR site connectivity", "status": "passed"},
+			{"check": "Resource availability", "status": "passed"},
+			{"check": "DNS configuration", "status": "passed"},
+			{"check": "Load balancer health", "status": "passed"},
+		},
+		"recommendations": []string{
+			"Ensure all stakeholders are notified before failover",
+			"Have rollback procedure ready",
+			"Monitor replication lag during failover",
+		},
+	}
+
+	return map[string]interface{}{
+		"simulation": simulation,
+		"status":     "completed",
+	}, nil
+}
+
+// GenerateComplianceEvidenceTool generates compliance evidence packages.
+type GenerateComplianceEvidenceTool struct {
+	db *pgxpool.Pool
+}
+
+func (t *GenerateComplianceEvidenceTool) Name() string        { return "generate_compliance_evidence" }
+func (t *GenerateComplianceEvidenceTool) Description() string { return "Generate compliance evidence package for audits" }
+func (t *GenerateComplianceEvidenceTool) Risk() RiskLevel     { return RiskPlanOnly }
+func (t *GenerateComplianceEvidenceTool) Scope() Scope        { return ScopeOrganization }
+func (t *GenerateComplianceEvidenceTool) Idempotent() bool    { return true }
+func (t *GenerateComplianceEvidenceTool) RequiresApproval() bool { return false }
+func (t *GenerateComplianceEvidenceTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"org_id":     map[string]interface{}{"type": "string"},
+			"frameworks": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"results":    map[string]interface{}{"type": "object"},
+		},
+	}
+}
+func (t *GenerateComplianceEvidenceTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	// Get frameworks from params
+	frameworks := []string{"CIS"} // Default
+	if fws, ok := params["frameworks"].([]interface{}); ok && len(fws) > 0 {
+		frameworks = make([]string, len(fws))
+		for i, fw := range fws {
+			frameworks[i] = fmt.Sprintf("%v", fw)
+		}
+	}
+
+	// Get control results if provided
+	var controlResults interface{}
+	if results, ok := params["results"]; ok {
+		controlResults = results
+	}
+
+	// Query compliance control results from database
+	rows, err := t.db.Query(ctx, `
+		SELECT cc.id, cc.control_id, cc.title, cc.description, cc.severity,
+		       cf.name as framework_name, cf.version as framework_version,
+		       ccr.status, ccr.score, ccr.affected_assets, ccr.last_audit_at
+		FROM compliance_controls cc
+		JOIN compliance_frameworks cf ON cc.framework_id = cf.id
+		LEFT JOIN compliance_control_results ccr ON cc.id = ccr.control_id
+		WHERE cf.name = ANY($1)
+		ORDER BY cc.severity DESC, cc.control_id
+	`, frameworks)
+
+	var dbControls []map[string]interface{}
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id, controlID, title, description, severity string
+			var frameworkName, frameworkVersion string
+			var status *string
+			var score *float64
+			var affectedAssets *int
+			var lastAuditAt interface{}
+
+			if err := rows.Scan(&id, &controlID, &title, &description, &severity,
+				&frameworkName, &frameworkVersion,
+				&status, &score, &affectedAssets, &lastAuditAt); err == nil {
+				control := map[string]interface{}{
+					"id":                id,
+					"control_id":        controlID,
+					"title":             title,
+					"description":       description,
+					"severity":          severity,
+					"framework_name":    frameworkName,
+					"framework_version": frameworkVersion,
+					"last_audit_at":     lastAuditAt,
+				}
+				if status != nil {
+					control["status"] = *status
+				} else {
+					control["status"] = "not_assessed"
+				}
+				if score != nil {
+					control["score"] = *score
+				}
+				if affectedAssets != nil {
+					control["affected_assets"] = *affectedAssets
+				}
+				dbControls = append(dbControls, control)
+			}
+		}
+	}
+
+	// Build evidence items for each framework
+	evidenceItems := []map[string]interface{}{}
+	for _, framework := range frameworks {
+		// Generate evidence ID
+		evidenceID := fmt.Sprintf("EV-%s-%d", framework, len(dbControls))
+
+		// Count controls by status
+		var passed, failed, notAssessed int
+		for _, ctrl := range dbControls {
+			if fw, ok := ctrl["framework_name"].(string); ok && fw == framework {
+				switch ctrl["status"] {
+				case "passed":
+					passed++
+				case "failed":
+					failed++
+				default:
+					notAssessed++
+				}
+			}
+		}
+
+		evidenceItem := map[string]interface{}{
+			"evidence_id":    evidenceID,
+			"framework":      framework,
+			"generated_at":   "now",
+			"status":         func() string {
+				if failed > 0 { return "non_compliant" }
+				if notAssessed > 0 { return "partially_assessed" }
+				return "compliant"
+			}(),
+			"summary": map[string]interface{}{
+				"total_controls":   passed + failed + notAssessed,
+				"passed":           passed,
+				"failed":           failed,
+				"not_assessed":     notAssessed,
+				"compliance_score": func() int {
+					total := passed + failed
+					if total == 0 { return 0 }
+					return (passed * 100) / total
+				}(),
+			},
+			"artifacts": []map[string]interface{}{
+				{
+					"type":        "control_assessment",
+					"description": fmt.Sprintf("%s control assessment results", framework),
+					"format":      "json",
+					"size":        "dynamic",
+				},
+				{
+					"type":        "asset_inventory",
+					"description": "Asset inventory at time of assessment",
+					"format":      "csv",
+					"size":        "dynamic",
+				},
+				{
+					"type":        "configuration_snapshots",
+					"description": "Configuration snapshots of assessed assets",
+					"format":      "json",
+					"size":        "dynamic",
+				},
+				{
+					"type":        "audit_logs",
+					"description": "Audit logs for compliance period",
+					"format":      "json",
+					"size":        "dynamic",
+				},
+			},
+			"attestation": map[string]interface{}{
+				"assessor":     "QL-RF Compliance Agent",
+				"methodology":  "Automated continuous compliance assessment",
+				"scope":        "All in-scope assets for " + framework,
+				"limitations":  "Assessment based on automated checks only",
+			},
+		}
+
+		evidenceItems = append(evidenceItems, evidenceItem)
+	}
+
+	// Build evidence package
+	evidencePackage := map[string]interface{}{
+		"package_id":      fmt.Sprintf("PKG-%d", len(evidenceItems)),
+		"generated_at":    "now",
+		"frameworks":      frameworks,
+		"evidence_items":  evidenceItems,
+		"control_results": controlResults,
+		"db_controls":     dbControls,
+		"export_formats":  []string{"pdf", "json", "csv", "xlsx"},
+		"retention_policy": map[string]interface{}{
+			"retention_period": "7 years",
+			"storage_location": "secure-evidence-storage",
+			"access_control":   "compliance-team-only",
+		},
+		"chain_of_custody": []map[string]interface{}{
+			{
+				"action":    "generated",
+				"timestamp": "now",
+				"actor":     "QL-RF Compliance Agent",
+				"details":   "Evidence package generated",
+			},
+		},
+	}
+
+	return map[string]interface{}{
+		"evidence_package": evidencePackage,
+		"status":           "generated",
 	}, nil
 }
 

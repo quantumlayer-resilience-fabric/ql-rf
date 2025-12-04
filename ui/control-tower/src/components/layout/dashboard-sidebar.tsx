@@ -4,8 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { LogoIcon } from "@/components/brand";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   LayoutDashboard,
   Image,
@@ -18,7 +24,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
-  X,
   AlertTriangle,
 } from "lucide-react";
 import { useState } from "react";
@@ -28,13 +33,14 @@ interface NavItem {
   href: string;
   icon: typeof LayoutDashboard;
   badge?: string;
+  badgeVariant?: "default" | "warning" | "critical";
 }
 
 const mainNavItems: NavItem[] = [
   { label: "Overview", href: "/overview", icon: LayoutDashboard },
   { label: "Risk", href: "/risk", icon: AlertTriangle },
   { label: "Images", href: "/images", icon: Image },
-  { label: "Drift", href: "/drift", icon: TrendingDown, badge: "3" },
+  { label: "Drift", href: "/drift", icon: TrendingDown, badge: "3", badgeVariant: "warning" },
   { label: "Sites", href: "/sites", icon: MapPin },
   { label: "Compliance", href: "/compliance", icon: Shield },
   { label: "Resilience", href: "/resilience", icon: RefreshCw },
@@ -44,6 +50,99 @@ const mainNavItems: NavItem[] = [
 const bottomNavItems: NavItem[] = [
   { label: "Settings", href: "/settings", icon: Settings },
 ];
+
+const badgeStyles = {
+  default: "bg-brand-accent text-white",
+  warning: "bg-status-amber text-white animate-pulse-status",
+  critical: "bg-status-red text-white animate-glow-critical",
+};
+
+function NavItemComponent({
+  item,
+  isActive,
+  collapsed,
+  onNavClick,
+}: {
+  item: NavItem;
+  isActive: boolean;
+  collapsed: boolean;
+  onNavClick?: () => void;
+}) {
+  const Icon = item.icon;
+
+  const linkContent = (
+    <Link
+      href={item.href}
+      onClick={onNavClick}
+      className={cn(
+        "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+        isActive
+          ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+          : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground",
+        collapsed && "justify-center px-2"
+      )}
+    >
+      {/* Active indicator */}
+      {isActive && (
+        <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-brand-accent" />
+      )}
+
+      <Icon
+        className={cn(
+          "h-5 w-5 shrink-0 transition-transform duration-200",
+          !isActive && "group-hover:scale-110"
+        )}
+      />
+
+      {!collapsed && (
+        <>
+          <span className="flex-1">{item.label}</span>
+          {item.badge && (
+            <span
+              className={cn(
+                "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium",
+                badgeStyles[item.badgeVariant || "default"]
+              )}
+            >
+              {item.badge}
+            </span>
+          )}
+        </>
+      )}
+
+      {/* Collapsed badge */}
+      {collapsed && item.badge && (
+        <span
+          className={cn(
+            "absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium",
+            badgeStyles[item.badgeVariant || "default"]
+          )}
+        >
+          {item.badge}
+        </span>
+      )}
+    </Link>
+  );
+
+  // Wrap in tooltip when collapsed
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8}>
+          <span className="font-medium">{item.label}</span>
+          {item.badge && (
+            <span className="ml-2 text-xs text-muted-foreground">
+              ({item.badge})
+            </span>
+          )}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return linkContent;
+}
 
 function SidebarContent({
   collapsed,
@@ -57,13 +156,25 @@ function SidebarContent({
   const pathname = usePathname();
 
   return (
-    <>
+    <TooltipProvider delayDuration={0}>
       {/* Logo */}
-      <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-4">
-        <Link href="/overview" className="flex items-center gap-2" onClick={onNavClick}>
+      <div
+        className={cn(
+          "flex h-16 items-center border-b border-sidebar-border transition-all duration-300",
+          collapsed ? "justify-center px-2" : "justify-between px-4"
+        )}
+      >
+        <Link
+          href="/overview"
+          className="flex items-center gap-2.5 transition-opacity hover:opacity-80"
+          onClick={onNavClick}
+        >
           <LogoIcon size="md" />
           {!collapsed && (
-            <span className="font-semibold text-sidebar-foreground">
+            <span
+              className="font-semibold text-sidebar-foreground tracking-tight"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
               Control Tower
             </span>
           )}
@@ -74,33 +185,17 @@ function SidebarContent({
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         <ul className="space-y-1">
           {mainNavItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+            const isActive =
+              pathname === item.href || pathname.startsWith(item.href + "/");
 
             return (
               <li key={item.href}>
-                <Link
-                  href={item.href}
-                  onClick={onNavClick}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  )}
-                >
-                  <Icon className="h-5 w-5 shrink-0" />
-                  {!collapsed && (
-                    <>
-                      <span className="flex-1">{item.label}</span>
-                      {item.badge && (
-                        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-status-amber px-1.5 text-xs font-medium text-white">
-                          {item.badge}
-                        </span>
-                      )}
-                    </>
-                  )}
-                </Link>
+                <NavItemComponent
+                  item={item}
+                  isActive={isActive}
+                  collapsed={collapsed}
+                  onNavClick={onNavClick}
+                />
               </li>
             );
           })}
@@ -111,42 +206,46 @@ function SidebarContent({
       <div className="border-t border-sidebar-border px-3 py-4">
         <ul className="space-y-1">
           {bottomNavItems.map((item) => {
-            const Icon = item.icon;
             const isActive = pathname === item.href;
 
             return (
               <li key={item.href}>
-                <Link
-                  href={item.href}
-                  onClick={onNavClick}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  )}
-                >
-                  <Icon className="h-5 w-5 shrink-0" />
-                  {!collapsed && <span>{item.label}</span>}
-                </Link>
+                <NavItemComponent
+                  item={item}
+                  isActive={isActive}
+                  collapsed={collapsed}
+                  onNavClick={onNavClick}
+                />
               </li>
             );
           })}
         </ul>
 
         {/* Collapse Toggle - Hidden on mobile */}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="mt-4 hidden w-full items-center justify-center rounded-lg py-2 text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground md:flex"
-        >
-          {collapsed ? (
-            <ChevronRight className="h-5 w-5" />
-          ) : (
-            <ChevronLeft className="h-5 w-5" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setCollapsed(!collapsed)}
+              className={cn(
+                "mt-4 hidden w-full items-center justify-center rounded-lg py-2 text-sidebar-foreground/50 transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-foreground md:flex",
+                collapsed ? "hover:scale-110" : ""
+              )}
+            >
+              {collapsed ? (
+                <ChevronRight className="h-5 w-5" />
+              ) : (
+                <ChevronLeft className="h-5 w-5" />
+              )}
+            </button>
+          </TooltipTrigger>
+          {collapsed && (
+            <TooltipContent side="right" sideOffset={8}>
+              Expand sidebar
+            </TooltipContent>
           )}
-        </button>
+        </Tooltip>
       </div>
-    </>
+    </TooltipProvider>
   );
 }
 
@@ -160,7 +259,7 @@ export function DashboardSidebar() {
       <Button
         variant="ghost"
         size="icon"
-        className="fixed left-4 top-4 z-50 md:hidden"
+        className="fixed left-4 top-4 z-50 md:hidden shadow-md bg-background/80 backdrop-blur-sm"
         onClick={() => setMobileOpen(true)}
       >
         <Menu className="h-6 w-6" />
@@ -168,7 +267,10 @@ export function DashboardSidebar() {
 
       {/* Mobile Sheet */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-64 p-0 bg-sidebar border-sidebar-border">
+        <SheetContent
+          side="left"
+          className="w-64 p-0 bg-sidebar border-sidebar-border"
+        >
           <div className="flex h-full flex-col">
             <SidebarContent
               collapsed={false}
@@ -182,7 +284,7 @@ export function DashboardSidebar() {
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 z-40 hidden h-screen flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300 md:flex",
+          "fixed left-0 top-0 z-40 hidden h-screen flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300 ease-[var(--ease-out-expo)] md:flex",
           collapsed ? "w-16" : "w-64"
         )}
       >

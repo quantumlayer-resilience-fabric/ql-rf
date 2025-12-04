@@ -128,11 +128,16 @@ export default function AICopilotPage() {
       {/* Main Chat Area */}
       <div className="flex flex-1 flex-col">
         {/* Header */}
-        <div className="mb-4 flex items-start justify-between">
+        <div className="mb-4 flex items-start justify-between animate-in fade-in-0 slide-in-from-bottom-2 duration-500">
           <div>
             <div className="flex items-center gap-2">
-              <Sparkles className="h-6 w-6 text-brand-accent" />
-              <h1 className="text-2xl font-bold tracking-tight">
+              <div className="rounded-lg bg-gradient-to-br from-[var(--ai-start)]/20 to-[var(--ai-end)]/20 p-2">
+                <Sparkles className="h-5 w-5 text-[var(--ai-start)]" />
+              </div>
+              <h1
+                className="text-2xl font-bold tracking-tight"
+                style={{ fontFamily: "var(--font-display)" }}
+              >
                 <GradientText variant="ai">AI Copilot</GradientText>
               </h1>
               <Badge variant="secondary" className="ml-2">Powered by Claude</Badge>
@@ -141,16 +146,24 @@ export default function AICopilotPage() {
               Ask questions about your infrastructure and get AI-powered insights.
             </p>
           </div>
-          <a href="/ai/tasks">
-            <Button variant="outline" size="sm">
-              <History className="mr-2 h-4 w-4" />
-              Task History
-            </Button>
-          </a>
+          <div className="flex gap-2">
+            <a href="/ai/agents">
+              <Button variant="outline" size="sm">
+                <Bot className="mr-2 h-4 w-4" />
+                Agents
+              </Button>
+            </a>
+            <a href="/ai/tasks">
+              <Button variant="outline" size="sm">
+                <History className="mr-2 h-4 w-4" />
+                Task History
+              </Button>
+            </a>
+          </div>
         </div>
 
         {/* Chat Area */}
-        <Card className="flex flex-1 flex-col overflow-hidden min-h-0">
+        <Card variant="elevated" className="flex flex-1 flex-col overflow-hidden min-h-0 animate-in fade-in-0 slide-in-from-bottom-3 duration-500" style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}>
           <ScrollArea className="flex-1 p-4 min-h-0 h-full" type="always" ref={scrollRef}>
             {messages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center text-center">
@@ -293,11 +306,14 @@ export default function AICopilotPage() {
       </div>
 
       {/* Sidebar - Pending Tasks & Proactive Insights */}
-      <div className="hidden w-80 space-y-4 lg:block">
+      <div className="hidden w-80 space-y-4 lg:block stagger-children">
         {/* Pending Tasks */}
-        <Card>
+        <Card variant="elevated" hover="lift">
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle
+              className="flex items-center gap-2 text-base"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
               <ClipboardList className="h-4 w-4 text-brand-accent" />
               Pending Tasks
               {pendingTasks && pendingTasks.length > 0 && (
@@ -326,9 +342,12 @@ export default function AICopilotPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card variant="elevated" hover="lift">
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle
+              className="flex items-center gap-2 text-base"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
               <Lightbulb className="h-4 w-4 text-status-amber" />
               Proactive Insights
             </CardTitle>
@@ -387,9 +406,12 @@ export default function AICopilotPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card variant="elevated" hover="lift">
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle
+              className="flex items-center gap-2 text-base"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
               <History className="h-4 w-4" />
               Suggested Questions
             </CardTitle>
@@ -410,9 +432,12 @@ export default function AICopilotPage() {
         </Card>
 
         {/* Context Status */}
-        <Card>
+        <Card variant="elevated" hover="lift">
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle
+              className="flex items-center gap-2 text-base"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
               <Zap className="h-4 w-4 text-brand-accent" />
               Context Status
             </CardTitle>

@@ -1,7 +1,7 @@
 //go:build integration
 
-// Package integration contains end-to-end integration tests for QL-RF services.
-package integration
+// Package tests contains integration tests for the API service.
+package tests
 
 import (
 	"bytes"

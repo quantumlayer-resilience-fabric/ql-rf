@@ -8,13 +8,16 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
 
 // Dev bypass flag - if true, use dev-token immediately
-const devAuthBypass = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
+// Check both string "true" and boolean coercion for build-time env vars
+const devAuthBypass = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true" ||
+                      process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "1";
 const isDevelopment = process.env.NODE_ENV === "development";
 
 // Token getter function - set by the auth provider
-// Initialize with dev-token getter if in dev bypass mode
+// Initialize with dev-token getter if in dev bypass mode OR if Clerk is not configured
+const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 let getAuthToken: (() => Promise<string | null>) | null =
-  (devAuthBypass || isDevelopment) ? (async () => "dev-token") : null;
+  (devAuthBypass || isDevelopment || !clerkConfigured) ? (async () => "dev-token") : null;
 
 /**
  * Set the auth token getter function.

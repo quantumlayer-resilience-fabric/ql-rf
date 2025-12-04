@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import { PlatformIcon } from "@/components/status/platform-icon";
 import { Heatmap, DriftBar } from "@/components/charts/heatmap";
 import { Badge } from "@/components/ui/badge";
 import { PageSkeleton, ErrorState } from "@/components/feedback";
-import { useDriftSummary, useTopOffenders, useTriggerDriftScan } from "@/hooks/use-drift";
+import { useDriftSummary, useTopOffenders, useTriggerDriftScan, DriftFilters } from "@/hooks/use-drift";
 import {
   TrendingDown,
   AlertTriangle,
@@ -36,13 +36,19 @@ export default function DriftPage() {
   const [selectedEnv, setSelectedEnv] = useState<string>("all");
   const [selectedPlatform, setSelectedPlatform] = useState<string>("all");
 
-  const { data: driftSummary, isLoading: summaryLoading, error: summaryError, refetch: refetchSummary } = useDriftSummary();
+  // Build filters object for hooks
+  const filters: DriftFilters = {
+    environment: selectedEnv,
+    platform: selectedPlatform,
+  };
+
+  const { data: driftSummary, isLoading: summaryLoading, error: summaryError, refetch: refetchSummary } = useDriftSummary(filters);
 
   const handleSiteCellClick = useCallback((cell: { label: string; value: number }) => {
     // Navigate to sites page filtered by the selected site
     router.push(`/sites?search=${encodeURIComponent(cell.label)}`);
   }, [router]);
-  const { data: topOffenders, isLoading: offendersLoading, error: offendersError, refetch: refetchOffenders } = useTopOffenders(10);
+  const { data: topOffenders, isLoading: offendersLoading, error: offendersError, refetch: refetchOffenders } = useTopOffenders(10, filters);
   const triggerScan = useTriggerDriftScan();
 
   const isLoading = summaryLoading || offendersLoading;
@@ -56,6 +62,42 @@ export default function DriftPage() {
       },
     });
   };
+
+  // Export drift data to CSV
+  const handleExport = useCallback(() => {
+    if (!topOffenders || topOffenders.length === 0) {
+      return;
+    }
+
+    // Build CSV content
+    const headers = ["Hostname", "Site", "Platform", "Environment", "Current Image", "Golden Image", "Status", "Drift Detected"];
+    const rows = topOffenders.map(asset => [
+      asset.hostname || asset.instanceId || "",
+      asset.siteName || asset.site || "",
+      asset.platform || "",
+      asset.environment || "",
+      asset.currentImageVersion || "",
+      asset.goldenImageVersion || "",
+      asset.isDrifted ? "Drifted" : "Compliant",
+      asset.driftDetectedAt || "",
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    ].join("\n");
+
+    // Download file
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `drift-report-${new Date().toISOString().split("T")[0]}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [topOffenders]);
 
   if (isLoading) {
     return (
@@ -109,20 +151,41 @@ export default function DriftPage() {
     avgDriftAge: driftSummary?.averageDriftAge || "N/A",
   };
 
-  // Transform environment data
-  const driftByEnvironment = (driftSummary?.byEnvironment || []).map((env) => ({
-    env: env.environment.charAt(0).toUpperCase() + env.environment.slice(1),
-    compliant: env.compliant,
-    total: env.total,
-    status: env.percentage >= 95 ? "success" as const : env.percentage >= 80 ? "warning" as const : "critical" as const,
-  }));
+  // Transform environment data - deduplicate by environment name
+  const envMap = new Map<string, { compliant: number; total: number }>();
+  (driftSummary?.byEnvironment || []).forEach((env) => {
+    const envName = env.environment.charAt(0).toUpperCase() + env.environment.slice(1);
+    const existing = envMap.get(envName);
+    if (existing) {
+      existing.compliant += env.compliant;
+      existing.total += env.total;
+    } else {
+      envMap.set(envName, { compliant: env.compliant, total: env.total });
+    }
+  });
+  const driftByEnvironment = Array.from(envMap.entries()).map(([envName, data]) => {
+    const percentage = data.total > 0 ? (data.compliant / data.total) * 100 : 100;
+    return {
+      env: envName,
+      compliant: data.compliant,
+      total: data.total,
+      status: percentage >= 95 ? "success" as const : percentage >= 80 ? "warning" as const : "critical" as const,
+    };
+  });
 
-  // Transform site data for heatmap
+  // Transform site data for heatmap - normalize status to expected values
+  const normalizeStatus = (status: string): "success" | "warning" | "critical" => {
+    const s = status?.toLowerCase();
+    if (s === "critical" || s === "error" || s === "danger") return "critical";
+    if (s === "warning" || s === "warn") return "warning";
+    return "success";
+  };
+
   const siteHeatmap = (driftSummary?.bySite || []).map((site) => ({
     id: site.siteId,
     label: site.siteName,
     value: site.coverage,
-    status: site.status,
+    status: normalizeStatus(site.status),
     metadata: { siteId: site.siteId },
   }));
 
@@ -156,7 +219,12 @@ export default function DriftPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={!topOffenders || topOffenders.length === 0}
+          >
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>

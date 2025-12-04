@@ -16,13 +16,14 @@ type MockAssetRepository struct {
 	assets map[uuid.UUID]*service.Asset
 
 	// Control behavior for testing
-	GetAssetFunc            func(ctx context.Context, id uuid.UUID) (*service.Asset, error)
+	GetAssetFunc             func(ctx context.Context, id uuid.UUID) (*service.Asset, error)
 	GetAssetByInstanceIDFunc func(ctx context.Context, orgID uuid.UUID, platform, instanceID string) (*service.Asset, error)
-	ListAssetsFunc          func(ctx context.Context, params service.ListAssetsParams) ([]service.Asset, error)
-	UpsertAssetFunc         func(ctx context.Context, params service.UpsertAssetParams) (*service.Asset, error)
-	DeleteAssetFunc         func(ctx context.Context, id uuid.UUID) error
-	CountAssetsByOrgFunc    func(ctx context.Context, orgID uuid.UUID) (int64, error)
-	CountAssetsByStateFunc  func(ctx context.Context, orgID uuid.UUID, state string) (int64, error)
+	ListAssetsFunc           func(ctx context.Context, params service.ListAssetsParams) ([]service.Asset, error)
+	ListDriftedAssetsFunc    func(ctx context.Context, orgID uuid.UUID, limit int32) ([]service.Asset, error)
+	UpsertAssetFunc          func(ctx context.Context, params service.UpsertAssetParams) (*service.Asset, error)
+	DeleteAssetFunc          func(ctx context.Context, id uuid.UUID) error
+	CountAssetsByOrgFunc     func(ctx context.Context, orgID uuid.UUID) (int64, error)
+	CountAssetsByStateFunc   func(ctx context.Context, orgID uuid.UUID, state string) (int64, error)
 	CountCompliantAssetsFunc func(ctx context.Context, orgID uuid.UUID) (int64, error)
 }
 
@@ -217,6 +218,32 @@ func (m *MockAssetRepository) CountCompliantAssets(ctx context.Context, orgID uu
 
 	// For testing, return 0 by default
 	return 0, nil
+}
+
+// ListDriftedAssets returns drifted assets (assets where image doesn't match golden image).
+func (m *MockAssetRepository) ListDriftedAssets(ctx context.Context, orgID uuid.UUID, limit int32) ([]service.Asset, error) {
+	if m.ListDriftedAssetsFunc != nil {
+		return m.ListDriftedAssetsFunc(ctx, orgID, limit)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []service.Asset
+	for _, asset := range m.assets {
+		if asset.OrgID != orgID {
+			continue
+		}
+		// For testing, consider assets without image version as drifted
+		if asset.ImageVersion == nil || *asset.ImageVersion == "" {
+			result = append(result, *asset)
+		}
+		if int32(len(result)) >= limit {
+			break
+		}
+	}
+
+	return result, nil
 }
 
 // AddAsset adds an asset directly to the mock (for test setup).

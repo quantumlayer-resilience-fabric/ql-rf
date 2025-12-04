@@ -191,11 +191,18 @@ func (e *Engine) RegisterPlatformClient(platform string, client PlatformClient) 
 		p = models.PlatformGCP
 	case "vsphere":
 		p = models.PlatformVSphere
+	case "k8s":
+		p = models.PlatformK8s
 	default:
 		e.log.Warn("unknown platform", "platform", platform)
 		return
 	}
 	e.assetProcessor.RegisterPlatformClient(p, client)
+}
+
+// GetAssetProcessor returns the asset processor for direct asset operations.
+func (e *Engine) GetAssetProcessor() *AssetProcessor {
+	return e.assetProcessor
 }
 
 // SetCallbacks sets the notification callbacks.

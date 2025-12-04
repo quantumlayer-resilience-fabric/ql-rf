@@ -17,6 +17,7 @@ import { MetricCard } from "@/components/data/metric-card";
 import { StatusBadge } from "@/components/status/status-badge";
 import { PageSkeleton, ErrorState, EmptyState } from "@/components/feedback";
 import { useComplianceSummary, useRunComplianceAudit } from "@/hooks/use-compliance";
+import { exportComplianceReport } from "@/lib/pdf-export";
 import {
   Shield,
   CheckCircle,
@@ -117,7 +118,25 @@ export default function CompliancePage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (complianceData) {
+                exportComplianceReport({
+                  overallScore: complianceData.overallScore || 0,
+                  cisCompliance: complianceData.cisCompliance || 0,
+                  slsaLevel: complianceData.slsaLevel || 0,
+                  sigstoreVerified: complianceData.sigstoreVerified || 0,
+                  lastAuditAt: complianceData.lastAuditAt || new Date().toISOString(),
+                  frameworks: complianceData.frameworks || [],
+                  failingControls: complianceData.failingControls || [],
+                  imageCompliance: complianceData.imageCompliance || [],
+                });
+              }
+            }}
+            disabled={!complianceData}
+          >
             <Download className="mr-2 h-4 w-4" />
             Export Report
           </Button>

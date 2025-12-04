@@ -95,6 +95,13 @@ export interface QualityScore {
   computed_at: string;
 }
 
+// Approval tracking for dual approval workflow
+export interface ApprovalInfo {
+  user_id: string;
+  user_name?: string;
+  approved_at: string;
+}
+
 // Task from orchestrator
 export interface AITask {
   task_id: string;
@@ -118,6 +125,26 @@ export interface AITask {
   quality_score?: QualityScore;
   requires_hitl: boolean;
   message?: string;
+
+  // Dual approval tracking
+  execution_policy?: {
+    mode: "plan_only" | "canary_only" | "full_auto";
+    require_two_approvers: boolean;
+    allowed_approver_roles?: string[];
+    timeout_minutes?: number;
+  };
+  approval_status?: {
+    approvals_required: number;
+    approvals_received: number;
+    first_approval?: ApprovalInfo;
+    second_approval?: ApprovalInfo;
+    rejection?: {
+      user_id: string;
+      user_name?: string;
+      rejected_at: string;
+      reason?: string;
+    };
+  };
 }
 
 interface AIResponse {
@@ -317,6 +344,7 @@ export interface TaskWithPlan {
     approved_at?: string;
     rejection_reason?: string;
     created_at: string;
+    quality_score?: QualityScore;
   };
   risk_level?: string;
   task_type?: string;
@@ -634,6 +662,326 @@ export function useCancelExecution() {
     onSuccess: (_, executionId) => {
       queryClient.invalidateQueries({ queryKey: ["execution", executionId] });
       queryClient.invalidateQueries({ queryKey: ["executions"] });
+    },
+  });
+}
+
+// =============================================================================
+// Agent Types and Hooks
+// =============================================================================
+
+export interface AgentInfo {
+  name: string;
+  description: string;
+  task_types: string[];
+  capabilities: string[];
+  status: "active" | "inactive" | "error";
+}
+
+/**
+ * Hook to list all available agents
+ */
+export function useAgents() {
+  const { getToken } = useAuth();
+
+  return useQuery<AgentInfo[]>({
+    queryKey: ["ai-agents"],
+    queryFn: async () => {
+      const response = await orchestratorFetch(
+        "/api/v1/ai/agents",
+        {},
+        getToken
+      );
+      if (!response.ok) {
+        throw new Error("Failed to fetch agents");
+      }
+      const data = await response.json();
+      return data.agents || [];
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+}
+
+// =============================================================================
+// Tool Types and Hooks
+// =============================================================================
+
+export interface ToolInfo {
+  name: string;
+  description: string;
+  category: string;
+  parameters: Record<string, unknown>;
+}
+
+/**
+ * Hook to list all available tools
+ */
+export function useTools() {
+  const { getToken } = useAuth();
+
+  return useQuery<ToolInfo[]>({
+    queryKey: ["ai-tools"],
+    queryFn: async () => {
+      const response = await orchestratorFetch(
+        "/api/v1/ai/tools",
+        {},
+        getToken
+      );
+      if (!response.ok) {
+        throw new Error("Failed to fetch tools");
+      }
+      const data = await response.json();
+      return data.tools || [];
+    },
+    refetchInterval: 60000, // Refresh every minute
+  });
+}
+
+// =============================================================================
+// Tool Invocation Audit Hooks
+// =============================================================================
+
+export interface ToolInvocation {
+  id: string;
+  task_id: string;
+  tool_name: string;
+  parameters: Record<string, unknown>;
+  result: Record<string, unknown>;
+  success: boolean;
+  error?: string;
+  duration_ms: number;
+  invoked_at: string;
+}
+
+/**
+ * Hook to list tool invocations for a task
+ */
+export function useToolInvocations(taskId: string) {
+  const { getToken } = useAuth();
+
+  return useQuery<ToolInvocation[]>({
+    queryKey: ["tool-invocations", taskId],
+    queryFn: async () => {
+      const response = await orchestratorFetch(
+        `/api/v1/ai/tasks/${taskId}/tool-invocations`,
+        {},
+        getToken
+      );
+      if (!response.ok) {
+        throw new Error("Failed to fetch tool invocations");
+      }
+      const data = await response.json();
+      return data.invocations || [];
+    },
+    enabled: !!taskId,
+    refetchInterval: 5000,
+  });
+}
+
+// =============================================================================
+// Modify Task Hook
+// =============================================================================
+
+export interface ModifyTaskParams {
+  taskId: string;
+  modifications: {
+    environment?: string;
+    risk_level?: string;
+    asset_filters?: Record<string, unknown>;
+    phases?: unknown[];
+    notes?: string;
+  };
+}
+
+/**
+ * Hook to modify a task plan before approval
+ */
+export function useModifyTask() {
+  const queryClient = useQueryClient();
+  const { getToken } = useAuth();
+
+  return useMutation<AITask, Error, ModifyTaskParams>({
+    mutationFn: async ({ taskId, modifications }) => {
+      const response = await orchestratorFetch(
+        `/api/v1/ai/tasks/${taskId}/modify`,
+        {
+          method: "POST",
+          body: JSON.stringify(modifications),
+        },
+        getToken
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Modification failed: ${response.status}`);
+      }
+
+      return response.json();
+    },
+    onSuccess: (_, { taskId }) => {
+      queryClient.invalidateQueries({ queryKey: ["ai-tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["ai-tasks", taskId] });
+    },
+  });
+}
+
+// =============================================================================
+// Rollback Execution Hook
+// =============================================================================
+
+/**
+ * Hook to rollback an execution
+ */
+export function useRollbackExecution() {
+  const queryClient = useQueryClient();
+  const { getToken } = useAuth();
+
+  return useMutation<void, Error, { executionId: string; reason?: string }>({
+    mutationFn: async ({ executionId, reason }) => {
+      const response = await orchestratorFetch(
+        `/api/v1/ai/executions/${executionId}/rollback`,
+        {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        },
+        getToken
+      );
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to rollback execution");
+      }
+    },
+    onSuccess: (_, { executionId }) => {
+      queryClient.invalidateQueries({ queryKey: ["execution", executionId] });
+      queryClient.invalidateQueries({ queryKey: ["executions"] });
+    },
+  });
+}
+
+// =============================================================================
+// LLM Usage Analytics Types and Hooks
+// =============================================================================
+
+export interface AIUsageStats {
+  // Token usage
+  tokens_used_this_month: number;
+  monthly_token_budget?: number;
+  token_usage_percent: number;
+
+  // Request counts
+  tasks_this_month: number;
+  tasks_this_week: number;
+  tasks_today: number;
+
+  // Cost estimates
+  estimated_cost_this_month: number;
+  cost_per_1k_tokens: number;
+
+  // Provider info
+  llm_provider: string;
+  llm_model: string;
+
+  // Usage by type
+  usage_by_task_type: Array<{
+    task_type: string;
+    count: number;
+    tokens: number;
+  }>;
+
+  // Usage by agent
+  usage_by_agent: Array<{
+    agent: string;
+    count: number;
+    tokens: number;
+    avg_tokens: number;
+  }>;
+
+  // Daily usage (last 30 days)
+  daily_usage: Array<{
+    date: string;
+    tokens: number;
+    tasks: number;
+    cost: number;
+  }>;
+
+  // Settings
+  ai_enabled: boolean;
+  auto_remediation_enabled: boolean;
+  autonomy_mode: "plan_only" | "canary_only" | "full_auto";
+}
+
+/**
+ * Hook to fetch AI usage analytics
+ */
+export function useAIUsageStats() {
+  const { getToken, orgId } = useAuth();
+
+  return useQuery<AIUsageStats>({
+    queryKey: ["ai-usage-stats", orgId],
+    queryFn: async () => {
+      const response = await orchestratorFetch(
+        `/api/v1/ai/usage`,
+        {},
+        getToken
+      );
+      if (!response.ok) {
+        throw new Error("Failed to fetch AI usage stats");
+      }
+      return response.json();
+    },
+    refetchInterval: 60000, // Refresh every minute
+    staleTime: 30000, // Consider data stale after 30 seconds
+  });
+}
+
+/**
+ * Hook to get AI settings for the organization
+ */
+export function useAISettings() {
+  const { getToken, orgId } = useAuth();
+
+  return useQuery({
+    queryKey: ["ai-settings", orgId],
+    queryFn: async () => {
+      const response = await orchestratorFetch(
+        `/api/v1/ai/settings`,
+        {},
+        getToken
+      );
+      if (!response.ok) {
+        throw new Error("Failed to fetch AI settings");
+      }
+      return response.json();
+    },
+  });
+}
+
+/**
+ * Hook to update AI settings
+ */
+export function useUpdateAISettings() {
+  const queryClient = useQueryClient();
+  const { getToken, orgId } = useAuth();
+
+  return useMutation({
+    mutationFn: async (settings: Partial<AIUsageStats>) => {
+      const response = await orchestratorFetch(
+        `/api/v1/ai/settings`,
+        {
+          method: "PUT",
+          body: JSON.stringify(settings),
+        },
+        getToken
+      );
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to update AI settings");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai-settings", orgId] });
+      queryClient.invalidateQueries({ queryKey: ["ai-usage-stats", orgId] });
     },
   });
 }

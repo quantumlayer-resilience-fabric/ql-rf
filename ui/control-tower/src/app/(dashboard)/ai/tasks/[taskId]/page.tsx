@@ -7,8 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/status/status-badge";
 import { GradientText } from "@/components/brand/gradient-text";
-import { useTask, useApproveTask, useRejectTask, useTaskExecutions, TaskWithPlan } from "@/hooks/use-ai";
+import { useTask, useApproveTask, useRejectTask, useTaskExecutions, TaskWithPlan, QualityScore } from "@/hooks/use-ai";
 import { ExecutionStatus } from "@/components/ai/execution-status";
+import { ToolInvocationAudit } from "@/components/ai/tool-invocation-audit";
+import { ExecutionProgress } from "@/components/ai/execution-progress";
+import { PlanModificationDialog } from "@/components/ai/plan-modification-dialog";
+import { QualityScoreDisplay } from "@/components/ai/quality-score-display";
 import { PermissionGate } from "@/components/auth/permission-gate";
 import { Permissions } from "@/hooks/use-permissions";
 import { formatDistanceToNow, format } from "date-fns";
@@ -133,6 +137,9 @@ export default function TaskDetailPage({ params }: PageProps) {
   const affectedAssets = planPayload?.affected_assets as number | undefined;
   const phases = planPayload?.phases as Array<Record<string, unknown>> | undefined;
   const planContent = planPayload?.plan_content as string | undefined;
+
+  // Quality score (from plan if available)
+  const qualityScore = plan?.quality_score as QualityScore | undefined;
 
   return (
     <div className="page-transition space-y-6">
@@ -283,6 +290,14 @@ export default function TaskDetailPage({ params }: PageProps) {
               </CardContent>
             </Card>
           )}
+
+          {/* Execution Progress */}
+          {(task.state === "executing" || task.state === "approved" || task.state === "completed" || task.state === "failed") && (
+            <ExecutionProgress taskId={task.id} />
+          )}
+
+          {/* Tool Invocation Audit */}
+          <ToolInvocationAudit taskId={task.id} />
         </div>
 
         {/* Sidebar */}
@@ -314,6 +329,11 @@ export default function TaskDetailPage({ params }: PageProps) {
               </div>
             </CardContent>
           </Card>
+
+          {/* Quality Score */}
+          {qualityScore && (
+            <QualityScoreDisplay score={qualityScore} />
+          )}
 
           {/* Timeline */}
           <Card>
@@ -412,14 +432,10 @@ export default function TaskDetailPage({ params }: PageProps) {
                     )}
                     Approve & Execute
                   </Button>
-                  <Button
-                    variant="outline"
-                    className="w-full"
+                  <PlanModificationDialog
+                    task={task}
                     disabled={isActionLoading}
-                  >
-                    <Edit className="mr-2 h-4 w-4" />
-                    Modify Plan
-                  </Button>
+                  />
                   <Button
                     variant="outline"
                     className="w-full text-destructive hover:text-destructive"

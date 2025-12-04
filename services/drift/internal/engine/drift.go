@@ -15,11 +15,20 @@ import (
 	"github.com/quantumlayerhq/ql-rf/pkg/models"
 )
 
+// ImageBaseline represents a golden image version with its release timestamp.
+type ImageBaseline struct {
+	Version   string
+	CreatedAt time.Time
+}
+
 // Engine calculates drift by comparing fleet assets against golden image baselines.
 type Engine struct {
 	db     *database.DB
 	log    *logger.Logger
 	config models.DriftConfig
+
+	// imageBaselines is cached during calculation for drift age computation
+	imageBaselines map[string]ImageBaseline
 }
 
 // New creates a new drift engine.
@@ -144,13 +153,15 @@ func (e *Engine) Calculate(ctx context.Context, req models.DriftCalculationReque
 // getGoldenImageBaselines returns a map of image references to their latest versions.
 func (e *Engine) getGoldenImageBaselines(ctx context.Context, orgID uuid.UUID) (map[string]string, error) {
 	baselines := make(map[string]string)
+	e.imageBaselines = make(map[string]ImageBaseline)
 
-	// Query for the latest production images for each family
+	// Query for the latest production images for each family, including creation timestamp
 	query := `
 		SELECT DISTINCT ON (i.family)
 			i.family,
 			i.version,
-			ic.identifier
+			ic.identifier,
+			i.created_at
 		FROM images i
 		LEFT JOIN image_coordinates ic ON ic.image_id = i.id
 		WHERE i.org_id = $1
@@ -167,17 +178,25 @@ func (e *Engine) getGoldenImageBaselines(ctx context.Context, orgID uuid.UUID) (
 	for rows.Next() {
 		var family, version string
 		var identifier *string
-		if err := rows.Scan(&family, &version, &identifier); err != nil {
+		var createdAt time.Time
+		if err := rows.Scan(&family, &version, &identifier, &createdAt); err != nil {
 			e.log.Warn("failed to scan golden image row", "error", err)
 			continue
 		}
 
-		// Map family name to version
-		baselines[family] = version
+		baseline := ImageBaseline{
+			Version:   version,
+			CreatedAt: createdAt,
+		}
 
-		// Also map platform-specific identifiers to version
+		// Map family name to version and baseline
+		baselines[family] = version
+		e.imageBaselines[family] = baseline
+
+		// Also map platform-specific identifiers to version and baseline
 		if identifier != nil && *identifier != "" {
 			baselines[*identifier] = version
+			e.imageBaselines[*identifier] = baseline
 		}
 	}
 
@@ -331,14 +350,106 @@ func (e *Engine) findBaselineByFamily(baselines map[string]string, imageRef stri
 }
 
 // calculateDriftAge calculates how many days the asset has been outdated.
+// It uses the image baseline timestamp to determine when the new golden image was released,
+// then calculates how long the asset has been behind since that release.
 func (e *Engine) calculateDriftAge(asset models.Asset, expectedVersion string) int {
-	// In production, this would compare version timestamps
-	// For now, return a mock value based on version difference
-	if asset.ImageVersion < expectedVersion {
-		// Simple heuristic: minor version = 7 days, patch version = 14 days
-		return 14
+	// If asset version matches expected, no drift
+	if asset.ImageVersion == expectedVersion {
+		return 0
 	}
-	return 0
+
+	now := time.Now()
+
+	// Strategy 1: Use the golden image's release timestamp
+	// The drift age is how long since the new golden image was released
+	// and the asset is still on an older version
+	if e.imageBaselines != nil {
+		// Try to find the baseline by image ref first
+		if baseline, ok := e.imageBaselines[asset.ImageRef]; ok {
+			driftDays := int(now.Sub(baseline.CreatedAt).Hours() / 24)
+			if driftDays > 0 {
+				return driftDays
+			}
+		}
+
+		// Try to find baseline by family name pattern
+		for key, baseline := range e.imageBaselines {
+			if strings.Contains(asset.ImageRef, key) || strings.Contains(key, "ql-base") {
+				driftDays := int(now.Sub(baseline.CreatedAt).Hours() / 24)
+				if driftDays > 0 {
+					return driftDays
+				}
+			}
+		}
+	}
+
+	// Strategy 2: Use the asset's last update time
+	// If the asset hasn't been updated recently, calculate drift from its last update
+	if !asset.UpdatedAt.IsZero() {
+		driftDays := int(now.Sub(asset.UpdatedAt).Hours() / 24)
+		if driftDays > 0 {
+			return driftDays
+		}
+	}
+
+	// Strategy 3: Use the asset's discovery time as fallback
+	// This represents how long the asset has potentially been outdated
+	if !asset.DiscoveredAt.IsZero() {
+		driftDays := int(now.Sub(asset.DiscoveredAt).Hours() / 24)
+		if driftDays > 0 {
+			return driftDays
+		}
+	}
+
+	// Strategy 4: Version comparison fallback
+	// If no timestamps available, use semantic version comparison as heuristic
+	return e.estimateDriftFromVersions(asset.ImageVersion, expectedVersion)
+}
+
+// estimateDriftFromVersions estimates drift age based on version number differences.
+// This is a fallback when timestamps are not available.
+func (e *Engine) estimateDriftFromVersions(currentVersion, expectedVersion string) int {
+	// Parse version numbers (simplified - assumes semver-like format X.Y.Z)
+	currentParts := strings.Split(currentVersion, ".")
+	expectedParts := strings.Split(expectedVersion, ".")
+
+	// Calculate version distance
+	majorDiff := 0
+	minorDiff := 0
+	patchDiff := 0
+
+	if len(currentParts) >= 1 && len(expectedParts) >= 1 {
+		var curr, exp int
+		fmt.Sscanf(currentParts[0], "%d", &curr)
+		fmt.Sscanf(expectedParts[0], "%d", &exp)
+		majorDiff = exp - curr
+	}
+
+	if len(currentParts) >= 2 && len(expectedParts) >= 2 {
+		var curr, exp int
+		fmt.Sscanf(currentParts[1], "%d", &curr)
+		fmt.Sscanf(expectedParts[1], "%d", &exp)
+		minorDiff = exp - curr
+	}
+
+	if len(currentParts) >= 3 && len(expectedParts) >= 3 {
+		var curr, exp int
+		fmt.Sscanf(currentParts[2], "%d", &curr)
+		fmt.Sscanf(expectedParts[2], "%d", &exp)
+		patchDiff = exp - curr
+	}
+
+	// Estimate days based on typical release cadence:
+	// Major version = ~90 days (quarterly releases)
+	// Minor version = ~30 days (monthly releases)
+	// Patch version = ~7 days (weekly patches)
+	estimatedDays := (majorDiff * 90) + (minorDiff * 30) + (patchDiff * 7)
+
+	if estimatedDays < 0 {
+		return 0
+	}
+
+	return estimatedDays
 }
 
 // calculateSeverity determines the severity based on drift age.

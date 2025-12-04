@@ -1,19 +1,31 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Outfit, Source_Sans_3, JetBrains_Mono } from "next/font/google";
 import { ConditionalClerkProvider } from "@/providers/conditional-clerk-provider";
 import { QueryProvider } from "@/providers/query-provider";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-inter",
+// Display font - distinctive geometric sans for headings
+const outfit = Outfit({
+  variable: "--font-display",
   subsets: ["latin"],
   display: "swap",
+  weight: ["400", "500", "600", "700"],
 });
 
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-jetbrains",
+// Body font - highly legible for data-dense interfaces
+const sourceSans = Source_Sans_3({
+  variable: "--font-body",
   subsets: ["latin"],
   display: "swap",
+  weight: ["400", "500", "600"],
+});
+
+// Mono font - excellent for technical data
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-mono",
+  subsets: ["latin"],
+  display: "swap",
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -70,7 +82,10 @@ export default function RootLayout({
   return (
     <ConditionalClerkProvider>
       <html lang="en" suppressHydrationWarning>
-        <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
+        <body
+          className={`${outfit.variable} ${sourceSans.variable} ${jetbrainsMono.variable} font-sans antialiased`}
+          style={{ fontFamily: 'var(--font-body), system-ui, sans-serif' }}
+        >
           <QueryProvider>{children}</QueryProvider>
         </body>
       </html>

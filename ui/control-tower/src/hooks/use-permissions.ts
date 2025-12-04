@@ -186,7 +186,7 @@ export function useCurrentUser() {
       };
     },
     // Always enabled in dev mode, otherwise based on Clerk config
-    enabled: isDevelopment || clerkConfigured,
+    enabled: isDevelopment || !!clerkConfigured,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   });
 }

@@ -409,7 +409,7 @@ platform_coords:
 | Layer | Technologies |
 |-------|-------------|
 | Backend | Python (FastAPI) / Go, Postgres, Redis, Kafka |
-| Frontend | Next.js 14, Tailwind, shadcn/ui, Socket.IO |
+| Frontend | Next.js 16, Tailwind, shadcn/ui, Socket.IO |
 | IaC | Terraform + Helm + Kubernetes |
 | Contracts | YAML + JSONSchema + OPA (Rego policies) |
 | AI | OpenAI API / Anthropic Claude |

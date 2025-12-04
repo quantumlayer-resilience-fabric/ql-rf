@@ -15,6 +15,7 @@ import (
 	"github.com/quantumlayerhq/ql-rf/pkg/config"
 	"github.com/quantumlayerhq/ql-rf/pkg/database"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
+	"github.com/quantumlayerhq/ql-rf/pkg/models"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/agents"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/executor"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/handlers"
@@ -217,6 +218,114 @@ func run() error {
 		log.Info("starting HTTP server", "addr", server.Addr)
 		serverErrors <- server.ListenAndServe()
 	}()
+
+	// Initialize and register platform clients for real cloud operations
+	// AWS Platform Client
+	awsRegion := cfg.Connectors.AWS.Region
+	if awsRegion == "" {
+		awsRegion = "us-east-1"
+	}
+	awsClient := executor.NewAWSPlatformClient(executor.AWSClientConfig{
+		Region:        awsRegion,
+		AssumeRoleARN: cfg.Connectors.AWS.AssumeRoleARN,
+	}, log)
+
+	// Azure Platform Client
+	azureClient := executor.NewAzurePlatformClient(executor.AzureClientConfig{
+		SubscriptionID: cfg.Connectors.Azure.SubscriptionID,
+		ResourceGroup:  "", // Will use per-instance resource group from instance ID
+		TenantID:       cfg.Connectors.Azure.TenantID,
+		ClientID:       cfg.Connectors.Azure.ClientID,
+		ClientSecret:   cfg.Connectors.Azure.ClientSecret,
+	}, log)
+
+	// GCP Platform Client
+	gcpClient := executor.NewGCPPlatformClient(executor.GCPClientConfig{
+		ProjectID:       cfg.Connectors.GCP.ProjectID,
+		CredentialsFile: cfg.Connectors.GCP.CredentialsFile,
+	}, log)
+
+	// Kubernetes Platform Client
+	k8sClient := executor.NewKubernetesPlatformClient(executor.KubernetesClientConfig{
+		KubeConfig: cfg.Connectors.K8s.Kubeconfig,
+		Context:    cfg.Connectors.K8s.Context,
+	}, log)
+
+	// vSphere Platform Client
+	vsphereClient := executor.NewVSpherePlatformClient(executor.VSphereConfig{
+		URL:              cfg.Connectors.VSphere.URL,
+		Username:         cfg.Connectors.VSphere.User,
+		Password:         cfg.Connectors.VSphere.Password,
+		Insecure:         cfg.Connectors.VSphere.Insecure,
+		Datacenter:       "", // Use default datacenter
+		GuestUsername:    "", // Set from per-operation context or env vars
+		GuestPassword:    "", // Set from per-operation context or env vars
+		ConnectTimeout:   30 * time.Second,
+		OperationTimeout: 10 * time.Minute,
+	}, log)
+
+	// Connect enabled platform clients
+	for _, connector := range cfg.Connectors.Enabled {
+		switch connector {
+		case "aws":
+			if err := awsClient.Connect(ctx); err != nil {
+				log.Warn("failed to connect AWS platform client", "error", err)
+			} else {
+				log.Info("connected AWS platform client for patch operations", "region", awsRegion)
+				execEngine.RegisterPlatformClient("aws", awsClient)
+				if temporalWorker != nil {
+					temporalWorker.RegisterPlatformClient(models.PlatformAWS, awsClient)
+				}
+			}
+
+		case "azure":
+			if err := azureClient.Connect(ctx); err != nil {
+				log.Warn("failed to connect Azure platform client", "error", err)
+			} else {
+				log.Info("connected Azure platform client for patch operations",
+					"subscription_id", cfg.Connectors.Azure.SubscriptionID)
+				execEngine.RegisterPlatformClient("azure", azureClient)
+				if temporalWorker != nil {
+					temporalWorker.RegisterPlatformClient(models.PlatformAzure, azureClient)
+				}
+			}
+
+		case "gcp":
+			if err := gcpClient.Connect(ctx); err != nil {
+				log.Warn("failed to connect GCP platform client", "error", err)
+			} else {
+				log.Info("connected GCP platform client for patch operations",
+					"project_id", cfg.Connectors.GCP.ProjectID)
+				execEngine.RegisterPlatformClient("gcp", gcpClient)
+				if temporalWorker != nil {
+					temporalWorker.RegisterPlatformClient(models.PlatformGCP, gcpClient)
+				}
+			}
+
+		case "k8s":
+			if err := k8sClient.Connect(ctx); err != nil {
+				log.Warn("failed to connect Kubernetes platform client", "error", err)
+			} else {
+				log.Info("connected Kubernetes platform client for rolling updates")
+				execEngine.RegisterPlatformClient("k8s", k8sClient)
+				if temporalWorker != nil {
+					temporalWorker.RegisterPlatformClient(models.PlatformK8s, k8sClient)
+				}
+			}
+
+		case "vsphere":
+			if err := vsphereClient.Connect(ctx); err != nil {
+				log.Warn("failed to connect vSphere platform client", "error", err)
+			} else {
+				log.Info("connected vSphere platform client for VM patching operations",
+					"url", cfg.Connectors.VSphere.URL)
+				execEngine.RegisterPlatformClient("vsphere", vsphereClient)
+				if temporalWorker != nil {
+					temporalWorker.RegisterPlatformClient(models.PlatformVSphere, vsphereClient)
+				}
+			}
+		}
+	}
 
 	// Start Temporal worker if available
 	if temporalWorker != nil {

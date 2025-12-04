@@ -5,10 +5,11 @@ const nextConfig: NextConfig = {
   output: "standalone",
 
   // Environment variables available at runtime
-  // Use 192.168.8.145 for local network access, localhost for local dev
+  // Default to localhost for local development
+  // Override with NEXT_PUBLIC_API_URL and NEXT_PUBLIC_ORCHESTRATOR_URL for production
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "http://192.168.8.145:8080",
-    NEXT_PUBLIC_ORCHESTRATOR_URL: process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "http://192.168.8.145:8083",
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080",
+    NEXT_PUBLIC_ORCHESTRATOR_URL: process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "http://localhost:8083",
   },
 };
 

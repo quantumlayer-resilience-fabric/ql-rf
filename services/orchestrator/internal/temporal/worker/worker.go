@@ -9,7 +9,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/quantumlayerhq/ql-rf/pkg/config"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
+	"github.com/quantumlayerhq/ql-rf/pkg/models"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/agents"
+	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/executor"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/temporal/activities"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/temporal/workflows"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/tools"
@@ -277,6 +279,15 @@ func (w *Worker) CancelDRDrill(ctx context.Context, drillID string) error {
 
 	w.log.Info("Cancelled DR drill workflow", "workflow_id", workflowID)
 	return nil
+}
+
+// RegisterPlatformClient registers a platform client for real asset operations.
+// This enables activities to perform actual patching, reimaging, etc. on cloud platforms.
+func (w *Worker) RegisterPlatformClient(platform models.Platform, client executor.PlatformClient) {
+	if w.activities != nil {
+		w.activities.RegisterPlatformClient(platform, client)
+		w.log.Info("Registered platform client", "platform", platform)
+	}
 }
 
 // temporalLogger adapts our logger to Temporal's logger interface.

@@ -584,7 +584,7 @@ Resilience Tab → Select Workload → Configure Drill → Execute → Monitor R
 
 | Layer | Technology |
 |-------|------------|
-| Framework | Next.js 14 (App Router) |
+| Framework | Next.js 16 (App Router) |
 | Styling | Tailwind CSS + CSS Variables |
 | Components | shadcn/ui (customized) |
 | State | TanStack Query (React Query) |
