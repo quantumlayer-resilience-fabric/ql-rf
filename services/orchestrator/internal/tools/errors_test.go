@@ -356,3 +356,141 @@ func TestNewSuccessResultWithMetadata(t *testing.T) {
 		t.Errorf("expected item_count=2, got %d", result.Metadata.ItemCount)
 	}
 }
+
+func TestNewUnauthorizedError(t *testing.T) {
+	err := NewUnauthorizedError("access denied to resource")
+
+	if err.Code != ErrorCodeUnauthorized {
+		t.Errorf("expected code %s, got %s", ErrorCodeUnauthorized, err.Code)
+	}
+
+	if err.Retryable {
+		t.Error("expected non-retryable")
+	}
+
+	if err.Message != "access denied to resource" {
+		t.Errorf("unexpected message: %s", err.Message)
+	}
+}
+
+func TestNewConflictError(t *testing.T) {
+	err := NewConflictError("resource already exists", "active")
+
+	if err.Code != ErrorCodeConflict {
+		t.Errorf("expected code %s, got %s", ErrorCodeConflict, err.Code)
+	}
+
+	if err.Retryable {
+		t.Error("expected non-retryable")
+	}
+
+	details := err.Details.(map[string]any)
+	if details["current_state"] != "active" {
+		t.Errorf("expected current_state=active, got %v", details["current_state"])
+	}
+}
+
+func TestNewInternalError(t *testing.T) {
+	err := NewInternalError("unexpected database error")
+
+	if err.Code != ErrorCodeInternal {
+		t.Errorf("expected code %s, got %s", ErrorCodeInternal, err.Code)
+	}
+
+	if !err.Retryable {
+		t.Error("expected retryable (internal errors are often transient)")
+	}
+}
+
+func TestNewUnsupportedError(t *testing.T) {
+	err := NewUnsupportedError("delete_all", "operation disabled for safety")
+
+	if err.Code != ErrorCodeUnsupported {
+		t.Errorf("expected code %s, got %s", ErrorCodeUnsupported, err.Code)
+	}
+
+	if err.Retryable {
+		t.Error("expected non-retryable")
+	}
+
+	details := err.Details.(map[string]string)
+	if details["operation"] != "delete_all" {
+		t.Errorf("expected operation=delete_all, got %s", details["operation"])
+	}
+}
+
+func TestNewPreconditionFailedError(t *testing.T) {
+	err := NewPreconditionFailedError("canary_success", "canary deployment failed")
+
+	if err.Code != ErrorCodePreconditionFailed {
+		t.Errorf("expected code %s, got %s", ErrorCodePreconditionFailed, err.Code)
+	}
+
+	if err.Retryable {
+		t.Error("expected non-retryable")
+	}
+
+	details := err.Details.(map[string]string)
+	if details["precondition"] != "canary_success" {
+		t.Errorf("expected precondition=canary_success, got %s", details["precondition"])
+	}
+}
+
+func TestResultMetadata_Fields(t *testing.T) {
+	metadata := &ResultMetadata{
+		DurationMs: 100,
+		ItemCount:  50,
+		Truncated:  true,
+		Source:     "cache",
+		CacheHit:   true,
+	}
+
+	if metadata.DurationMs != 100 {
+		t.Errorf("expected duration_ms=100, got %d", metadata.DurationMs)
+	}
+
+	if metadata.ItemCount != 50 {
+		t.Errorf("expected item_count=50, got %d", metadata.ItemCount)
+	}
+
+	if !metadata.Truncated {
+		t.Error("expected truncated=true")
+	}
+
+	if metadata.Source != "cache" {
+		t.Errorf("expected source=cache, got %s", metadata.Source)
+	}
+
+	if !metadata.CacheHit {
+		t.Error("expected cache_hit=true")
+	}
+}
+
+func TestErrorCode_Constants(t *testing.T) {
+	// Verify all error codes are defined correctly
+	codes := []ErrorCode{
+		ErrorCodeInvalidInput,
+		ErrorCodeNotFound,
+		ErrorCodeUnauthorized,
+		ErrorCodeUpstream,
+		ErrorCodeRateLimited,
+		ErrorCodeTimeout,
+		ErrorCodeConflict,
+		ErrorCodeInternal,
+		ErrorCodeUnsupported,
+		ErrorCodePreconditionFailed,
+	}
+
+	if len(codes) != 10 {
+		t.Errorf("expected 10 error codes, got %d", len(codes))
+	}
+
+	// Verify string values
+	if string(ErrorCodeInvalidInput) != "INVALID_INPUT" {
+		t.Errorf("expected INVALID_INPUT, got %s", ErrorCodeInvalidInput)
+	}
+
+	if string(ErrorCodeRateLimited) != "RATE_LIMITED" {
+		t.Errorf("expected RATE_LIMITED, got %s", ErrorCodeRateLimited)
+	}
+}
