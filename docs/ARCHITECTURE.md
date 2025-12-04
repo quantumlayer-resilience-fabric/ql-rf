@@ -2,7 +2,7 @@
 
 > AI-Powered Infrastructure Resilience & Compliance Platform
 
-**Last Updated:** 2025-12-03
+**Last Updated:** 2025-12-04
 
 ---
 
@@ -99,7 +99,7 @@ LLM-first operations engine that converts natural language to executed infrastru
 │  └─────────────────────────────────────────────────────────┘    │
 │                              ↓                                   │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │              LAYER 2: SPECIALIST AGENTS                 │    │
+│  │           LAYER 2: SPECIALIST AGENTS (11 total)         │    │
 │  │  ┌─────────┐ ┌─────────┐ ┌──────────┐ ┌──────────┐     │    │
 │  │  │ Drift   │ │ Patch   │ │Compliance│ │ Incident │     │    │
 │  │  │ Agent   │ │ Agent   │ │  Agent   │ │  Agent   │     │    │
@@ -108,10 +108,14 @@ LLM-first operations engine that converts natural language to executed infrastru
 │  │  │   DR    │ │  Cost   │ │ Security │ │  Image   │     │    │
 │  │  │  Agent  │ │  Agent  │ │  Agent   │ │  Agent   │     │    │
 │  │  └─────────┘ └─────────┘ └──────────┘ └──────────┘     │    │
+│  │  ┌─────────┐ ┌─────────┐ ┌──────────┐                  │    │
+│  │  │   SOP   │ │ Adapter │ │  Base    │                  │    │
+│  │  │  Agent  │ │  Agent  │ │  Agent   │                  │    │
+│  │  └─────────┘ └─────────┘ └──────────┘                  │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │                              ↓                                   │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │              LAYER 3: TOOL REGISTRY (26+ tools)         │    │
+│  │              LAYER 3: TOOL REGISTRY (29 tools)          │    │
 │  │   query_assets │ get_golden_image │ generate_patch_plan │    │
 │  │   check_control │ simulate_failover │ generate_sop      │    │
 │  └─────────────────────────────────────────────────────────┘    │
@@ -382,7 +386,33 @@ RF_WEBHOOK_SECRET=your-hmac-secret
 - Webhooks signed with `X-QL-Signature: sha256=<hmac>` header
 - Configurable secret per organization
 
-### 12. Prediction Service (`services/api/internal/service/prediction_service.go`)
+### 12. ServiceNow Integration (`services/orchestrator/internal/integrations/servicenow/`)
+
+Enterprise ITSM integration for change management and incident tracking.
+
+**Capabilities:**
+- **Change Requests**: Auto-create CHG records for AI-planned operations
+- **Incidents**: Auto-create INC records for execution failures
+- **CMDB Sync**: Sync assets to ServiceNow Configuration Items
+- **Audit Trail**: Link QL-RF tasks to ServiceNow tickets
+
+**Configuration:**
+```bash
+RF_SERVICENOW_ENABLED=true
+RF_SERVICENOW_INSTANCE_URL=https://mycompany.service-now.com
+RF_SERVICENOW_USERNAME=api_user
+RF_SERVICENOW_PASSWORD=api_token
+```
+
+**Risk Level Mapping:**
+| QL-RF Risk | ServiceNow Risk | Priority |
+|------------|-----------------|----------|
+| state_change_prod | High | 1 (Critical) |
+| state_change_nonprod | Moderate | 2 (High) |
+| plan_only | Low | 3 (Moderate) |
+| read_only | Low | 4 (Low) |
+
+### 13. Prediction Service (`services/api/internal/service/prediction_service.go`)
 
 AI-powered risk prediction using real database data.
 
@@ -411,11 +441,11 @@ if !hasImage { score += 15 }
 
 ### Control Tower UI (`ui/control-tower/`)
 
-Next.js 14+ application with App Router.
+Next.js 16 application with App Router.
 
 **Tech Stack:**
-- Next.js 14 (App Router)
-- React 18
+- Next.js 16 (App Router)
+- React 19
 - Tailwind CSS
 - shadcn/ui components
 - React Query (TanStack Query)
@@ -426,30 +456,37 @@ Next.js 14+ application with App Router.
 ui/control-tower/src/
 ├── app/
 │   ├── (dashboard)/           # Dashboard routes
-│   │   ├── ai/               # AI task management
-│   │   │   ├── tasks/        # Task list
-│   │   │   └── chat/         # AI chat interface
+│   │   ├── ai/               # AI Copilot
+│   │   │   ├── tasks/        # Task list & detail
+│   │   │   ├── agents/       # Agent status dashboard
+│   │   │   └── usage/        # AI usage metrics
+│   │   ├── overview/         # Fleet overview + ROI widget
 │   │   ├── assets/           # Asset management
 │   │   ├── images/           # Golden images
 │   │   │   └── [id]/lineage/ # Image lineage detail
 │   │   ├── drift/            # Drift analysis
-│   │   ├── compliance/       # Compliance dashboard
+│   │   ├── compliance/       # Compliance dashboard + PDF export
 │   │   ├── risk/             # Risk scoring dashboard
 │   │   └── resilience/       # DR management
 │   └── (marketing)/          # Public pages
 ├── components/
 │   ├── ai/                   # AI-specific components
 │   │   ├── task-approval-card.tsx
-│   │   ├── pending-task-card.tsx
-│   │   ├── execution-status.tsx
-│   │   └── ai-chat-interface.tsx
+│   │   ├── agent-status-dashboard.tsx
+│   │   ├── execution-progress.tsx
+│   │   ├── plan-modification-dialog.tsx
+│   │   └── tool-invocation-audit.tsx
+│   ├── data/                 # Data visualization components
+│   │   ├── metric-card.tsx   # Generic metric display
+│   │   └── value-delivered-card.tsx  # ROI/savings widget
 │   ├── images/               # Image lineage components
 │   │   ├── lineage-tree.tsx  # Hierarchical tree visualization
 │   │   ├── lineage-graph.tsx # Interactive canvas graph
 │   │   ├── vulnerability-summary.tsx
-│   │   ├── vulnerability-trend-chart.tsx  # Time-series chart
-│   │   └── build-history.tsx
+│   │   └── vulnerability-trend-chart.tsx
 │   └── ui/                   # shadcn/ui components
+├── lib/
+│   └── pdf-export.ts         # PDF report generation (jsPDF)
 └── hooks/
     ├── use-ai.ts             # AI task hooks
     ├── use-lineage.ts        # Image lineage hooks

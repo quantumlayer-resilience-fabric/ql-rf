@@ -1,7 +1,11 @@
 # QuantumLayer Resilience Fabric
 ## Implementation Status & Checklist
 
-This document tracks the implementation progress of QL-RF.
+This document tracks the implementation progress of QL-RF using the original 4-phase plan.
+
+> **Note:** The README.md contains a more granular 9-phase breakdown reflecting actual implementation milestones. This document provides detailed technical checklists while README.md provides high-level progress tracking.
+
+**Last Updated:** 2025-12-04
 
 ---
 
@@ -60,7 +64,7 @@ This document tracks the implementation progress of QL-RF.
   - Natural language → TaskSpec parsing
   - Agent and tool selection
   - Risk level assessment
-- [x] **Specialist Agents** (`internal/agents/`)
+- [x] **Specialist Agents** (`internal/agents/`) - 11 total
   - Drift Agent
   - Patch Agent
   - Compliance Agent
@@ -69,14 +73,19 @@ This document tracks the implementation progress of QL-RF.
   - Cost Agent
   - Security Agent
   - Image Agent
-- [x] **Tool Registry** (`internal/tools/`)
-  - QueryAssetsTool (database queries)
-  - GetDriftStatusTool (drift calculations)
-  - GetGoldenImageTool (image lookup)
-  - QueryAlertsTool (alert queries)
-  - CheckComplianceTool
-  - SimulateFailoverTool
-  - And more...
+  - SOP Agent
+  - Adapter Agent
+  - Base Agent (shared functionality)
+- [x] **Tool Registry** (`internal/tools/`) - 29 tools total
+  - QueryAssetsTool, GetDriftStatusTool, GetComplianceStatusTool
+  - GetGoldenImageTool, QueryAlertsTool, GetDRStatusTool
+  - AnalyzeDriftTool, CheckControlTool, CompareVersionsTool
+  - GeneratePatchPlanTool, GenerateRolloutPlanTool, GenerateDRRunbookTool
+  - SimulateRolloutTool, CalculateRiskScoreTool, SimulateFailoverTool
+  - GenerateComplianceEvidenceTool, ProposeRolloutTool, AcknowledgeAlertTool
+  - GenerateSOPTool, ValidateSOPTool, SimulateSOPTool, ExecuteSOPTool, ListSOPsTool
+  - GenerateImageContractTool, GeneratePackerTemplateTool, GenerateAnsiblePlaybookTool
+  - BuildImageTool, ListImageVersionsTool, PromoteImageTool
 - [x] **LLM Clients** (`internal/llm/`)
   - Anthropic Claude
   - Azure Anthropic (Claude on Microsoft Foundry)
@@ -145,6 +154,12 @@ This document tracks the implementation progress of QL-RF.
   - Task list with filtering
   - Task detail view
   - Plan visualization
+- [x] **Agent Dashboard** (`/ai/agents`)
+  - Agent status overview
+  - Agent capabilities display
+- [x] **Usage Metrics** (`/ai/usage`)
+  - Token consumption tracking
+  - Cost analysis
 - [x] **Task Approval Card** component
   - Risk level badges
   - Plan details (expandable)
@@ -166,6 +181,27 @@ This document tracks the implementation progress of QL-RF.
   - useResumeExecution
   - useCancelExecution
   - useProactiveInsights
+
+### Frontend Dashboard Features
+- [x] **Value Delivered Widget** (`/overview`)
+  - ROI calculation display
+  - Incidents prevented metrics
+  - Hours automated savings
+  - Compliance violations avoided
+  - MTTR improvement tracking
+- [x] **PDF Export** (`/compliance`)
+  - jsPDF-based report generation
+  - Framework compliance tables
+  - Failing controls summary
+  - Image compliance status
+  - Professional formatting with pagination
+
+### Enterprise Integrations
+- [x] **ServiceNow Integration** (`services/orchestrator/internal/integrations/servicenow/`)
+  - Change request creation for AI tasks
+  - Incident creation for failures
+  - CMDB CI sync for assets
+  - Risk level mapping
 
 ---
 
@@ -349,10 +385,11 @@ curl -X POST http://localhost:8083/api/v1/ai/execute \
 ### Orchestrator
 - `services/orchestrator/cmd/orchestrator/main.go` - Entry point
 - `services/orchestrator/internal/handlers/handlers.go` - HTTP handlers with DB persistence
-- `services/orchestrator/internal/agents/registry.go` - Agent definitions
-- `services/orchestrator/internal/tools/registry.go` - Tool implementations
+- `services/orchestrator/internal/agents/registry.go` - Agent definitions (11 agents)
+- `services/orchestrator/internal/tools/registry.go` - Tool implementations (29 tools)
 - `services/orchestrator/internal/executor/executor.go` - Execution engine with `ai_runs` persistence
-- `services/orchestrator/internal/notifier/notifier.go` - Notification system
+- `services/orchestrator/internal/notifier/notifier.go` - Notification system (Slack, Teams, Email, Webhook)
+- `services/orchestrator/internal/integrations/servicenow/` - ServiceNow ITSM integration
 - `services/orchestrator/internal/temporal/workflows/task_workflow.go` - Main workflow
 - `services/orchestrator/internal/validation/pipeline.go` - Validation pipeline
 - `services/orchestrator/README.md` - Service documentation
@@ -376,9 +413,14 @@ curl -X POST http://localhost:8083/api/v1/ai/execute \
 - `ui/control-tower/src/app/(dashboard)/ai/page.tsx` - AI Copilot page
 - `ui/control-tower/src/app/(dashboard)/ai/tasks/page.tsx` - Task list page
 - `ui/control-tower/src/app/(dashboard)/ai/tasks/[taskId]/page.tsx` - Task detail page
+- `ui/control-tower/src/app/(dashboard)/ai/agents/page.tsx` - Agent status dashboard
+- `ui/control-tower/src/app/(dashboard)/ai/usage/page.tsx` - AI usage metrics
+- `ui/control-tower/src/app/(dashboard)/overview/page.tsx` - Overview with ROI widget
+- `ui/control-tower/src/app/(dashboard)/compliance/page.tsx` - Compliance with PDF export
 - `ui/control-tower/src/components/ai/task-approval-card.tsx` - Approval UI
-- `ui/control-tower/src/components/ai/execution-status.tsx` - Execution progress UI
-- `ui/control-tower/src/components/ai/quality-score-display.tsx` - Quality score UI
+- `ui/control-tower/src/components/ai/execution-progress.tsx` - Execution progress UI
+- `ui/control-tower/src/components/data/value-delivered-card.tsx` - ROI/savings widget
+- `ui/control-tower/src/lib/pdf-export.ts` - PDF report generation
 - `ui/control-tower/src/hooks/use-ai.ts` - AI hooks
 
 ### Configuration
@@ -396,3 +438,5 @@ curl -X POST http://localhost:8083/api/v1/ai/execute \
 - `migrations/000003_add_sites_alerts_compliance.up.sql` - Sites, alerts, DR tables
 - `migrations/000004_add_ai_orchestration.up.sql` - AI orchestration tables (ai_tasks, ai_plans, ai_runs)
 - `migrations/000005_add_row_level_security.up.sql` - RLS policies for multi-tenant isolation
+- `migrations/seed_demo_data.sql` - Demo data for demonstrations (1 org, 3 users, 8 sites, 20+ assets)
+- `migrations/seed_more_assets.sql` - Additional asset data for load testing
