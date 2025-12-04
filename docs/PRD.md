@@ -413,12 +413,12 @@ platform_coords:
 
 | Layer | Technologies |
 |-------|-------------|
-| Backend | Go (chi router, sqlc), Postgres, Redis, Kafka |
-| Frontend | Next.js 14, React 19, Tailwind, shadcn/ui |
+| Backend | Go 1.22+ (chi router, pgx), PostgreSQL 16, Redis 7, Kafka |
+| Frontend | Next.js 16, React 19, Tailwind CSS 4, shadcn/ui, TanStack Query |
 | IaC | Terraform + Helm + Kubernetes |
 | Contracts | YAML + JSONSchema + OPA (Rego policies) |
-| AI | Anthropic Claude / OpenAI / Azure OpenAI |
-| Security | OIDC (Clerk), TLS, Cosign |
+| AI | Azure Anthropic (Claude), Direct Anthropic, OpenAI, Azure OpenAI |
+| Security | OIDC (Clerk), TLS, Cosign, Row-Level Security |
 | Observability | Prometheus + Grafana + OpenTelemetry |
 | Workflows | Temporal (Go SDK) |
 
@@ -634,29 +634,21 @@ Auto-generated evidence bundles:
 
 ## 22. Architectural Decision Records
 
-### ADR-001: Contracts-First Design
-**Decision:** Use versioned YAML contracts with data-driven platform coordinates.  
-**Rationale:** Enables platform-agnostic operations, simplifies testing, supports audit.
+| ADR | Decision | Rationale |
+|-----|----------|-----------|
+| ADR-001 | Contracts-First Design | Platform-agnostic operations, versioned YAML contracts |
+| ADR-002 | Agentless by Default | Reduced attack surface, simplified deployment |
+| ADR-003 | Cosign for Artifact Signing | Industry standard, SLSA integration |
+| ADR-004 | Temporal for Workflows | Durable execution, retries, visibility |
+| ADR-005 | OPA as Policy Engine | Unified Rego language, strong ecosystem |
+| ADR-006 | SPDX for SBOM | Tooling support, government compliance |
+| ADR-007 | LLM-First Orchestration | Natural language → infrastructure changes |
+| ADR-008 | Task-Plan-Run Lifecycle | Structured AI task execution with HITL |
+| ADR-009 | Tool Risk Taxonomy | Risk-based automation with human approval |
+| ADR-010 | RBAC Authorization | Role-based + permission-based access control |
+| ADR-011 | Row-Level Security | Multi-tenant data isolation at database level |
 
-### ADR-002: Agentless by Default
-**Decision:** Prefer agentless connectors; limited agent for emergency patch jobs.  
-**Rationale:** Reduces attack surface, simplifies deployment.
-
-### ADR-003: Cosign for Artifact Signing
-**Decision:** Sign everything with cosign; verify-before-use in prod.  
-**Rationale:** Industry standard, integrates with SLSA.
-
-### ADR-004: Temporal for Workflows
-**Decision:** Use Temporal for long-running DR workflows.  
-**Rationale:** Durable execution, retries, visibility.
-
-### ADR-005: OPA as Policy Engine
-**Decision:** OPA for plan/apply gates; Gatekeeper for K8s.  
-**Rationale:** Unified Rego language, strong ecosystem.
-
-### ADR-006: SBOM Format
-**Decision:** SPDX (JSON) as standard.  
-**Rationale:** Tooling support, government compliance.
+See `docs/adr/` for full decision records.
 
 ---
 
@@ -700,18 +692,36 @@ Executive can see % on latest per platform/site, top offenders, and weekly trend
 ### A. Repository Structure
 
 ```
-resilience-fabric/
+ql-rf/
 ├── services/
-│   ├── api/            # FastAPI/Go backend
-│   ├── inventory/      # Cloud+DC discovery
-│   ├── drift/          # Drift computation
-│   └── connectors/     # Platform adapters
-├── ui/control-tower/   # Next.js dashboard
-├── contracts/          # YAML contracts
-├── policy/             # OPA/Rego policies
-├── docs/               # Architecture, ADRs
-├── deploy/             # Helm charts
-└── ops/                # GH Actions, TF
+│   ├── api/              # REST API (Go + chi router) - Port 8080
+│   │   ├── cmd/api/      # Entry point
+│   │   └── internal/     # Handlers, services, repository
+│   ├── orchestrator/     # AI Orchestrator - Port 8083
+│   │   └── internal/     # Agents (10), LLM, tools (29+), executor
+│   ├── connectors/       # Cloud Connectors - Port 8081
+│   │   └── internal/     # AWS, Azure, GCP, vSphere, K8s
+│   └── drift/            # Drift Engine - Port 8082
+│       └── internal/     # Kafka-driven drift calculation
+├── pkg/                  # Shared libraries
+│   ├── auth/             # Clerk JWT verification
+│   ├── models/           # Domain models (17 files)
+│   ├── database/         # PostgreSQL connection
+│   ├── kafka/            # Kafka client
+│   └── logger/           # Structured logging (slog)
+├── ui/control-tower/     # Next.js 16 dashboard
+│   ├── src/app/          # App Router (15 pages)
+│   ├── src/components/   # React components (60)
+│   └── src/lib/          # API client + generated types
+├── contracts/            # YAML contracts + JSON Schema
+├── policy/               # OPA/Rego policies (6 files)
+├── migrations/           # PostgreSQL migrations (7 files)
+├── api/openapi/          # OpenAPI specification
+├── docs/                 # Architecture, ADRs, PRD
+│   └── adr/              # 11 Architectural Decision Records
+├── deploy/helm/          # Helm charts
+├── deployments/          # Kubernetes manifests
+└── tests/integration/    # Integration tests
 ```
 
 ### B. Key References

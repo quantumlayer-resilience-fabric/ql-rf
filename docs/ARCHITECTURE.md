@@ -10,6 +10,22 @@
 
 QL-RF (QuantumLayer Resilience Fabric) is an LLM-first infrastructure operations platform that transforms traditional dashboard-based workflows into AI-driven, human-approved automation.
 
+### Codebase Metrics (as of 2025-12-04)
+
+| Metric | Count |
+|--------|-------|
+| Go Services | 4 |
+| Go Files | 168 |
+| Go LOC | ~67,000 |
+| Test Files | 49 |
+| Test LOC | ~18,800 |
+| UI Components | 60 |
+| Dashboard Pages | 15 |
+| AI Agents | 10 |
+| Tools | 29+ |
+| OPA Policies | 6 |
+| Migrations | 7 |
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                          EXPERIENCE LAYER                                │
