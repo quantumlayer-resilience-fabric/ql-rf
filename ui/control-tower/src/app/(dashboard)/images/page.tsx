@@ -26,6 +26,7 @@ import { PlatformIcon } from "@/components/status/platform-icon";
 import { MetricCard } from "@/components/data/metric-card";
 import { PageSkeleton, ErrorState, EmptyState } from "@/components/feedback";
 import { useImageFamilies, usePromoteImage, useDeprecateImage } from "@/hooks/use-images";
+import { useSendAIMessage, useAIContext, usePendingTasks } from "@/hooks/use-ai";
 import { ImageFamily } from "@/lib/api";
 import {
   Search,
@@ -47,6 +48,8 @@ import {
   Loader2,
   Network,
   AlertTriangle,
+  Sparkles,
+  Zap,
 } from "lucide-react";
 
 type ImageStatus = "production" | "staging" | "testing" | "deprecated" | "pending";
@@ -67,10 +70,22 @@ export default function ImagesPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [expandedFamily, setExpandedFamily] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [isCreatingAITask, setIsCreatingAITask] = useState(false);
+  const [optimizingImageId, setOptimizingImageId] = useState<string | null>(null);
 
   const { data: imageFamilies, isLoading, error, refetch } = useImageFamilies();
   const promoteImage = usePromoteImage();
   const deprecateImage = useDeprecateImage();
+
+  // AI hooks
+  const aiContext = useAIContext();
+  const sendAIMessage = useSendAIMessage();
+  const { data: pendingTasks = [] } = usePendingTasks();
+
+  // Check if there's already a pending image-related task
+  const hasPendingImageTask = pendingTasks.some(
+    (task) => task.user_intent?.toLowerCase().includes("image")
+  );
 
   // Must be called before any conditional returns to satisfy Rules of Hooks
   const handleCreateImage = useCallback(() => {
@@ -163,6 +178,52 @@ export default function ImagesPage() {
     deprecateImage.mutate({ familyId, version });
   };
 
+  // Handle AI optimization for all images
+  const handleAIOptimization = async () => {
+    setIsCreatingAITask(true);
+    try {
+      const deprecatedCount = imageMetrics.deprecatedImages;
+      const pendingCount = imageMetrics.pendingPromotions;
+      const intent = deprecatedCount > 0 || pendingCount > 0
+        ? `Analyze ${imageMetrics.totalFamilies} image families. ${deprecatedCount} deprecated images need cleanup, ${pendingCount} pending promotions need review. Suggest lifecycle optimizations.`
+        : `Review ${imageMetrics.totalFamilies} golden image families for security updates, optimization opportunities, and lifecycle improvements.`;
+
+      await sendAIMessage.mutateAsync({
+        message: intent,
+        context: aiContext,
+      });
+      router.push("/ai");
+    } catch (error) {
+      console.error("Failed to create AI task:", error);
+    } finally {
+      setIsCreatingAITask(false);
+    }
+  };
+
+  // Handle AI optimization for a specific image family
+  const handleImageAIOptimization = async (family: ImageFamily) => {
+    setOptimizingImageId(family.id);
+    try {
+      const isDeprecated = family.status === "deprecated";
+      const isPending = family.status === "pending";
+      const intent = isDeprecated
+        ? `Analyze deprecated image family "${family.name}" (v${family.latestVersion}) and generate a cleanup plan. Check for any assets still using this image and suggest migration steps.`
+        : isPending
+        ? `Review image family "${family.name}" (v${family.latestVersion}) pending promotion. Validate compliance, security, and readiness for production deployment.`
+        : `Review image family "${family.name}" (v${family.latestVersion}) for optimization opportunities, compliance improvements, and update recommendations.`;
+
+      await sendAIMessage.mutateAsync({
+        message: intent,
+        context: aiContext,
+      });
+      router.push("/ai");
+    } catch (error) {
+      console.error("Failed to create AI task:", error);
+    } finally {
+      setOptimizingImageId(null);
+    }
+  };
+
   const formatRelativeTime = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -235,6 +296,90 @@ export default function ImagesPage() {
           icon={<Archive className="h-5 w-5" />}
         />
       </div>
+
+      {/* AI Insight Card */}
+      {(imageMetrics.deprecatedImages > 0 || imageMetrics.pendingPromotions > 0 || imageMetrics.totalFamilies > 0) && (
+        <Card className={`border-l-4 ${
+          imageMetrics.deprecatedImages > 0
+            ? "border-l-status-red bg-gradient-to-r from-status-red/5 to-transparent"
+            : imageMetrics.pendingPromotions > 0
+            ? "border-l-status-amber bg-gradient-to-r from-status-amber/5 to-transparent"
+            : "border-l-brand-accent bg-gradient-to-r from-brand-accent/5 to-transparent"
+        }`}>
+          <CardContent className="flex items-start gap-4 p-6">
+            <div className={`rounded-lg p-2 ${
+              imageMetrics.deprecatedImages > 0 ? "bg-status-red/10" :
+              imageMetrics.pendingPromotions > 0 ? "bg-status-amber/10" : "bg-brand-accent/10"
+            }`}>
+              <Sparkles className={`h-5 w-5 ${
+                imageMetrics.deprecatedImages > 0 ? "text-status-red" :
+                imageMetrics.pendingPromotions > 0 ? "text-status-amber" : "text-brand-accent"
+              }`} />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold">
+                  {imageMetrics.deprecatedImages > 0
+                    ? `${imageMetrics.deprecatedImages} Deprecated Image${imageMetrics.deprecatedImages > 1 ? "s" : ""} Need Cleanup`
+                    : imageMetrics.pendingPromotions > 0
+                    ? `${imageMetrics.pendingPromotions} Image${imageMetrics.pendingPromotions > 1 ? "s" : ""} Pending Promotion`
+                    : "Image Lifecycle Optimization Available"}
+                </h3>
+                <Badge
+                  variant="outline"
+                  className={`text-xs ${
+                    imageMetrics.deprecatedImages > 0
+                      ? "border-status-red/50 text-status-red"
+                      : imageMetrics.pendingPromotions > 0
+                      ? "border-status-amber/50 text-status-amber"
+                      : ""
+                  }`}
+                >
+                  {imageMetrics.deprecatedImages > 0 ? "action needed" : imageMetrics.pendingPromotions > 0 ? "review pending" : "optimization"}
+                </Badge>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {imageMetrics.deprecatedImages > 0
+                  ? "AI can analyze deprecated images and generate cleanup playbooks to remove unused resources."
+                  : imageMetrics.pendingPromotions > 0
+                  ? "AI can review pending promotions and validate readiness for production deployment."
+                  : "AI can analyze your image portfolio for security updates and optimization opportunities."}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {hasPendingImageTask ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => router.push("/ai")}
+                >
+                  <Clock className="mr-2 h-4 w-4" />
+                  View Pending Task
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={handleAIOptimization}
+                  disabled={isCreatingAITask}
+                  className={imageMetrics.deprecatedImages > 0 ? "bg-status-red hover:bg-status-red/90" : ""}
+                >
+                  {isCreatingAITask ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="mr-2 h-4 w-4" />
+                      Optimize with AI
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filters */}
       <Card variant="elevated" className="animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
@@ -427,6 +572,27 @@ export default function ImagesPage() {
                                 >
                                   <AlertTriangle className="mr-2 h-4 w-4" />
                                   Vulnerabilities
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleImageAIOptimization(family);
+                                  }}
+                                  disabled={optimizingImageId === family.id}
+                                  className="text-brand-accent"
+                                >
+                                  {optimizingImageId === family.id ? (
+                                    <>
+                                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                      Creating...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Sparkles className="mr-2 h-4 w-4" />
+                                      Optimize with AI
+                                    </>
+                                  )}
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem>

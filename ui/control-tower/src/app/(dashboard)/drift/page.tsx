@@ -18,6 +18,7 @@ import { Heatmap, DriftBar } from "@/components/charts/heatmap";
 import { Badge } from "@/components/ui/badge";
 import { PageSkeleton, ErrorState } from "@/components/feedback";
 import { useDriftSummary, useTopOffenders, useTriggerDriftScan, DriftFilters } from "@/hooks/use-drift";
+import { useSendAIMessage, useAIContext, usePendingTasks } from "@/hooks/use-ai";
 import {
   TrendingDown,
   AlertTriangle,
@@ -29,12 +30,25 @@ import {
   Clock,
   Server,
   Loader2,
+  Zap,
+  ArrowRight,
 } from "lucide-react";
 
 export default function DriftPage() {
   const router = useRouter();
   const [selectedEnv, setSelectedEnv] = useState<string>("all");
   const [selectedPlatform, setSelectedPlatform] = useState<string>("all");
+  const [isCreatingAITask, setIsCreatingAITask] = useState(false);
+
+  // AI hooks
+  const aiContext = useAIContext();
+  const sendAIMessage = useSendAIMessage();
+  const { data: pendingTasks = [] } = usePendingTasks();
+
+  // Check if there's already a pending drift task
+  const hasPendingDriftTask = pendingTasks.some(
+    (task) => task.user_intent?.toLowerCase().includes("drift")
+  );
 
   // Build filters object for hooks
   const filters: DriftFilters = {
@@ -196,14 +210,36 @@ export default function DriftPage() {
     percentage: item.percentage,
   }));
 
-  // AI insight (static for now - would come from AI service)
+  // Handle AI remediation request
+  const handleAIRemediation = async () => {
+    setIsCreatingAITask(true);
+    try {
+      const intent = driftMetrics.criticalDrift > 0
+        ? `Analyze and remediate critical drift on ${driftMetrics.criticalDrift} assets. Current drift rate is ${driftMetrics.driftPercentage.toFixed(1)}%.`
+        : `Review drift status across ${driftMetrics.totalAssets} assets and suggest optimizations.`;
+
+      await sendAIMessage.mutateAsync({
+        message: intent,
+        context: aiContext,
+      });
+      router.push("/ai");
+    } catch (error) {
+      console.error("Failed to create AI task:", error);
+    } finally {
+      setIsCreatingAITask(false);
+    }
+  };
+
+  // Dynamic AI insight based on actual data
   const aiInsight = {
-    title: "Drift Pattern Detected",
+    title: driftMetrics.criticalDrift > 0 ? "Critical Drift Detected" : "Drift Pattern Analysis",
     description: driftMetrics.criticalDrift > 0
-      ? `${driftMetrics.criticalDrift} critical assets require immediate attention. Consider triggering a scan to get the latest status.`
+      ? `${driftMetrics.criticalDrift} critical assets and ${driftMetrics.drifted} total drifted assets require attention. AI can generate a phased remediation plan.`
+      : driftMetrics.drifted > 0
+      ? `${driftMetrics.drifted} assets have drifted from golden images. AI can analyze patterns and suggest preventive measures.`
       : "All systems are within acceptable drift thresholds. Continue monitoring for changes.",
+    severity: driftMetrics.criticalDrift > 0 ? "critical" : driftMetrics.drifted > 0 ? "warning" : "success",
     confidence: 94,
-    action: "View Remediation Plan",
   };
 
   return (
@@ -315,26 +351,80 @@ export default function DriftPage() {
       </div>
 
       {/* AI Insight Card */}
-      <Card className="border-brand-accent/30 bg-gradient-to-r from-brand-accent/5 to-transparent">
+      <Card className={`border-l-4 ${
+        aiInsight.severity === "critical"
+          ? "border-l-status-red bg-gradient-to-r from-status-red/5 to-transparent"
+          : aiInsight.severity === "warning"
+          ? "border-l-status-amber bg-gradient-to-r from-status-amber/5 to-transparent"
+          : "border-l-brand-accent bg-gradient-to-r from-brand-accent/5 to-transparent"
+      }`}>
         <CardContent className="flex items-start gap-4 p-6">
-          <div className="rounded-lg bg-brand-accent/10 p-2">
-            <Sparkles className="h-5 w-5 text-brand-accent" />
+          <div className={`rounded-lg p-2 ${
+            aiInsight.severity === "critical"
+              ? "bg-status-red/10"
+              : aiInsight.severity === "warning"
+              ? "bg-status-amber/10"
+              : "bg-brand-accent/10"
+          }`}>
+            <Sparkles className={`h-5 w-5 ${
+              aiInsight.severity === "critical"
+                ? "text-status-red"
+                : aiInsight.severity === "warning"
+                ? "text-status-amber"
+                : "text-brand-accent"
+            }`} />
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <h3 className="font-semibold">{aiInsight.title}</h3>
-              <Badge variant="secondary" className="text-xs">
-                {aiInsight.confidence}% confidence
+              <Badge
+                variant="outline"
+                className={`text-xs ${
+                  aiInsight.severity === "critical"
+                    ? "border-status-red/50 text-status-red"
+                    : aiInsight.severity === "warning"
+                    ? "border-status-amber/50 text-status-amber"
+                    : ""
+                }`}
+              >
+                {aiInsight.severity}
               </Badge>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               {aiInsight.description}
             </p>
           </div>
-          <Button size="sm" className="shrink-0">
-            {aiInsight.action}
-            <ChevronRight className="ml-1 h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            {hasPendingDriftTask ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => router.push("/ai")}
+              >
+                <Clock className="mr-2 h-4 w-4" />
+                View Pending Task
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={handleAIRemediation}
+                disabled={isCreatingAITask || aiInsight.severity === "success"}
+                className={aiInsight.severity === "critical" ? "bg-status-red hover:bg-status-red/90" : ""}
+              >
+                {isCreatingAITask ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="mr-2 h-4 w-4" />
+                    Remediate with AI
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
 

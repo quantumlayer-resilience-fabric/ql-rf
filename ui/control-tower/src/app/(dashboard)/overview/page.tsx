@@ -6,6 +6,7 @@ import { ValueDeliveredCard } from "@/components/data/value-delivered-card";
 import { StatusBadge } from "@/components/status/status-badge";
 import { PlatformIcon } from "@/components/status/platform-icon";
 import { PageSkeleton, ErrorState } from "@/components/feedback";
+import { AIInsightsWidget } from "@/components/ai/ai-insights-widget";
 import { useOverviewMetrics } from "@/hooks/use-overview";
 import { useDriftSummary } from "@/hooks/use-drift";
 import {
@@ -156,6 +157,9 @@ export default function OverviewPage() {
           icon={<RefreshCw className="h-5 w-5" />}
         />
       </div>
+
+      {/* AI Insights - Embedded Intelligence */}
+      <AIInsightsWidget className="animate-in fade-in-0 slide-in-from-bottom-3 duration-600" />
 
       {/* Value Delivered / ROI Section */}
       <div className="grid gap-6 lg:grid-cols-3">

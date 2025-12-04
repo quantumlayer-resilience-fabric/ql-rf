@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +18,7 @@ import { MetricCard } from "@/components/data/metric-card";
 import { StatusBadge } from "@/components/status/status-badge";
 import { PageSkeleton, ErrorState, EmptyState } from "@/components/feedback";
 import { useComplianceSummary, useRunComplianceAudit } from "@/hooks/use-compliance";
+import { useSendAIMessage, useAIContext, usePendingTasks } from "@/hooks/use-ai";
 import { exportComplianceReport } from "@/lib/pdf-export";
 import {
   Shield,
@@ -32,13 +34,28 @@ import {
   Eye,
   Server,
   Loader2,
+  Sparkles,
+  Zap,
 } from "lucide-react";
 
 export default function CompliancePage() {
+  const router = useRouter();
   const [selectedFramework, setSelectedFramework] = useState<string>("all");
+  const [isCreatingAITask, setIsCreatingAITask] = useState(false);
+  const [remediatingControlId, setRemediatingControlId] = useState<string | null>(null);
 
   const { data: complianceData, isLoading, error, refetch } = useComplianceSummary();
   const runAudit = useRunComplianceAudit();
+
+  // AI hooks
+  const aiContext = useAIContext();
+  const sendAIMessage = useSendAIMessage();
+  const { data: pendingTasks = [] } = usePendingTasks();
+
+  // Check if there's already a pending compliance task
+  const hasPendingComplianceTask = pendingTasks.some(
+    (task) => task.user_intent?.toLowerCase().includes("compliance")
+  );
 
   const handleRunAudit = () => {
     runAudit.mutate(undefined, {
@@ -46,6 +63,44 @@ export default function CompliancePage() {
         refetch();
       },
     });
+  };
+
+  // Handle AI remediation for overall compliance
+  const handleAIRemediation = async () => {
+    setIsCreatingAITask(true);
+    try {
+      const failingCount = complianceData?.failingControls?.length || 0;
+      const intent = failingCount > 0
+        ? `Analyze and remediate ${failingCount} failing compliance controls. Current overall score is ${complianceData?.overallScore?.toFixed(1)}%.`
+        : `Review compliance status and suggest security improvements.`;
+
+      await sendAIMessage.mutateAsync({
+        message: intent,
+        context: aiContext,
+      });
+      router.push("/ai");
+    } catch (error) {
+      console.error("Failed to create AI task:", error);
+    } finally {
+      setIsCreatingAITask(false);
+    }
+  };
+
+  // Handle AI remediation for a specific control
+  const handleControlRemediation = async (control: { id: string; title: string; framework: string; affectedAssets: number }) => {
+    setRemediatingControlId(control.id);
+    try {
+      const intent = `Fix compliance control ${control.id} (${control.title}) from ${control.framework} framework affecting ${control.affectedAssets} assets.`;
+      await sendAIMessage.mutateAsync({
+        message: intent,
+        context: aiContext,
+      });
+      router.push("/ai");
+    } catch (error) {
+      console.error("Failed to create AI task:", error);
+    } finally {
+      setRemediatingControlId(null);
+    }
   };
 
   if (isLoading) {
@@ -186,6 +241,83 @@ export default function CompliancePage() {
           icon={<FileText className="h-5 w-5" />}
         />
       </div>
+
+      {/* AI Insight Card */}
+      {failingControls.length > 0 && (
+        <Card className={`border-l-4 ${
+          complianceMetrics.overallScore < 80
+            ? "border-l-status-red bg-gradient-to-r from-status-red/5 to-transparent"
+            : complianceMetrics.overallScore < 95
+            ? "border-l-status-amber bg-gradient-to-r from-status-amber/5 to-transparent"
+            : "border-l-brand-accent bg-gradient-to-r from-brand-accent/5 to-transparent"
+        }`}>
+          <CardContent className="flex items-start gap-4 p-6">
+            <div className={`rounded-lg p-2 ${
+              complianceMetrics.overallScore < 80 ? "bg-status-red/10" :
+              complianceMetrics.overallScore < 95 ? "bg-status-amber/10" : "bg-brand-accent/10"
+            }`}>
+              <Sparkles className={`h-5 w-5 ${
+                complianceMetrics.overallScore < 80 ? "text-status-red" :
+                complianceMetrics.overallScore < 95 ? "text-status-amber" : "text-brand-accent"
+              }`} />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold">
+                  {failingControls.length} Compliance Gap{failingControls.length > 1 ? "s" : ""} Detected
+                </h3>
+                <Badge
+                  variant="outline"
+                  className={`text-xs ${
+                    complianceMetrics.overallScore < 80
+                      ? "border-status-red/50 text-status-red"
+                      : complianceMetrics.overallScore < 95
+                      ? "border-status-amber/50 text-status-amber"
+                      : ""
+                  }`}
+                >
+                  {complianceMetrics.overallScore < 80 ? "critical" : complianceMetrics.overallScore < 95 ? "warning" : "info"}
+                </Badge>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {failingControls.filter(c => c.severity === "high").length} high severity controls need immediate attention.
+                AI can analyze gaps and generate remediation playbooks.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {hasPendingComplianceTask ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => router.push("/ai")}
+                >
+                  <Clock className="mr-2 h-4 w-4" />
+                  View Pending Task
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={handleAIRemediation}
+                  disabled={isCreatingAITask}
+                  className={complianceMetrics.overallScore < 80 ? "bg-status-red hover:bg-status-red/90" : ""}
+                >
+                  {isCreatingAITask ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="mr-2 h-4 w-4" />
+                      Fix All with AI
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="frameworks" className="space-y-4">
@@ -334,9 +466,23 @@ export default function CompliancePage() {
                           </span>
                         </div>
                       </div>
-                      <Button variant="outline" size="sm">
-                        Remediate
-                        <ChevronRight className="ml-1 h-4 w-4" />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleControlRemediation(control)}
+                        disabled={remediatingControlId === control.id}
+                      >
+                        {remediatingControlId === control.id ? (
+                          <>
+                            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                            Creating...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="mr-1 h-4 w-4" />
+                            Fix with AI
+                          </>
+                        )}
                       </Button>
                     </div>
                   ))}
