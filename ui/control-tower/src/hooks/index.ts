@@ -10,3 +10,4 @@ export * from "./use-ai";
 export * from "./use-lineage";
 export * from "./use-risk";
 export * from "./use-permissions";
+export * from "./use-certificates";

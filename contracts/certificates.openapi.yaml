@@ -1,0 +1,706 @@
+openapi: 3.0.3
+info:
+  title: QL-RF Certificates API
+  description: Certificate lifecycle management API for monitoring, rotation, and compliance
+  version: 1.0.0
+  contact:
+    name: QuantumLayer Platform
+    url: https://ql-rf.io
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://api.ql-rf.io
+    description: Production
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Certificates
+    description: Certificate discovery and management
+  - name: Rotations
+    description: Certificate rotation operations
+  - name: Alerts
+    description: Certificate expiry alerts
+
+paths:
+  /api/v1/certificates:
+    get:
+      summary: List certificates
+      description: Returns a paginated list of certificates for the organization
+      operationId: listCertificates
+      tags:
+        - Certificates
+      parameters:
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: [active, expiring_soon, expired, revoked, pending_validation]
+        - name: platform
+          in: query
+          description: Filter by platform
+          schema:
+            type: string
+            enum: [aws, azure, gcp, k8s, vsphere]
+        - name: expiring_within_days
+          in: query
+          description: Filter certificates expiring within N days
+          schema:
+            type: integer
+            minimum: 1
+        - name: page
+          in: query
+          description: Page number (1-indexed)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          description: Number of items per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: List of certificates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/certificates/summary:
+    get:
+      summary: Get certificate summary
+      description: Returns aggregated certificate statistics for the organization
+      operationId: getCertificateSummary
+      tags:
+        - Certificates
+      responses:
+        '200':
+          description: Certificate summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/certificates/{id}:
+    get:
+      summary: Get certificate by ID
+      description: Retrieves a specific certificate with full details
+      operationId: getCertificate
+      tags:
+        - Certificates
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Certificate ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Certificate details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Certificate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/certificates/{id}/usage:
+    get:
+      summary: Get certificate usage
+      description: Returns all locations where a certificate is used (blast radius)
+      operationId: getCertificateUsage
+      tags:
+        - Certificates
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Certificate ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Certificate usage locations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateUsageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/certificates/rotations:
+    get:
+      summary: List certificate rotations
+      description: Returns a paginated list of certificate rotation operations
+      operationId: listRotations
+      tags:
+        - Rotations
+      parameters:
+        - name: status
+          in: query
+          description: Filter by rotation status
+          schema:
+            type: string
+            enum: [pending, in_progress, completed, failed, rolled_back]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: List of rotations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotationListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/certificates/rotations/{id}:
+    get:
+      summary: Get rotation by ID
+      description: Retrieves a specific rotation operation with full details
+      operationId: getRotation
+      tags:
+        - Rotations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Rotation ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rotation details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateRotation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/certificates/alerts:
+    get:
+      summary: List certificate alerts
+      description: Returns a paginated list of certificate alerts
+      operationId: listAlerts
+      tags:
+        - Alerts
+      parameters:
+        - name: status
+          in: query
+          description: Filter by alert status
+          schema:
+            type: string
+            enum: [open, acknowledged, resolved]
+        - name: severity
+          in: query
+          description: Filter by severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: List of alerts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/certificates/alerts/{id}/acknowledge:
+    post:
+      summary: Acknowledge alert
+      description: Acknowledges a certificate alert
+      operationId: acknowledgeAlert
+      tags:
+        - Alerts
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Alert ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Alert acknowledged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: acknowledged
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Certificate:
+      type: object
+      required:
+        - id
+        - org_id
+        - fingerprint
+        - common_name
+        - not_before
+        - not_after
+        - source
+        - platform
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        fingerprint:
+          type: string
+          description: SHA-256 fingerprint of the certificate
+        serial_number:
+          type: string
+        common_name:
+          type: string
+          description: Certificate common name (CN)
+        subject_alt_names:
+          type: array
+          items:
+            type: string
+          description: Subject Alternative Names (SANs)
+        organization:
+          type: string
+        organizational_unit:
+          type: string
+        country:
+          type: string
+        issuer_common_name:
+          type: string
+        issuer_organization:
+          type: string
+        is_self_signed:
+          type: boolean
+        is_ca:
+          type: boolean
+        not_before:
+          type: string
+          format: date-time
+        not_after:
+          type: string
+          format: date-time
+        days_until_expiry:
+          type: integer
+          description: Days until certificate expires (negative if expired)
+        key_algorithm:
+          type: string
+          enum: [RSA, ECDSA, Ed25519]
+        key_size:
+          type: integer
+          description: Key size in bits
+        signature_algorithm:
+          type: string
+        source:
+          type: string
+          enum: [acm, key_vault, gcp_cert_manager, k8s_secret, file, manual]
+        source_ref:
+          type: string
+          description: Reference to source (ARN, Key Vault URL, etc.)
+        source_region:
+          type: string
+        platform:
+          type: string
+          enum: [aws, azure, gcp, k8s, vsphere]
+        status:
+          type: string
+          enum: [active, expiring_soon, expired, revoked, pending_validation]
+        auto_renew:
+          type: boolean
+        renewal_threshold_days:
+          type: integer
+        last_rotated_at:
+          type: string
+          format: date-time
+        rotation_count:
+          type: integer
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        discovered_at:
+          type: string
+          format: date-time
+        last_scanned_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CertificateSummary:
+      type: object
+      properties:
+        total_certificates:
+          type: integer
+        active_certificates:
+          type: integer
+        expiring_soon:
+          type: integer
+          description: Certificates within renewal threshold
+        expired:
+          type: integer
+        expiring_7_days:
+          type: integer
+        expiring_30_days:
+          type: integer
+        expiring_90_days:
+          type: integer
+        auto_renew_enabled:
+          type: integer
+        self_signed:
+          type: integer
+        platforms_count:
+          type: integer
+
+    CertificateUsage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        cert_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        usage_type:
+          type: string
+          enum: [load_balancer, cloudfront, api_gateway, ingress, service, server]
+        usage_ref:
+          type: string
+          description: ARN or identifier of the resource using the certificate
+        usage_port:
+          type: integer
+        platform:
+          type: string
+        region:
+          type: string
+        service_name:
+          type: string
+        endpoint:
+          type: string
+          description: DNS endpoint or IP address
+        status:
+          type: string
+          enum: [active, inactive, unknown]
+        last_verified_at:
+          type: string
+          format: date-time
+        tls_version:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        discovered_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CertificateRotation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        old_cert_id:
+          type: string
+          format: uuid
+        new_cert_id:
+          type: string
+          format: uuid
+        rotation_type:
+          type: string
+          enum: [renewal, replacement, revocation]
+        initiated_by:
+          type: string
+          enum: [user, ai_agent, auto_renew, system]
+        initiated_by_user_id:
+          type: string
+        ai_task_id:
+          type: string
+          format: uuid
+        ai_plan:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed, rolled_back]
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        affected_usages:
+          type: integer
+        successful_updates:
+          type: integer
+        failed_updates:
+          type: integer
+        rollback_available:
+          type: boolean
+        rolled_back_at:
+          type: string
+          format: date-time
+        rollback_reason:
+          type: string
+        pre_rotation_validation:
+          type: object
+          additionalProperties: true
+        post_rotation_validation:
+          type: object
+          additionalProperties: true
+        error_message:
+          type: string
+        error_details:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CertificateAlert:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        cert_id:
+          type: string
+          format: uuid
+        alert_type:
+          type: string
+          enum: [expiry_warning, expiry_critical, validation_failed, rotation_failed]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        title:
+          type: string
+        message:
+          type: string
+        days_until_expiry:
+          type: integer
+        threshold_days:
+          type: integer
+        status:
+          type: string
+          enum: [open, acknowledged, resolved]
+        acknowledged_at:
+          type: string
+          format: date-time
+        acknowledged_by:
+          type: string
+        resolved_at:
+          type: string
+          format: date-time
+        auto_rotation_triggered:
+          type: boolean
+        rotation_id:
+          type: string
+          format: uuid
+        notifications_sent:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CertificateListResponse:
+      type: object
+      properties:
+        certificates:
+          type: array
+          items:
+            $ref: '#/components/schemas/Certificate'
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    CertificateUsageResponse:
+      type: object
+      properties:
+        usages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CertificateUsage'
+        total_usages:
+          type: integer
+
+    RotationListResponse:
+      type: object
+      properties:
+        rotations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CertificateRotation'
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    AlertListResponse:
+      type: object
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/CertificateAlert'
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

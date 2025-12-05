@@ -70,7 +70,9 @@ QL-RF's architecture follows a **Detect → Correlate → Assess → Plan → Ex
 
 ## Priority Use Cases (Top 3)
 
-### 1. Certificate Expiry → Impact → Rotation Automation
+### 1. Certificate Expiry → Impact → Rotation Automation ✅ COMPLETE
+
+**Status**: Fully implemented as of December 2025
 
 **Business Value**: Prevent outages from expired certificates (very common enterprise issue)
 
@@ -80,57 +82,42 @@ Detect expiring cert → Trace usage (lineage) → Compute blast radius →
 Auto-generate renewal plan → Phase rollout → Validate TLS handshake
 ```
 
-**Existing Components Used**:
-| Component | Usage |
-|-----------|-------|
-| ComplianceAgent | Can detect cert expiry as compliance violation |
-| query_assets | Find assets using certificate |
-| generate_rollout_plan | Phase rotation across services |
-| propose_rollout | HITL approval for rotation |
+**Implementation Summary**:
 
-**New Components Required**:
+| Component | Status | Location |
+|-----------|--------|----------|
+| Database Schema | ✅ | `migrations/000015_certificates.up.sql` |
+| API Handlers | ✅ | `services/api/internal/handlers/certificate.go` |
+| Repository Layer | ✅ | `services/api/internal/repository/certificate.go` |
+| OpenAPI Contract | ✅ | `contracts/api/certificates.yaml` |
+| UI Dashboard | ✅ | `ui/control-tower/src/app/(dashboard)/certificates/` |
+| UI Components | ✅ | `ui/control-tower/src/components/certificates/` |
 
-| Type | Name | Description | Risk Level |
-|------|------|-------------|------------|
-| Tool | `scan_certificates` | Scan certificates across LBs, ingress, K8s secrets | read_only |
-| Tool | `get_cert_details` | Get certificate metadata (expiry, issuer, SANs) | read_only |
-| Tool | `map_cert_usage` | Map where a cert is used (lineage) | read_only |
-| Tool | `generate_cert_renewal_plan` | Generate renewal plan | plan_only |
-| Tool | `rotate_cert` | Execute certificate rotation | state_change_prod |
-| Tool | `validate_tls_handshake` | Verify TLS works post-rotation | read_only |
-| Agent | **CertificateAgent** | Orchestrates certificate lifecycle | - |
+**AI Orchestrator Tools** (6 tools in `services/orchestrator/internal/tools/certificate_tools.go`):
 
-**New Task Type**: `certificate_rotation`
+| Tool | Description | Risk Level |
+|------|-------------|------------|
+| `list_certificates` | List certificates with filters | read_only |
+| `get_certificate_details` | Get certificate metadata (expiry, issuer, SANs) | read_only |
+| `map_certificate_usage` | Map where a cert is used (blast radius) | read_only |
+| `generate_cert_renewal_plan` | Generate renewal plan | plan_only |
+| `propose_cert_rotation` | Execute certificate rotation | state_change_prod |
+| `validate_tls_handshake` | Verify TLS works post-rotation | read_only |
 
-**Database Tables Needed**:
-```sql
-CREATE TABLE certificates (
-    id UUID PRIMARY KEY,
-    org_id UUID NOT NULL,
-    fingerprint VARCHAR(64) NOT NULL UNIQUE,
-    common_name VARCHAR(255),
-    issuer VARCHAR(255),
-    not_before TIMESTAMPTZ,
-    not_after TIMESTAMPTZ,
-    san_domains TEXT[],
-    key_algorithm VARCHAR(50),
-    source VARCHAR(50), -- acm, k8s_secret, vault, file
-    source_ref VARCHAR(255),
-    platform VARCHAR(20),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+**Database Tables** (Migration 000015):
+- `certificates` - SSL/TLS certificates from all platforms
+- `certificate_usages` - Where certificates are deployed (blast radius tracking)
+- `certificate_rotations` - Rotation history and status
+- `certificate_alerts` - Expiry and security alerts
 
-CREATE TABLE certificate_usage (
-    id UUID PRIMARY KEY,
-    cert_id UUID REFERENCES certificates(id),
-    asset_id UUID REFERENCES assets(id),
-    usage_type VARCHAR(50), -- lb_listener, ingress, pod_mount, gateway
-    usage_ref VARCHAR(255),
-    discovered_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-**Estimated Effort**: ~2 weeks (70% reuse)
+**API Endpoints**:
+- `GET /api/v1/certificates` - List with filters
+- `GET /api/v1/certificates/{id}` - Certificate details
+- `GET /api/v1/certificates/summary` - Aggregate stats
+- `GET /api/v1/certificates/{id}/usage` - Usage/blast radius
+- `GET /api/v1/certificates/rotations` - Rotation history
+- `GET /api/v1/certificates/alerts` - Expiry alerts
+- `POST /api/v1/certificates/alerts/{id}/acknowledge` - Acknowledge alert
 
 ---
 

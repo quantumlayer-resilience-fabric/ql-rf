@@ -28,6 +28,8 @@ import {
   Package,
   DollarSign,
   ClipboardCheck,
+  KeyRound,
+  ShieldAlert,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -42,8 +44,10 @@ interface NavItem {
 const mainNavItems: NavItem[] = [
   { label: "Overview", href: "/overview", icon: LayoutDashboard },
   { label: "Risk", href: "/risk", icon: AlertTriangle },
+  { label: "Vulnerabilities", href: "/vulnerabilities", icon: ShieldAlert },
   { label: "Images", href: "/images", icon: Image },
   { label: "SBOM", href: "/sbom", icon: Package },
+  { label: "Certificates", href: "/certificates", icon: KeyRound },
   { label: "Drift", href: "/drift", icon: TrendingDown, badge: "3", badgeVariant: "warning" },
   { label: "Compliance", href: "/compliance", icon: Shield },
   { label: "InSpec", href: "/inspec", icon: ClipboardCheck },

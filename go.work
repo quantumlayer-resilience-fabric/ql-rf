@@ -6,6 +6,7 @@ use (
 	.
 	./services/api
 	./services/connectors
+	./services/cve-aggregator
 	./services/drift
 	./services/orchestrator
 )

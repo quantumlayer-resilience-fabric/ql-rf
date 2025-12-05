@@ -22,9 +22,9 @@ QL-RF (QuantumLayer Resilience Fabric) is an LLM-first infrastructure operations
 | UI Components | 75+ |
 | Dashboard Pages | 22 |
 | AI Agents | 10 |
-| Tools | 29+ |
+| Tools | 35+ |
 | OPA Policies | 6 |
-| Migrations | 15 |
+| Migrations | 16 |
 | E2E Tests | 230+ |
 | OpenAPI Contracts | 3 |
 
@@ -78,6 +78,7 @@ Core REST API for the Control Tower UI.
 - Drift status queries
 - Compliance reporting
 - Site and DR pair management
+- Certificate lifecycle management
 
 **Key Endpoints:**
 ```
@@ -98,6 +99,16 @@ GET  /api/v1/images/{id}/builds               # Build provenance history
 GET  /api/v1/images/{id}/deployments          # Where image is deployed
 GET  /api/v1/images/{id}/components           # SBOM components
 POST /api/v1/images/{id}/sbom                 # Import SBOM data
+
+# Certificate Lifecycle Endpoints
+GET  /api/v1/certificates                     # List certificates with filters
+GET  /api/v1/certificates/{id}                # Certificate details
+GET  /api/v1/certificates/summary             # Aggregate stats
+GET  /api/v1/certificates/{id}/usage          # Where cert is used (blast radius)
+GET  /api/v1/certificates/rotations           # List rotation operations
+GET  /api/v1/certificates/rotations/{id}      # Rotation details
+GET  /api/v1/certificates/alerts              # Expiry alerts
+POST /api/v1/certificates/alerts/{id}/acknowledge  # Acknowledge alert
 ```
 
 ### 2. AI Orchestrator (`services/orchestrator/`)
@@ -133,7 +144,7 @@ LLM-first operations engine that converts natural language to executed infrastru
 │  └─────────────────────────────────────────────────────────┘    │
 │                              ↓                                   │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │              LAYER 3: TOOL REGISTRY (29 tools)          │    │
+│  │              LAYER 3: TOOL REGISTRY (35 tools)          │    │
 │  │   query_assets │ get_golden_image │ generate_patch_plan │    │
 │  │   check_control │ simulate_failover │ generate_sop      │    │
 │  └─────────────────────────────────────────────────────────┘    │
@@ -1047,6 +1058,12 @@ dr_pairs, dr_drills, dr_drill_results
 
 -- AI tasks
 ai_tasks, ai_task_plans, ai_runs, ai_tool_invocations
+
+-- Certificate Lifecycle (Migration 000015)
+certificates              -- SSL/TLS certificates from all platforms
+certificate_usages        -- Where certificates are deployed (blast radius)
+certificate_rotations     -- Rotation history and status
+certificate_alerts        -- Expiry and security alerts
 ```
 
 **Lineage Views:**

@@ -8,8 +8,18 @@ This directory contains YAML contracts and JSON schemas that define the structur
 |------|-------------|
 | `image.contract.yaml` | Golden image contract schema (JSON Schema format) |
 | `image.contract.windows.yaml` | Extended schema for Windows images |
+| `patch.contract.yaml` | Patch management contract schema |
 | `events.schema.json` | Event schema for Kafka messages |
 | `examples/` | Example contracts for reference |
+
+### OpenAPI Specifications
+
+| File | Description | Endpoints |
+|------|-------------|-----------|
+| `sbom.openapi.yaml` | SBOM generation and analysis API | 7 endpoints |
+| `finops.openapi.yaml` | FinOps cost management API | 7 endpoints |
+| `inspec.openapi.yaml` | InSpec compliance scanning API | 10 endpoints |
+| `certificates.openapi.yaml` | Certificate lifecycle management API | 8 endpoints |
 
 ## Image Contract
 
@@ -72,6 +82,8 @@ Events follow the CloudEvents specification with QL-RF extensions:
 | `asset.updated` | Asset state changed |
 | `drift.detected` | Drift threshold exceeded |
 | `compliance.violation` | Policy violation detected |
+| `certificate.expiring` | Certificate expiring within threshold |
+| `certificate.rotated` | Certificate rotation completed |
 | `workflow.*` | Workflow lifecycle events |
 
 ### Event Structure

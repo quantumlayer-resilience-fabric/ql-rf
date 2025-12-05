@@ -357,8 +357,8 @@ function RecommendationsList({ recommendations }: { recommendations: RiskRecomme
   );
 }
 
-function AnomalyAlerts({ anomalies }: { anomalies: RiskAnomaly[] }) {
-  if (anomalies.length === 0) {
+function AnomalyAlerts({ anomalies }: { anomalies: RiskAnomaly[] | null | undefined }) {
+  if (!anomalies || anomalies.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
         <CheckCircle2 className="h-12 w-12 mx-auto mb-2 text-green-500" />
@@ -425,7 +425,7 @@ function ForecastSection({ forecast }: { forecast: RiskForecast }) {
         </Card>
 
         {/* Predictions */}
-        {forecast.predictions.map((pred) => (
+        {(forecast.predictions || []).map((pred) => (
           <PredictionCard
             key={pred.predictionHorizon}
             prediction={pred}

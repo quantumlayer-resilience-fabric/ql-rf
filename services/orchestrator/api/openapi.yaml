@@ -20,6 +20,8 @@ tags:
     description: Task management endpoints
   - name: Executions
     description: Execution management endpoints
+  - name: CVE Alerts
+    description: CVE vulnerability alert management
   - name: Metadata
     description: Agents and tools metadata
 
@@ -319,6 +321,208 @@ paths:
                     items:
                       $ref: '#/components/schemas/Tool'
 
+  # ===========================================================================
+  # CVE Alert Endpoints
+  # ===========================================================================
+
+  /api/v1/cve-alerts:
+    get:
+      summary: List CVE alerts
+      description: List CVE alerts with optional filtering and pagination
+      tags:
+        - CVE Alerts
+      parameters:
+        - name: severity
+          in: query
+          description: Filter by severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low, unknown]
+        - name: status
+          in: query
+          description: Filter by alert status
+          schema:
+            type: string
+            enum: [new, investigating, confirmed, in_progress, resolved, dismissed, auto_resolved]
+        - name: priority
+          in: query
+          description: Filter by priority
+          schema:
+            type: string
+            enum: [p1, p2, p3, p4]
+        - name: cve_id
+          in: query
+          description: Filter by specific CVE ID
+          schema:
+            type: string
+        - name: min_urgency_score
+          in: query
+          description: Minimum urgency score (0-100)
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - name: sla_breached
+          in: query
+          description: Filter by SLA breach status
+          schema:
+            type: boolean
+        - name: has_exploit
+          in: query
+          description: Filter by exploit availability
+          schema:
+            type: boolean
+        - name: cisa_kev_only
+          in: query
+          description: Only show CISA KEV listed CVEs
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          description: Page number (1-indexed)
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: page_size
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: List of CVE alerts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVEAlertListResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/cve-alerts/summary:
+    get:
+      summary: Get CVE alerts summary
+      description: Get aggregated statistics for CVE alerts
+      tags:
+        - CVE Alerts
+      responses:
+        '200':
+          description: CVE alert summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVEAlertSummary'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/cve-alerts/{alertId}:
+    get:
+      summary: Get CVE alert details
+      description: Get detailed information about a specific CVE alert including blast radius
+      tags:
+        - CVE Alerts
+      parameters:
+        - $ref: '#/components/parameters/alertId'
+      responses:
+        '200':
+          description: CVE alert with blast radius details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVEAlertWithBlastRadius'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/cve-alerts/{alertId}/status:
+    patch:
+      summary: Update CVE alert status
+      description: Update the status of a CVE alert (investigate, resolve, dismiss)
+      tags:
+        - CVE Alerts
+      parameters:
+        - $ref: '#/components/parameters/alertId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCVEAlertStatusRequest'
+      responses:
+        '200':
+          description: Updated CVE alert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVEAlert'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/cve-alerts/{alertId}/blast-radius:
+    get:
+      summary: Get blast radius
+      description: Calculate and return the full blast radius for a CVE alert
+      tags:
+        - CVE Alerts
+      parameters:
+        - $ref: '#/components/parameters/alertId'
+      responses:
+        '200':
+          description: Blast radius calculation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlastRadiusResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/cve-alerts/{alertId}/create-campaign:
+    post:
+      summary: Create patch campaign from alert
+      description: Create a new patch campaign to remediate affected assets
+      tags:
+        - CVE Alerts
+      parameters:
+        - $ref: '#/components/parameters/alertId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePatchCampaignRequest'
+      responses:
+        '201':
+          description: Patch campaign created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign_id:
+                    type: string
+                    format: uuid
+                  alert_id:
+                    type: string
+                    format: uuid
+                  message:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /health:
     get:
       summary: Health check
@@ -368,6 +572,14 @@ components:
       in: path
       required: true
       description: Execution ID
+      schema:
+        type: string
+        format: uuid
+    alertId:
+      name: alertId
+      in: path
+      required: true
+      description: CVE Alert ID
       schema:
         type: string
         format: uuid
@@ -692,6 +904,431 @@ components:
           type: boolean
         parameters:
           type: object
+
+    # =========================================================================
+    # CVE Alert Schemas
+    # =========================================================================
+
+    CVEAlert:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        cve_id:
+          type: string
+          example: CVE-2024-1234
+        cve_cache_id:
+          type: string
+          format: uuid
+        severity:
+          type: string
+          enum: [critical, high, medium, low, unknown]
+        urgency_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Urgency score based on CVSS, exploitability, and blast radius
+        status:
+          type: string
+          enum: [new, investigating, confirmed, in_progress, resolved, dismissed, auto_resolved]
+        priority:
+          type: string
+          enum: [p1, p2, p3, p4]
+        sla_due_at:
+          type: string
+          format: date-time
+        sla_breached:
+          type: boolean
+        affected_images_count:
+          type: integer
+        affected_assets_count:
+          type: integer
+        affected_packages_count:
+          type: integer
+        production_assets_count:
+          type: integer
+        assigned_to:
+          type: string
+        assigned_at:
+          type: string
+          format: date-time
+        resolution_type:
+          type: string
+          enum: [patched, upgraded, mitigated, accepted_risk, false_positive]
+        resolution_notes:
+          type: string
+        resolved_by:
+          type: string
+        resolved_at:
+          type: string
+          format: date-time
+        patch_campaign_id:
+          type: string
+          format: uuid
+        ticket_id:
+          type: string
+        detected_at:
+          type: string
+          format: date-time
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        cve_details:
+          $ref: '#/components/schemas/CVECache'
+
+    CVECache:
+      type: object
+      description: Normalized CVE data from multiple sources
+      properties:
+        id:
+          type: string
+          format: uuid
+        cve_id:
+          type: string
+          example: CVE-2024-1234
+        cvss_v3_score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 10
+        cvss_v3_vector:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low, unknown]
+        epss_score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: EPSS probability of exploitation
+        epss_percentile:
+          type: number
+          format: float
+        exploit_available:
+          type: boolean
+        exploit_maturity:
+          type: string
+          enum: [unproven, poc, functional, high]
+        cisa_kev_listed:
+          type: boolean
+        cisa_kev_due_date:
+          type: string
+          format: date-time
+        cisa_kev_ransomware:
+          type: boolean
+        description:
+          type: string
+        published_date:
+          type: string
+          format: date-time
+        modified_date:
+          type: string
+          format: date-time
+        primary_source:
+          type: string
+          enum: [nvd, osv, github, cisa_kev]
+        reference_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+        remediation_summary:
+          type: string
+
+    CVEAlertListResponse:
+      type: object
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/CVEAlert'
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total_pages:
+          type: integer
+
+    CVEAlertSummary:
+      type: object
+      description: Aggregated CVE alert statistics
+      properties:
+        total_alerts:
+          type: integer
+        new_alerts:
+          type: integer
+        in_progress_alerts:
+          type: integer
+        resolved_alerts:
+          type: integer
+        critical_alerts:
+          type: integer
+        high_alerts:
+          type: integer
+        medium_alerts:
+          type: integer
+        low_alerts:
+          type: integer
+        sla_breached_alerts:
+          type: integer
+        exploitable_alerts:
+          type: integer
+        cisa_kev_alerts:
+          type: integer
+        average_urgency_score:
+          type: integer
+        total_affected_assets:
+          type: integer
+        production_affected_assets:
+          type: integer
+
+    CVEAlertWithBlastRadius:
+      allOf:
+        - $ref: '#/components/schemas/CVEAlert'
+        - type: object
+          properties:
+            affected_items:
+              type: array
+              items:
+                $ref: '#/components/schemas/CVEAlertAffectedItem'
+            affected_platforms:
+              type: array
+              items:
+                type: string
+            affected_regions:
+              type: array
+              items:
+                type: string
+
+    CVEAlertAffectedItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        alert_id:
+          type: string
+          format: uuid
+        item_type:
+          type: string
+          enum: [package, image, asset]
+        package_name:
+          type: string
+        package_version:
+          type: string
+        package_type:
+          type: string
+        fixed_version:
+          type: string
+        image_family:
+          type: string
+        image_version:
+          type: string
+        asset_name:
+          type: string
+        asset_platform:
+          type: string
+          enum: [aws, azure, gcp, vsphere, kubernetes]
+        asset_environment:
+          type: string
+          enum: [development, staging, production]
+        asset_region:
+          type: string
+        is_production:
+          type: boolean
+        inherited_from_image_id:
+          type: string
+          format: uuid
+        lineage_depth:
+          type: integer
+        item_status:
+          type: string
+          enum: [vulnerable, patch_pending, patching, patched, mitigated, not_affected, decommissioned]
+
+    BlastRadiusResult:
+      type: object
+      description: Full blast radius calculation for a CVE
+      properties:
+        cve_id:
+          type: string
+        total_packages:
+          type: integer
+        total_images:
+          type: integer
+        total_assets:
+          type: integer
+        production_assets:
+          type: integer
+        affected_platforms:
+          type: array
+          items:
+            type: string
+        affected_regions:
+          type: array
+          items:
+            type: string
+        affected_packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/AffectedPackage'
+        affected_images:
+          type: array
+          items:
+            $ref: '#/components/schemas/AffectedImage'
+        affected_assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/AffectedAsset'
+        urgency_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        calculated_at:
+          type: string
+          format: date-time
+
+    AffectedPackage:
+      type: object
+      properties:
+        package_id:
+          type: string
+          format: uuid
+        sbom_id:
+          type: string
+          format: uuid
+        image_id:
+          type: string
+          format: uuid
+        package_name:
+          type: string
+        package_version:
+          type: string
+        package_type:
+          type: string
+        fixed_version:
+          type: string
+
+    AffectedImage:
+      type: object
+      properties:
+        image_id:
+          type: string
+          format: uuid
+        image_family:
+          type: string
+        image_version:
+          type: string
+        is_direct:
+          type: boolean
+          description: True if CVE directly affects this image's packages
+        inherited_from:
+          type: string
+          format: uuid
+          description: Parent image ID if vulnerability inherited through lineage
+        lineage_depth:
+          type: integer
+        child_image_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    AffectedAsset:
+      type: object
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        asset_name:
+          type: string
+        platform:
+          type: string
+        region:
+          type: string
+        environment:
+          type: string
+        is_production:
+          type: boolean
+        image_ref:
+          type: string
+        image_id:
+          type: string
+          format: uuid
+
+    UpdateCVEAlertStatusRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [new, investigating, confirmed, in_progress, resolved, dismissed]
+        assigned_to:
+          type: string
+        resolution_type:
+          type: string
+          enum: [patched, upgraded, mitigated, accepted_risk, false_positive]
+        resolution_notes:
+          type: string
+        ticket_id:
+          type: string
+
+    CreatePatchCampaignRequest:
+      type: object
+      required:
+        - name
+        - campaign_type
+        - rollout_strategy
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        campaign_type:
+          type: string
+          enum: [cve_response, emergency]
+        rollout_strategy:
+          type: string
+          enum: [immediate, canary, blue_green, rolling]
+        canary_percentage:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 5
+        wave_percentage:
+          type: integer
+          minimum: 10
+          maximum: 100
+          default: 25
+        requires_approval:
+          type: boolean
+          default: true
+        scheduled_start_at:
+          type: string
+          format: date-time
+        target_asset_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
 
     Error:
       type: object

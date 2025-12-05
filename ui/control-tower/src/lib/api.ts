@@ -849,6 +849,164 @@ export interface AutoRemediationPolicy {
   updatedAt: string;
 }
 
+// =============================================================================
+// Certificate Types
+// =============================================================================
+
+export type CertificateStatus = "active" | "expiring_soon" | "expired" | "revoked" | "pending_validation";
+export type CertificatePlatform = "aws" | "azure" | "gcp" | "k8s" | "vsphere";
+export type CertificateSource = "acm" | "key_vault" | "gcp_cert_manager" | "k8s_secret" | "file" | "manual";
+export type KeyAlgorithm = "RSA" | "ECDSA" | "Ed25519";
+export type RotationStatus = "pending" | "in_progress" | "completed" | "failed" | "rolled_back";
+export type RotationType = "renewal" | "replacement" | "revocation";
+export type RotationInitiator = "user" | "ai_agent" | "auto_renew" | "system";
+export type AlertType = "expiry_warning" | "expiry_critical" | "validation_failed" | "rotation_failed";
+export type AlertSeverity = "critical" | "high" | "medium" | "low";
+export type AlertStatus = "open" | "acknowledged" | "resolved";
+export type UsageType = "load_balancer" | "cloudfront" | "api_gateway" | "ingress" | "service" | "server";
+
+export interface Certificate {
+  id: string;
+  orgId: string;
+  fingerprint: string;
+  serialNumber?: string;
+  commonName: string;
+  subjectAltNames?: string[];
+  organization?: string;
+  organizationalUnit?: string;
+  country?: string;
+  issuerCommonName?: string;
+  issuerOrganization?: string;
+  isSelfSigned: boolean;
+  isCA: boolean;
+  notBefore: string;
+  notAfter: string;
+  daysUntilExpiry: number;
+  keyAlgorithm: KeyAlgorithm;
+  keySize: number;
+  signatureAlgorithm?: string;
+  source: CertificateSource;
+  sourceRef?: string;
+  sourceRegion?: string;
+  platform: CertificatePlatform;
+  status: CertificateStatus;
+  autoRenew: boolean;
+  renewalThresholdDays?: number;
+  lastRotatedAt?: string;
+  rotationCount: number;
+  tags?: Record<string, string>;
+  metadata?: Record<string, unknown>;
+  discoveredAt?: string;
+  lastScannedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CertificateSummary {
+  totalCertificates: number;
+  activeCertificates: number;
+  expiringSoon: number;
+  expired: number;
+  expiring7Days: number;
+  expiring30Days: number;
+  expiring90Days: number;
+  autoRenewEnabled: number;
+  selfSigned: number;
+  platformsCount: number;
+}
+
+export interface CertificateUsage {
+  id: string;
+  certId: string;
+  assetId?: string;
+  usageType: UsageType;
+  usageRef: string;
+  usagePort?: number;
+  platform: string;
+  region?: string;
+  serviceName?: string;
+  endpoint?: string;
+  status: "active" | "inactive" | "unknown";
+  lastVerifiedAt?: string;
+  tlsVersion?: string;
+  metadata?: Record<string, unknown>;
+  discoveredAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CertificateRotation {
+  id: string;
+  orgId: string;
+  oldCertId?: string;
+  newCertId?: string;
+  rotationType: RotationType;
+  initiatedBy: RotationInitiator;
+  initiatedByUserId?: string;
+  aiTaskId?: string;
+  aiPlan?: Record<string, unknown>;
+  status: RotationStatus;
+  startedAt?: string;
+  completedAt?: string;
+  affectedUsages: number;
+  successfulUpdates: number;
+  failedUpdates: number;
+  rollbackAvailable: boolean;
+  rolledBackAt?: string;
+  rollbackReason?: string;
+  preRotationValidation?: Record<string, unknown>;
+  postRotationValidation?: Record<string, unknown>;
+  errorMessage?: string;
+  errorDetails?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CertificateAlert {
+  id: string;
+  orgId: string;
+  certId: string;
+  alertType: AlertType;
+  severity: AlertSeverity;
+  title: string;
+  message: string;
+  daysUntilExpiry?: number;
+  thresholdDays?: number;
+  status: AlertStatus;
+  acknowledgedAt?: string;
+  acknowledgedBy?: string;
+  resolvedAt?: string;
+  autoRotationTriggered: boolean;
+  rotationId?: string;
+  notificationsSent?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CertificateListResponse {
+  certificates: Certificate[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface CertificateUsageResponse {
+  usages: CertificateUsage[];
+  totalUsages: number;
+}
+
+export interface RotationListResponse {
+  rotations: CertificateRotation[];
+  page: number;
+  pageSize: number;
+}
+
+export interface AlertListResponse {
+  alerts: CertificateAlert[];
+  page: number;
+  pageSize: number;
+}
+
 export interface OverviewMetrics {
   fleetSize: {
     value: number;
@@ -1423,6 +1581,358 @@ export const api = {
       const query = frameworkId ? `?framework_id=${frameworkId}` : "";
       return apiFetch<ComplianceScore>(`/compliance/score${query}`);
     },
+  },
+
+  // =============================================================================
+  // Certificate Lifecycle Management API
+  // =============================================================================
+  certificates: {
+    // List certificates with optional filters
+    list: async (params?: {
+      status?: CertificateStatus;
+      platform?: CertificatePlatform;
+      expiringWithinDays?: number;
+      page?: number;
+      pageSize?: number;
+    }): Promise<CertificateListResponse> => {
+      const searchParams = new URLSearchParams();
+      if (params?.status) searchParams.set("status", params.status);
+      if (params?.platform) searchParams.set("platform", params.platform);
+      if (params?.expiringWithinDays) searchParams.set("expiring_within_days", String(params.expiringWithinDays));
+      if (params?.page) searchParams.set("page", String(params.page));
+      if (params?.pageSize) searchParams.set("page_size", String(params.pageSize));
+      const query = searchParams.toString();
+
+      interface BackendCertificateListResponse {
+        certificates: Array<{
+          id: string;
+          org_id: string;
+          fingerprint: string;
+          serial_number?: string;
+          common_name: string;
+          subject_alt_names?: string[];
+          organization?: string;
+          organizational_unit?: string;
+          country?: string;
+          issuer_common_name?: string;
+          issuer_organization?: string;
+          is_self_signed: boolean;
+          is_ca: boolean;
+          not_before: string;
+          not_after: string;
+          days_until_expiry: number;
+          key_algorithm: string;
+          key_size: number;
+          signature_algorithm?: string;
+          source: string;
+          source_ref?: string;
+          source_region?: string;
+          platform: string;
+          status: string;
+          auto_renew: boolean;
+          renewal_threshold_days?: number;
+          last_rotated_at?: string;
+          rotation_count: number;
+          tags?: Record<string, string>;
+          metadata?: Record<string, unknown>;
+          discovered_at?: string;
+          last_scanned_at?: string;
+          created_at: string;
+          updated_at: string;
+        }>;
+        total: number;
+        page: number;
+        page_size: number;
+      }
+
+      const response = await apiFetch<BackendCertificateListResponse>(
+        `/certificates${query ? `?${query}` : ""}`
+      );
+
+      return {
+        certificates: (response.certificates || []).map(c => ({
+          id: c.id,
+          orgId: c.org_id,
+          fingerprint: c.fingerprint,
+          serialNumber: c.serial_number,
+          commonName: c.common_name,
+          subjectAltNames: c.subject_alt_names,
+          organization: c.organization,
+          organizationalUnit: c.organizational_unit,
+          country: c.country,
+          issuerCommonName: c.issuer_common_name,
+          issuerOrganization: c.issuer_organization,
+          isSelfSigned: c.is_self_signed,
+          isCA: c.is_ca,
+          notBefore: c.not_before,
+          notAfter: c.not_after,
+          daysUntilExpiry: c.days_until_expiry,
+          keyAlgorithm: c.key_algorithm as KeyAlgorithm,
+          keySize: c.key_size,
+          signatureAlgorithm: c.signature_algorithm,
+          source: c.source as CertificateSource,
+          sourceRef: c.source_ref,
+          sourceRegion: c.source_region,
+          platform: c.platform as CertificatePlatform,
+          status: c.status as CertificateStatus,
+          autoRenew: c.auto_renew,
+          renewalThresholdDays: c.renewal_threshold_days,
+          lastRotatedAt: c.last_rotated_at,
+          rotationCount: c.rotation_count,
+          tags: c.tags,
+          metadata: c.metadata,
+          discoveredAt: c.discovered_at,
+          lastScannedAt: c.last_scanned_at,
+          createdAt: c.created_at,
+          updatedAt: c.updated_at,
+        })),
+        total: response.total,
+        page: response.page,
+        pageSize: response.page_size,
+      };
+    },
+
+    // Get certificate summary
+    getSummary: async (): Promise<CertificateSummary> => {
+      interface BackendSummary {
+        total_certificates: number;
+        active_certificates: number;
+        expiring_soon: number;
+        expired: number;
+        expiring_7_days: number;
+        expiring_30_days: number;
+        expiring_90_days: number;
+        auto_renew_enabled: number;
+        self_signed: number;
+        platforms_count: number;
+      }
+      const response = await apiFetch<BackendSummary>("/certificates/summary");
+      return {
+        totalCertificates: response.total_certificates,
+        activeCertificates: response.active_certificates,
+        expiringSoon: response.expiring_soon,
+        expired: response.expired,
+        expiring7Days: response.expiring_7_days,
+        expiring30Days: response.expiring_30_days,
+        expiring90Days: response.expiring_90_days,
+        autoRenewEnabled: response.auto_renew_enabled,
+        selfSigned: response.self_signed,
+        platformsCount: response.platforms_count,
+      };
+    },
+
+    // Get single certificate
+    get: (id: string) => apiFetch<Certificate>(`/certificates/${id}`),
+
+    // Get certificate usage (blast radius)
+    getUsage: async (id: string): Promise<CertificateUsageResponse> => {
+      interface BackendUsageResponse {
+        usages: Array<{
+          id: string;
+          cert_id: string;
+          asset_id?: string;
+          usage_type: string;
+          usage_ref: string;
+          usage_port?: number;
+          platform: string;
+          region?: string;
+          service_name?: string;
+          endpoint?: string;
+          status: string;
+          last_verified_at?: string;
+          tls_version?: string;
+          metadata?: Record<string, unknown>;
+          discovered_at?: string;
+          created_at: string;
+          updated_at: string;
+        }>;
+        total_usages: number;
+      }
+      const response = await apiFetch<BackendUsageResponse>(`/certificates/${id}/usage`);
+      return {
+        usages: (response.usages || []).map(u => ({
+          id: u.id,
+          certId: u.cert_id,
+          assetId: u.asset_id,
+          usageType: u.usage_type as UsageType,
+          usageRef: u.usage_ref,
+          usagePort: u.usage_port,
+          platform: u.platform,
+          region: u.region,
+          serviceName: u.service_name,
+          endpoint: u.endpoint,
+          status: u.status as "active" | "inactive" | "unknown",
+          lastVerifiedAt: u.last_verified_at,
+          tlsVersion: u.tls_version,
+          metadata: u.metadata,
+          discoveredAt: u.discovered_at,
+          createdAt: u.created_at,
+          updatedAt: u.updated_at,
+        })),
+        totalUsages: response.total_usages,
+      };
+    },
+
+    // List rotations
+    listRotations: async (params?: {
+      status?: RotationStatus;
+      page?: number;
+      pageSize?: number;
+    }): Promise<RotationListResponse> => {
+      const searchParams = new URLSearchParams();
+      if (params?.status) searchParams.set("status", params.status);
+      if (params?.page) searchParams.set("page", String(params.page));
+      if (params?.pageSize) searchParams.set("page_size", String(params.pageSize));
+      const query = searchParams.toString();
+
+      interface BackendRotation {
+        id: string;
+        org_id: string;
+        old_cert_id?: string;
+        new_cert_id?: string;
+        rotation_type: string;
+        initiated_by: string;
+        initiated_by_user_id?: string;
+        ai_task_id?: string;
+        ai_plan?: Record<string, unknown>;
+        status: string;
+        started_at?: string;
+        completed_at?: string;
+        affected_usages: number;
+        successful_updates: number;
+        failed_updates: number;
+        rollback_available: boolean;
+        rolled_back_at?: string;
+        rollback_reason?: string;
+        pre_rotation_validation?: Record<string, unknown>;
+        post_rotation_validation?: Record<string, unknown>;
+        error_message?: string;
+        error_details?: Record<string, unknown>;
+        created_at: string;
+        updated_at: string;
+      }
+
+      interface BackendResponse {
+        rotations: BackendRotation[];
+        page: number;
+        page_size: number;
+      }
+
+      const response = await apiFetch<BackendResponse>(
+        `/certificates/rotations${query ? `?${query}` : ""}`
+      );
+
+      return {
+        rotations: (response.rotations || []).map(r => ({
+          id: r.id,
+          orgId: r.org_id,
+          oldCertId: r.old_cert_id,
+          newCertId: r.new_cert_id,
+          rotationType: r.rotation_type as RotationType,
+          initiatedBy: r.initiated_by as RotationInitiator,
+          initiatedByUserId: r.initiated_by_user_id,
+          aiTaskId: r.ai_task_id,
+          aiPlan: r.ai_plan,
+          status: r.status as RotationStatus,
+          startedAt: r.started_at,
+          completedAt: r.completed_at,
+          affectedUsages: r.affected_usages,
+          successfulUpdates: r.successful_updates,
+          failedUpdates: r.failed_updates,
+          rollbackAvailable: r.rollback_available,
+          rolledBackAt: r.rolled_back_at,
+          rollbackReason: r.rollback_reason,
+          preRotationValidation: r.pre_rotation_validation,
+          postRotationValidation: r.post_rotation_validation,
+          errorMessage: r.error_message,
+          errorDetails: r.error_details,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        })),
+        page: response.page,
+        pageSize: response.page_size,
+      };
+    },
+
+    // Get single rotation
+    getRotation: (id: string) => apiFetch<CertificateRotation>(`/certificates/rotations/${id}`),
+
+    // List alerts
+    listAlerts: async (params?: {
+      status?: AlertStatus;
+      severity?: AlertSeverity;
+      page?: number;
+      pageSize?: number;
+    }): Promise<AlertListResponse> => {
+      const searchParams = new URLSearchParams();
+      if (params?.status) searchParams.set("status", params.status);
+      if (params?.severity) searchParams.set("severity", params.severity);
+      if (params?.page) searchParams.set("page", String(params.page));
+      if (params?.pageSize) searchParams.set("page_size", String(params.pageSize));
+      const query = searchParams.toString();
+
+      interface BackendAlert {
+        id: string;
+        org_id: string;
+        cert_id: string;
+        alert_type: string;
+        severity: string;
+        title: string;
+        message: string;
+        days_until_expiry?: number;
+        threshold_days?: number;
+        status: string;
+        acknowledged_at?: string;
+        acknowledged_by?: string;
+        resolved_at?: string;
+        auto_rotation_triggered: boolean;
+        rotation_id?: string;
+        notifications_sent?: string[];
+        created_at: string;
+        updated_at: string;
+      }
+
+      interface BackendResponse {
+        alerts: BackendAlert[];
+        page: number;
+        page_size: number;
+      }
+
+      const response = await apiFetch<BackendResponse>(
+        `/certificates/alerts${query ? `?${query}` : ""}`
+      );
+
+      return {
+        alerts: (response.alerts || []).map(a => ({
+          id: a.id,
+          orgId: a.org_id,
+          certId: a.cert_id,
+          alertType: a.alert_type as AlertType,
+          severity: a.severity as AlertSeverity,
+          title: a.title,
+          message: a.message,
+          daysUntilExpiry: a.days_until_expiry,
+          thresholdDays: a.threshold_days,
+          status: a.status as AlertStatus,
+          acknowledgedAt: a.acknowledged_at,
+          acknowledgedBy: a.acknowledged_by,
+          resolvedAt: a.resolved_at,
+          autoRotationTriggered: a.auto_rotation_triggered,
+          rotationId: a.rotation_id,
+          notificationsSent: a.notifications_sent,
+          createdAt: a.created_at,
+          updatedAt: a.updated_at,
+        })),
+        page: response.page,
+        pageSize: response.page_size,
+      };
+    },
+
+    // Acknowledge alert
+    acknowledgeAlert: (id: string) =>
+      apiFetch<{ status: string }>(`/certificates/alerts/${id}/acknowledge`, {
+        method: "POST",
+      }),
   },
 };
 

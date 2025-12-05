@@ -110,6 +110,12 @@ func (h *Handler) Router() http.Handler {
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
+		// CVE Alerts routes - require auth (optional in dev mode)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.OptionalAuth(authCfg, h.log))
+			h.RegisterCVEAlertRoutes(r)
+		})
+
 		// AI execution routes - require auth (optional in dev mode)
 		r.Route("/ai", func(r chi.Router) {
 			// Use optional auth - allows dev mode without tokens

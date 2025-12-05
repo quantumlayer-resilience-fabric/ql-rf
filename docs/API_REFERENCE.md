@@ -18,7 +18,8 @@ Complete API reference for QuantumLayer Resilience Fabric.
 7. [SBOM Endpoints](#sbom-endpoints)
 8. [FinOps Endpoints](#finops-endpoints)
 9. [InSpec Endpoints](#inspec-endpoints)
-10. [Error Responses](#error-responses)
+10. [Certificate Endpoints](#certificate-endpoints)
+11. [Error Responses](#error-responses)
 
 ---
 
@@ -1165,6 +1166,293 @@ GET /api/v1/inspec/schedules
 
 ```
 DELETE /api/v1/inspec/schedules/{id}
+```
+
+---
+
+## Certificate Endpoints
+
+**Base URL:** `http://localhost:8080/api/v1`
+
+Certificate lifecycle management endpoints for tracking SSL/TLS certificates across multi-cloud infrastructure.
+
+### List Certificates
+
+```
+GET /api/v1/certificates
+```
+
+**Query Parameters:**
+- `platform` - Filter by platform (aws, azure, gcp, kubernetes, vsphere)
+- `status` - Filter by status (valid, expiring_soon, expired, revoked)
+- `days_until_expiry` - Filter certificates expiring within N days
+- `search` - Search by common name or issuer
+- `limit` - Max results (default: 50)
+- `offset` - Pagination offset
+
+**Response:**
+```json
+{
+  "certificates": [
+    {
+      "id": "uuid",
+      "common_name": "api.example.com",
+      "issuer": "DigiCert Inc",
+      "platform": "aws",
+      "source": "acm",
+      "serial_number": "0A:1B:2C:3D...",
+      "status": "valid",
+      "not_before": "2024-01-01T00:00:00Z",
+      "not_after": "2025-01-01T00:00:00Z",
+      "days_until_expiry": 180,
+      "auto_renewal_eligible": true,
+      "key_algorithm": "RSA",
+      "key_size": 2048,
+      "signature_algorithm": "SHA256withRSA",
+      "san_entries": ["api.example.com", "*.api.example.com"],
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-06-15T10:30:00Z"
+    }
+  ],
+  "total": 156,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### Get Certificate
+
+```
+GET /api/v1/certificates/{id}
+```
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "common_name": "api.example.com",
+  "issuer": "DigiCert Inc",
+  "platform": "aws",
+  "source": "acm",
+  "serial_number": "0A:1B:2C:3D...",
+  "status": "valid",
+  "not_before": "2024-01-01T00:00:00Z",
+  "not_after": "2025-01-01T00:00:00Z",
+  "days_until_expiry": 180,
+  "auto_renewal_eligible": true,
+  "key_algorithm": "RSA",
+  "key_size": 2048,
+  "signature_algorithm": "SHA256withRSA",
+  "san_entries": ["api.example.com", "*.api.example.com"],
+  "fingerprint_sha256": "AB:CD:EF:...",
+  "raw_pem": "-----BEGIN CERTIFICATE-----\n...",
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-06-15T10:30:00Z"
+}
+```
+
+### Get Certificate Summary
+
+```
+GET /api/v1/certificates/summary
+```
+
+Returns aggregate statistics about certificates.
+
+**Response:**
+```json
+{
+  "total_certificates": 156,
+  "by_status": {
+    "valid": 140,
+    "expiring_soon": 12,
+    "expired": 4,
+    "revoked": 0
+  },
+  "by_platform": {
+    "aws": 60,
+    "azure": 45,
+    "gcp": 30,
+    "kubernetes": 15,
+    "vsphere": 6
+  },
+  "expiring_7_days": 3,
+  "expiring_30_days": 12,
+  "expiring_90_days": 25,
+  "auto_renewal_eligible": 95,
+  "manual_renewal_required": 61
+}
+```
+
+### Get Certificate Usage
+
+```
+GET /api/v1/certificates/{id}/usage
+```
+
+Returns where a certificate is deployed and used.
+
+**Response:**
+```json
+{
+  "certificate_id": "uuid",
+  "usages": [
+    {
+      "id": "uuid",
+      "resource_type": "load_balancer",
+      "resource_id": "arn:aws:elasticloadbalancing:...",
+      "resource_name": "prod-api-alb",
+      "platform": "aws",
+      "region": "us-east-1",
+      "discovered_at": "2024-06-15T10:00:00Z"
+    },
+    {
+      "id": "uuid",
+      "resource_type": "kubernetes_ingress",
+      "resource_id": "ingress/api-ingress",
+      "resource_name": "api-ingress",
+      "platform": "kubernetes",
+      "namespace": "production",
+      "discovered_at": "2024-06-15T10:00:00Z"
+    }
+  ],
+  "total_usages": 5,
+  "blast_radius": "high"
+}
+```
+
+### List Rotations
+
+```
+GET /api/v1/certificates/rotations
+```
+
+**Query Parameters:**
+- `certificate_id` - Filter by certificate
+- `status` - Filter by status (pending, in_progress, completed, failed, rolled_back)
+- `initiated_by` - Filter by initiator (ai_agent, manual, scheduled)
+- `limit` - Max results
+- `offset` - Pagination offset
+
+**Response:**
+```json
+{
+  "rotations": [
+    {
+      "id": "uuid",
+      "certificate_id": "uuid",
+      "rotation_type": "renewal",
+      "status": "completed",
+      "initiated_by": "ai_agent",
+      "affected_usages": 5,
+      "successful_updates": 5,
+      "started_at": "2024-06-15T10:00:00Z",
+      "completed_at": "2024-06-15T10:15:00Z",
+      "plan": {
+        "steps": [
+          {"action": "generate_new_cert", "status": "completed"},
+          {"action": "update_load_balancer", "status": "completed"},
+          {"action": "update_ingress", "status": "completed"},
+          {"action": "verify_tls", "status": "completed"},
+          {"action": "revoke_old_cert", "status": "completed"}
+        ]
+      }
+    }
+  ],
+  "total": 45,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### Get Rotation Details
+
+```
+GET /api/v1/certificates/rotations/{id}
+```
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "certificate_id": "uuid",
+  "rotation_type": "renewal",
+  "status": "completed",
+  "initiated_by": "ai_agent",
+  "affected_usages": 5,
+  "successful_updates": 5,
+  "started_at": "2024-06-15T10:00:00Z",
+  "completed_at": "2024-06-15T10:15:00Z",
+  "old_certificate": {
+    "serial_number": "0A:1B:2C...",
+    "not_after": "2024-07-01T00:00:00Z"
+  },
+  "new_certificate": {
+    "serial_number": "1D:2E:3F...",
+    "not_after": "2025-07-01T00:00:00Z"
+  },
+  "plan": {
+    "steps": [...]
+  },
+  "logs": [
+    {
+      "timestamp": "2024-06-15T10:00:00Z",
+      "message": "Started certificate rotation",
+      "level": "info"
+    }
+  ]
+}
+```
+
+### List Alerts
+
+```
+GET /api/v1/certificates/alerts
+```
+
+**Query Parameters:**
+- `severity` - Filter by severity (critical, high, medium, low)
+- `status` - Filter by status (open, acknowledged, resolved)
+- `certificate_id` - Filter by certificate
+- `limit` - Max results
+- `offset` - Pagination offset
+
+**Response:**
+```json
+{
+  "alerts": [
+    {
+      "id": "uuid",
+      "certificate_id": "uuid",
+      "severity": "critical",
+      "status": "open",
+      "title": "Certificate Expired",
+      "message": "Certificate for api.example.com expired 2 days ago",
+      "created_at": "2024-06-15T00:00:00Z",
+      "acknowledged_at": null,
+      "resolved_at": null
+    }
+  ],
+  "total": 8,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### Acknowledge Alert
+
+```
+POST /api/v1/certificates/alerts/{id}/acknowledge
+```
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "status": "acknowledged",
+  "acknowledged_at": "2024-06-15T12:00:00Z",
+  "acknowledged_by": "user-uuid"
+}
 ```
 
 ---

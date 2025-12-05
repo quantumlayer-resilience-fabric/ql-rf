@@ -99,6 +99,7 @@
 | FinOps Cost Optimization | High | ✅ Done | ca6a415 |
 | E2E Test Suite (230+ tests) | High | ✅ Done | ca6a415 |
 | InSpec Compliance Integration | High | ✅ Done | ca6a415 |
+| Certificate Lifecycle Management | High | ✅ Done | Dec 2025 |
 | Container Registry Scanning | Medium | ✅ Done | (via SBOM) |
 | Evidence Collection Automation | Medium | ✅ Done | (via InSpec) |
 
@@ -145,6 +146,23 @@
 | Frontend UI | ✅ Done | Profiles + scans pages |
 | React Query Hooks | ✅ Done | use-inspec.ts |
 | Unit Tests | ✅ Done | inspec_test.go, profiles_test.go |
+
+### Certificate Lifecycle (services/api/ + orchestrator/)
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Database Schema | ✅ Done | Migration 000015 (4 tables) |
+| Repository Layer | ✅ Done | certificate.go (full CRUD) |
+| API Handlers | ✅ Done | 8 endpoints |
+| OpenAPI Contract | ✅ Done | contracts/api/certificates.yaml |
+| AI Tools | ✅ Done | 6 tools in certificate_tools.go |
+| AI Tools Tests | ✅ Done | 47 unit tests |
+| Frontend UI | ✅ Done | Dashboard + detail pages |
+| React Query Hooks | ✅ Done | use-certificates.ts |
+| Reusable Components | ✅ Done | components/certificates/ (5 files) |
+
+**Key Tables**: certificates, certificate_usages, certificate_rotations, certificate_alerts
+
+**AI Tools**: list_certificates, get_certificate_details, map_certificate_usage, generate_cert_renewal_plan, propose_cert_rotation, validate_tls_handshake
 
 ### E2E Test Suite (ui/control-tower/e2e/)
 | Page | Tests | Status |
