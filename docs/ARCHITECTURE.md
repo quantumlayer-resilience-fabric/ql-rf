@@ -14,18 +14,18 @@ QL-RF (QuantumLayer Resilience Fabric) is an LLM-first infrastructure operations
 
 | Metric | Count |
 |--------|-------|
-| Go Services | 4 |
-| Go Files | 220+ |
-| Go LOC | ~93,000 |
-| Test Files | 65+ |
-| Test LOC | ~24,000 |
-| UI Components | 75+ |
-| Dashboard Pages | 22 |
-| AI Agents | 10 |
-| Tools | 35+ |
+| Go Services | 5 |
+| Go Files | 250+ |
+| Go LOC | ~105,000 |
+| Test Files | 75+ |
+| Test LOC | ~28,000 |
+| UI Components | 85+ |
+| Dashboard Pages | 24 |
+| AI Agents | 11 |
+| Tools | 40+ |
 | OPA Policies | 6 |
-| Migrations | 16 |
-| E2E Tests | 230+ |
+| Migrations | 17 |
+| E2E Tests | 260+ |
 | OpenAPI Contracts | 3 |
 
 ```
@@ -44,6 +44,10 @@ QL-RF (QuantumLayer Resilience Fabric) is an LLM-first infrastructure operations
 │  │  API Service │ │ AI Orchestrator│ │   Drift     │ │  Connectors   │  │
 │  │  (Port 8080) │ │  (Port 8083)   │ │   Engine    │ │   Service     │  │
 │  └──────────────┘ └────────────────┘ └─────────────┘ └───────────────┘  │
+│                  ┌────────────────────────────────────┐                  │
+│                  │       CVE Aggregator (Port 8084)   │                  │
+│                  │  NVD │ OSV │ GitHub │ CISA KEV     │                  │
+│                  └────────────────────────────────────┘                  │
 │                           │                                              │
 │                           ▼                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐│
@@ -255,7 +259,69 @@ Real-time drift detection engine using Kafka event streaming.
 - `getFleetAssets()` - Queries `assets` table with platform/site/environment filters
 - `calculateByScope()` - Aggregates drift metrics grouped by environment/platform/site
 
-### 5. Compliance Service (`services/api/internal/service/`)
+### 5. CVE Aggregator Service (`services/cve-aggregator/`)
+
+Real-time vulnerability feed aggregation and alert management.
+
+**Port:** 8084
+
+**Responsibilities:**
+- Multi-source CVE feed aggregation (NVD, OSV, GitHub Advisories, CISA KEV)
+- CVE normalization to common schema
+- Package matching against SBOM data
+- Alert creation when CVE matches organization packages
+- Blast radius calculation across image lineage
+
+**Architecture:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     CVE AGGREGATOR                               │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              LAYER 1: FEED COLLECTORS                    │    │
+│  │   NVD API │ OSV API │ GitHub Advisories │ CISA KEV      │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                              ↓                                   │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              LAYER 2: CVE NORMALIZER                     │    │
+│  │   CVSS Scoring │ EPSS Integration │ Exploit Detection    │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                              ↓                                   │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              LAYER 3: PACKAGE MATCHER                    │    │
+│  │   CPE Matching │ PURL Matching │ SBOM Lookup             │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                              ↓                                   │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              LAYER 4: BLAST RADIUS ENGINE                │    │
+│  │   Image Lineage │ Asset Mapping │ Urgency Scoring        │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                              ↓                                   │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              LAYER 5: ALERT MANAGER                      │    │
+│  │   Alert Creation │ Deduplication │ Notifications         │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Urgency Score Formula:**
+```
+UrgencyScore = (
+    CVSSScore × 10 +           // 0-100
+    ExploitAvailable × 25 +    // +25 if exploit
+    CISAKnown × 20 +           // +20 if in KEV
+    ProductionWeight × 15 +    // +15 if prod
+    AssetCountFactor × 10 +    // 0-10 based on fleet %
+    EPSSScore × 20             // 0-20 based on EPSS
+) / 2  // Normalize to 0-100
+```
+
+**Kafka Topics:**
+- `cve.discovered` - New CVE from feeds
+- `cve.match.found` - CVE matched to org packages
+- `cve.alert.created` - Alert created
+
+### 6. Compliance Service (`services/api/internal/service/`)
 
 Compliance tracking with database-backed framework and control queries.
 
@@ -1580,8 +1646,8 @@ RF_LLM_MODEL=claude-sonnet-4-5-20241022
 
 ### Completed Features
 - Multi-cloud connectors (AWS, Azure, GCP, vSphere, K8s)
-- AI Orchestrator with 10 specialist agents
-- 29+ infrastructure tools
+- AI Orchestrator with 11 specialist agents (including Vulnerability Agent)
+- 40+ infrastructure tools
 - Human-in-the-loop approval workflow
 - Notification system (Slack, Teams, Email, Webhooks)
 - Risk scoring and prediction
@@ -1589,6 +1655,12 @@ RF_LLM_MODEL=claude-sonnet-4-5-20241022
 - Compliance dashboard with PDF export
 - E2E test suite with Playwright
 - WCAG 2.1 AA accessibility compliance
+- Real-time vulnerability response system
+  - CVE feed aggregation (NVD, OSV, GitHub, CISA KEV)
+  - Blast radius calculation across image lineage
+  - Urgency scoring with EPSS integration
+  - Patch campaign orchestration with phased rollout
+  - Auto-rollback on health check failures
 
 ### Production Ready
 - Health checks (liveness/readiness)

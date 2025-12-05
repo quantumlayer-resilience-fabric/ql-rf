@@ -78,6 +78,7 @@ func NewRegistry(db *pgxpool.Pool, log *logger.Logger) *Registry {
 	r.registerImageTools()
 	r.registerSOPTools()
 	r.registerCertificateTools()
+	r.registerVulnerabilityTools()
 
 	return r
 }

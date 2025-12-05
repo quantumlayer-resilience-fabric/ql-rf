@@ -20,20 +20,21 @@ QuantumLayer Resilience Fabric (QL-RF) is an **LLM-first infrastructure resilien
 - **Compliance Frameworks** - Pre-populated CIS, SOC2, NIST, ISO 27001, PCI-DSS, HIPAA controls
 - **Audit Trail** - Comprehensive audit logging with configurable retention and export
 - **LLM Cost Tracking** - Per-organization usage tracking with per-model pricing
+- **Real-Time Vulnerability Response** - CVE feed aggregation, blast radius analysis, and automated patch orchestration
 
 ### Codebase Metrics
 
 | Metric | Count |
 |--------|-------|
-| Go Services | 4 |
-| Go Files | 185 |
-| Go LOC | ~73,000 |
-| Test Files | 50 |
-| Migrations | 12 |
-| UI Components | 60 |
-| Dashboard Pages | 15 |
-| AI Agents | 10 |
-| Tools | 29+ |
+| Go Services | 5 |
+| Go Files | 230+ |
+| Go LOC | ~98,000 |
+| Test Files | 70+ |
+| Migrations | 17 |
+| UI Components | 80+ |
+| Dashboard Pages | 24 |
+| AI Agents | 11 |
+| Tools | 35+ |
 | OPA Policies | 6 |
 
 ## Quick Start
@@ -69,6 +70,7 @@ go run ./services/api/cmd/api              # REST API (Port 8080)
 go run ./services/orchestrator/cmd/orchestrator  # AI Orchestrator (Port 8083)
 go run ./services/connectors/cmd/connectors      # Cloud Connectors (Port 8081)
 go run ./services/drift/cmd/drift                # Drift Engine (Port 8082)
+go run ./services/cve-aggregator/cmd/cve-aggregator  # CVE Aggregator (Port 8084)
 
 # Run with environment
 source .env && go run ./services/api/cmd/api
@@ -330,7 +332,7 @@ POST /api/v1/alerts/{id}/acknowledge   # Acknowledge alert
 
 LLM-first operations engine that converts natural language to infrastructure tasks.
 
-**Agents (10 total):**
+**Agents (11 total):**
 | Agent | Purpose |
 |-------|---------|
 | `drift` | Drift detection and analysis |
@@ -343,8 +345,9 @@ LLM-first operations engine that converts natural language to infrastructure tas
 | `sop` | Standard operating procedures |
 | `adapter` | Platform-specific adaptations |
 | `incident` | Incident response |
+| `vulnerability` | CVE analysis, blast radius, patch campaigns |
 
-**Tools (29+ total):** Query assets, create images, trigger patches, run compliance checks, execute DR drills, etc.
+**Tools (35+ total):** Query assets, create images, trigger patches, run compliance checks, execute DR drills, calculate blast radius, etc.
 
 **Endpoints:**
 ```
@@ -356,6 +359,27 @@ POST /api/v1/ai/tasks/{id}/reject     # Reject pending task
 GET  /api/v1/ai/agents                # List available agents
 GET  /api/v1/ai/tools                 # List available tools
 GET  /api/v1/ai/usage                 # LLM usage metrics
+
+# CVE Alerts
+GET  /api/v1/cve-alerts               # List CVE alerts
+GET  /api/v1/cve-alerts/summary       # Alert statistics
+GET  /api/v1/cve-alerts/{id}          # Alert details
+GET  /api/v1/cve-alerts/{id}/blast-radius  # Blast radius analysis
+POST /api/v1/cve-alerts/{id}/investigate   # Start investigation
+POST /api/v1/cve-alerts/{id}/acknowledge   # Acknowledge alert
+POST /api/v1/cve-alerts/{id}/resolve       # Resolve alert
+
+# Patch Campaigns
+GET  /api/v1/patch-campaigns          # List campaigns
+GET  /api/v1/patch-campaigns/summary  # Campaign statistics
+POST /api/v1/patch-campaigns          # Create campaign
+GET  /api/v1/patch-campaigns/{id}     # Campaign details
+GET  /api/v1/patch-campaigns/{id}/phases   # Campaign phases
+GET  /api/v1/patch-campaigns/{id}/progress # Rollout progress
+POST /api/v1/patch-campaigns/{id}/approve  # Approve campaign
+POST /api/v1/patch-campaigns/{id}/start    # Start rollout
+POST /api/v1/patch-campaigns/{id}/pause    # Pause rollout
+POST /api/v1/patch-campaigns/{id}/rollback # Trigger rollback
 ```
 
 **LLM Providers:** Azure Anthropic (default), Anthropic, OpenAI, Azure OpenAI
@@ -464,6 +488,13 @@ llm_usage, llm_pricing
 
 # AI Orchestration
 ai_tasks, ai_plans, ai_runs, ai_tool_invocations
+
+# Vulnerability Response (Migration 000017)
+cve_feed_sources, cve_cache           # CVE feed aggregation
+cve_alerts, cve_alert_affected_items  # Alert management with blast radius
+patch_campaigns, patch_campaign_phases # Campaign orchestration
+patch_campaign_assets, patch_rollbacks # Execution tracking
+vulnerability_evidence                 # Compliance audit trail
 ```
 
 **Migrations:**
@@ -479,6 +510,8 @@ ai_tasks, ai_plans, ai_runs, ai_tool_invocations
 - `000010_add_rbac` - RBAC roles, permissions, and teams
 - `000011_add_multitenancy` - Organization quotas and subscriptions
 - `000012_add_compliance_frameworks` - Compliance frameworks and controls
+- `000013-000016` - Certificate lifecycle and InSpec integration
+- `000017_add_vulnerability_response` - CVE cache, alerts, blast radius, patch campaigns
 
 ## Frontend (Control Tower)
 
@@ -506,6 +539,10 @@ npm run lint     # ESLint
 - `/ai` - AI Copilot chat interface
 - `/ai/tasks` - Task history
 - `/ai/agents` - Agent registry
+- `/vulnerabilities` - CVE alert dashboard with severity metrics
+- `/vulnerabilities/[alertId]` - Alert detail with blast radius visualization
+- `/patch-campaigns` - Patch campaign management
+- `/patch-campaigns/[campaignId]` - Campaign detail with phase progress
 
 **Design System:** Dark-first "Command Center" aesthetic. See `docs/FRONTEND_DESIGN_SYSTEM.md`.
 
@@ -606,3 +643,4 @@ See `docs/` for comprehensive documentation:
 | ADR-012 | Enterprise RBAC with hierarchical roles |
 | ADR-013 | Multi-tenancy with quota management |
 | ADR-014 | Compliance framework integration |
+| ADR-015 | Real-time vulnerability response system |

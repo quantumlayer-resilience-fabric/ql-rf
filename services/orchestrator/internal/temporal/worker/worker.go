@@ -28,6 +28,9 @@ const (
 
 	// WorkflowTypeDRDrill is the workflow type for DR drill execution.
 	WorkflowTypeDRDrill = "DRDrillWorkflow"
+
+	// WorkflowTypePatchCampaign is the workflow type for patch campaign execution.
+	WorkflowTypePatchCampaign = "PatchCampaignWorkflow"
 )
 
 // Worker wraps the Temporal worker with our dependencies.
@@ -103,6 +106,7 @@ func New(cfg Config) (*Worker, error) {
 	// Register workflows
 	w.RegisterWorkflow(workflows.TaskExecutionWorkflow)
 	w.RegisterWorkflow(workflows.DRDrillWorkflow)
+	w.RegisterWorkflow(workflows.PatchCampaignWorkflow)
 
 	// Register task execution activities
 	w.RegisterActivity(acts.UpdateTaskStatus)
@@ -116,6 +120,16 @@ func New(cfg Config) (*Worker, error) {
 	w.RegisterActivity(acts.NotifyDRDrillStarted)
 	w.RegisterActivity(acts.NotifyDRDrillCompleted)
 	w.RegisterActivity(acts.StoreDRDrillResult)
+
+	// Register patch campaign activities
+	w.RegisterActivity(acts.UpdatePatchCampaignStatus)
+	w.RegisterActivity(acts.UpdatePatchPhaseStatus)
+	w.RegisterActivity(acts.ExecutePatchPhase)
+	w.RegisterActivity(acts.RunHealthChecks)
+	w.RegisterActivity(acts.ExecuteRollback)
+	w.RegisterActivity(acts.NotifyPatchCampaignEvent)
+	w.RegisterActivity(acts.StorePatchCampaignResult)
+	w.RegisterActivity(acts.RecordVulnerabilityEvidence)
 
 	log.Info("Temporal worker created",
 		"task_queue", taskQueue,
@@ -278,6 +292,116 @@ func (w *Worker) CancelDRDrill(ctx context.Context, drillID string) error {
 	}
 
 	w.log.Info("Cancelled DR drill workflow", "workflow_id", workflowID)
+	return nil
+}
+
+// =============================================================================
+// Patch Campaign Workflow Methods
+// =============================================================================
+
+// StartPatchCampaignWorkflow starts a new patch campaign workflow.
+func (w *Worker) StartPatchCampaignWorkflow(ctx context.Context, input workflows.PatchCampaignWorkflowInput) (string, error) {
+	workflowOpts := client.StartWorkflowOptions{
+		ID:        fmt.Sprintf("patch-campaign-%s", input.CampaignID),
+		TaskQueue: TaskQueue,
+	}
+
+	we, err := w.client.ExecuteWorkflow(ctx, workflowOpts, workflows.PatchCampaignWorkflow, input)
+	if err != nil {
+		return "", fmt.Errorf("failed to start patch campaign workflow: %w", err)
+	}
+
+	w.log.Info("Started patch campaign workflow",
+		"workflow_id", we.GetID(),
+		"run_id", we.GetRunID(),
+		"campaign_id", input.CampaignID,
+		"rollout_strategy", input.RolloutStrategy,
+		"phases", len(input.Phases),
+	)
+
+	return we.GetRunID(), nil
+}
+
+// GetPatchCampaignStatus gets the status of a patch campaign workflow.
+func (w *Worker) GetPatchCampaignStatus(ctx context.Context, campaignID string) (string, error) {
+	workflowID := fmt.Sprintf("patch-campaign-%s", campaignID)
+
+	desc, err := w.client.DescribeWorkflowExecution(ctx, workflowID, "")
+	if err != nil {
+		return "", fmt.Errorf("failed to describe patch campaign workflow: %w", err)
+	}
+
+	return desc.WorkflowExecutionInfo.Status.String(), nil
+}
+
+// GetPatchCampaignResult gets the result of a completed patch campaign workflow.
+func (w *Worker) GetPatchCampaignResult(ctx context.Context, campaignID string, runID string) (*workflows.PatchCampaignWorkflowResult, error) {
+	workflowID := fmt.Sprintf("patch-campaign-%s", campaignID)
+
+	workflowRun := w.client.GetWorkflow(ctx, workflowID, runID)
+
+	var result workflows.PatchCampaignWorkflowResult
+	if err := workflowRun.Get(ctx, &result); err != nil {
+		return nil, fmt.Errorf("failed to get patch campaign result: %w", err)
+	}
+
+	return &result, nil
+}
+
+// SignalPatchCampaignApproval sends an approval signal to a patch campaign workflow.
+func (w *Worker) SignalPatchCampaignApproval(ctx context.Context, campaignID string, approval workflows.PatchCampaignApprovalSignal) error {
+	workflowID := fmt.Sprintf("patch-campaign-%s", campaignID)
+
+	err := w.client.SignalWorkflow(ctx, workflowID, "", workflows.SignalPatchCampaignApproval, approval)
+	if err != nil {
+		return fmt.Errorf("failed to signal patch campaign approval: %w", err)
+	}
+
+	w.log.Info("Sent patch campaign approval signal",
+		"workflow_id", workflowID,
+		"action", approval.Action,
+		"approved_by", approval.ApprovedBy,
+	)
+
+	return nil
+}
+
+// PausePatchCampaign pauses a running patch campaign workflow.
+func (w *Worker) PausePatchCampaign(ctx context.Context, campaignID string) error {
+	workflowID := fmt.Sprintf("patch-campaign-%s", campaignID)
+
+	err := w.client.SignalWorkflow(ctx, workflowID, "", workflows.SignalPatchCampaignPause, struct{}{})
+	if err != nil {
+		return fmt.Errorf("failed to pause patch campaign: %w", err)
+	}
+
+	w.log.Info("Paused patch campaign workflow", "workflow_id", workflowID)
+	return nil
+}
+
+// ResumePatchCampaign resumes a paused patch campaign workflow.
+func (w *Worker) ResumePatchCampaign(ctx context.Context, campaignID string) error {
+	workflowID := fmt.Sprintf("patch-campaign-%s", campaignID)
+
+	err := w.client.SignalWorkflow(ctx, workflowID, "", workflows.SignalPatchCampaignResume, struct{}{})
+	if err != nil {
+		return fmt.Errorf("failed to resume patch campaign: %w", err)
+	}
+
+	w.log.Info("Resumed patch campaign workflow", "workflow_id", workflowID)
+	return nil
+}
+
+// CancelPatchCampaign cancels a running patch campaign workflow.
+func (w *Worker) CancelPatchCampaign(ctx context.Context, campaignID string) error {
+	workflowID := fmt.Sprintf("patch-campaign-%s", campaignID)
+
+	err := w.client.SignalWorkflow(ctx, workflowID, "", workflows.SignalPatchCampaignCancel, struct{}{})
+	if err != nil {
+		return fmt.Errorf("failed to cancel patch campaign: %w", err)
+	}
+
+	w.log.Info("Cancelled patch campaign workflow", "workflow_id", workflowID)
 	return nil
 }
 

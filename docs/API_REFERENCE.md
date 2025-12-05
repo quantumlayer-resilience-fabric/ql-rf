@@ -15,11 +15,12 @@ Complete API reference for QuantumLayer Resilience Fabric.
 4. [Organization Endpoints](#organization-endpoints)
 5. [Compliance Endpoints](#compliance-endpoints)
 6. [AI Orchestrator Endpoints](#ai-orchestrator-endpoints)
-7. [SBOM Endpoints](#sbom-endpoints)
-8. [FinOps Endpoints](#finops-endpoints)
-9. [InSpec Endpoints](#inspec-endpoints)
-10. [Certificate Endpoints](#certificate-endpoints)
-11. [Error Responses](#error-responses)
+7. [Vulnerability Response Endpoints](#vulnerability-response-endpoints)
+8. [SBOM Endpoints](#sbom-endpoints)
+9. [FinOps Endpoints](#finops-endpoints)
+10. [InSpec Endpoints](#inspec-endpoints)
+11. [Certificate Endpoints](#certificate-endpoints)
+12. [Error Responses](#error-responses)
 
 ---
 
@@ -748,6 +749,450 @@ GET /api/v1/ai/agents
 
 ```
 GET /api/v1/ai/tools
+```
+
+---
+
+## Vulnerability Response Endpoints
+
+**Base URL:** `http://localhost:8083/api/v1` (AI Orchestrator)
+
+### CVE Alerts
+
+#### List CVE Alerts
+
+```
+GET /api/v1/cve-alerts
+```
+
+**Query Parameters:**
+- `severity` - Filter by severity (CRITICAL, HIGH, MEDIUM, LOW)
+- `status` - Filter by status (new, investigating, acknowledged, remediation_in_progress, resolved)
+- `limit` - Number of results (default: 50)
+- `offset` - Pagination offset
+
+**Response:**
+```json
+{
+  "alerts": [
+    {
+      "id": "uuid",
+      "cve_id": "CVE-2024-21626",
+      "severity": "CRITICAL",
+      "cvss_score": 9.8,
+      "urgency_score": 92.5,
+      "status": "new",
+      "affected_packages": 3,
+      "affected_images": 12,
+      "affected_assets": 45,
+      "production_assets": 15,
+      "cisa_known_exploit": true,
+      "first_detected_at": "2025-01-15T10:30:00Z"
+    }
+  ],
+  "total": 25,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+#### Get CVE Alert Summary
+
+```
+GET /api/v1/cve-alerts/summary
+```
+
+**Response:**
+```json
+{
+  "total_alerts": 25,
+  "by_severity": {
+    "critical": 5,
+    "high": 8,
+    "medium": 10,
+    "low": 2
+  },
+  "by_status": {
+    "new": 3,
+    "investigating": 5,
+    "acknowledged": 7,
+    "remediation_in_progress": 8,
+    "resolved": 2
+  },
+  "production_at_risk": 45,
+  "avg_urgency_score": 65.3
+}
+```
+
+#### Get CVE Alert Details
+
+```
+GET /api/v1/cve-alerts/{alertId}
+```
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "cve_id": "CVE-2024-21626",
+  "severity": "CRITICAL",
+  "cvss_score": 9.8,
+  "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+  "epss_score": 0.85,
+  "urgency_score": 92.5,
+  "status": "new",
+  "cisa_known_exploit": true,
+  "exploit_available": true,
+  "description": "Container escape vulnerability in runc",
+  "affected_packages": [
+    {
+      "name": "runc",
+      "version": "1.1.0",
+      "type": "binary",
+      "fixed_version": "1.1.12"
+    }
+  ],
+  "references": [
+    {
+      "type": "ADVISORY",
+      "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-21626"
+    }
+  ],
+  "first_detected_at": "2025-01-15T10:30:00Z",
+  "updated_at": "2025-01-15T14:00:00Z"
+}
+```
+
+#### Get Blast Radius
+
+```
+GET /api/v1/cve-alerts/{alertId}/blast-radius
+```
+
+**Response:**
+```json
+{
+  "alert_id": "uuid",
+  "cve_id": "CVE-2024-21626",
+  "packages": [
+    {
+      "name": "runc",
+      "version": "1.1.0",
+      "type": "binary",
+      "fixed_version": "1.1.12"
+    }
+  ],
+  "images": [
+    {
+      "id": "uuid",
+      "name": "base-ubuntu-24.04",
+      "version": "v1.2.3",
+      "lineage_depth": 0,
+      "is_direct": true,
+      "children_count": 8
+    }
+  ],
+  "assets": [
+    {
+      "id": "uuid",
+      "name": "web-server-prod-1",
+      "platform": "aws",
+      "region": "us-east-1",
+      "environment": "production",
+      "is_production": true
+    }
+  ],
+  "summary": {
+    "total_packages": 3,
+    "total_images": 12,
+    "direct_images": 3,
+    "inherited_images": 9,
+    "total_assets": 45,
+    "production_assets": 15,
+    "non_production_assets": 30
+  }
+}
+```
+
+#### Investigate Alert
+
+```
+POST /api/v1/cve-alerts/{alertId}/investigate
+```
+
+**Request:**
+```json
+{
+  "assignee_id": "user-uuid",
+  "notes": "Starting investigation of container escape vulnerability"
+}
+```
+
+#### Acknowledge Alert
+
+```
+POST /api/v1/cve-alerts/{alertId}/acknowledge
+```
+
+**Request:**
+```json
+{
+  "notes": "Confirmed vulnerability affects production systems",
+  "planned_remediation_date": "2025-01-20T00:00:00Z"
+}
+```
+
+#### Resolve Alert
+
+```
+POST /api/v1/cve-alerts/{alertId}/resolve
+```
+
+**Request:**
+```json
+{
+  "resolution": "patched",
+  "patch_campaign_id": "campaign-uuid",
+  "notes": "All affected assets patched via campaign"
+}
+```
+
+---
+
+### Patch Campaigns
+
+#### List Patch Campaigns
+
+```
+GET /api/v1/patch-campaigns
+```
+
+**Query Parameters:**
+- `status` - Filter by status (pending_approval, approved, in_progress, paused, completed, failed, rolled_back)
+- `cve_alert_id` - Filter by associated CVE alert
+- `limit` - Number of results (default: 50)
+- `offset` - Pagination offset
+
+**Response:**
+```json
+{
+  "campaigns": [
+    {
+      "id": "uuid",
+      "name": "CVE-2024-21626 Critical Patch",
+      "cve_alert_id": "uuid",
+      "status": "in_progress",
+      "strategy": "canary",
+      "total_assets": 45,
+      "completed_assets": 12,
+      "failed_assets": 0,
+      "progress_percent": 26.7,
+      "created_at": "2025-01-16T08:00:00Z",
+      "started_at": "2025-01-16T10:00:00Z"
+    }
+  ],
+  "total": 10,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+#### Get Campaign Summary
+
+```
+GET /api/v1/patch-campaigns/summary
+```
+
+**Response:**
+```json
+{
+  "total_campaigns": 15,
+  "active_campaigns": 3,
+  "by_status": {
+    "pending_approval": 2,
+    "in_progress": 3,
+    "completed": 8,
+    "failed": 1,
+    "rolled_back": 1
+  },
+  "assets_patched_this_month": 450,
+  "avg_completion_time_hours": 4.5
+}
+```
+
+#### Create Patch Campaign
+
+```
+POST /api/v1/patch-campaigns
+```
+
+**Request:**
+```json
+{
+  "name": "CVE-2024-21626 Critical Patch",
+  "cve_alert_id": "uuid",
+  "strategy": "canary",
+  "target_assets": ["asset-uuid-1", "asset-uuid-2"],
+  "phases": [
+    {
+      "name": "canary",
+      "percentage": 5,
+      "wait_minutes": 30
+    },
+    {
+      "name": "wave_1",
+      "percentage": 25,
+      "wait_minutes": 60
+    },
+    {
+      "name": "full_rollout",
+      "percentage": 100,
+      "wait_minutes": 0
+    }
+  ],
+  "health_checks": {
+    "error_rate_threshold": 0.05,
+    "latency_p99_threshold_ms": 500
+  },
+  "auto_rollback": true
+}
+```
+
+#### Get Campaign Details
+
+```
+GET /api/v1/patch-campaigns/{campaignId}
+```
+
+#### Get Campaign Phases
+
+```
+GET /api/v1/patch-campaigns/{campaignId}/phases
+```
+
+**Response:**
+```json
+{
+  "phases": [
+    {
+      "id": "uuid",
+      "name": "canary",
+      "status": "completed",
+      "target_count": 3,
+      "completed_count": 3,
+      "failed_count": 0,
+      "started_at": "2025-01-16T10:00:00Z",
+      "completed_at": "2025-01-16T10:25:00Z"
+    },
+    {
+      "id": "uuid",
+      "name": "wave_1",
+      "status": "in_progress",
+      "target_count": 11,
+      "completed_count": 5,
+      "failed_count": 0,
+      "started_at": "2025-01-16T10:55:00Z"
+    }
+  ]
+}
+```
+
+#### Get Campaign Progress
+
+```
+GET /api/v1/patch-campaigns/{campaignId}/progress
+```
+
+**Response:**
+```json
+{
+  "campaign_id": "uuid",
+  "status": "in_progress",
+  "current_phase": "wave_1",
+  "total_assets": 45,
+  "completed_assets": 8,
+  "failed_assets": 0,
+  "pending_assets": 37,
+  "progress_percent": 17.8,
+  "health_status": "healthy",
+  "estimated_completion": "2025-01-16T14:30:00Z"
+}
+```
+
+#### Approve Campaign
+
+```
+POST /api/v1/patch-campaigns/{campaignId}/approve
+```
+
+**Request:**
+```json
+{
+  "approver_notes": "Approved for production rollout"
+}
+```
+
+#### Start Campaign
+
+```
+POST /api/v1/patch-campaigns/{campaignId}/start
+```
+
+#### Pause Campaign
+
+```
+POST /api/v1/patch-campaigns/{campaignId}/pause
+```
+
+**Request:**
+```json
+{
+  "reason": "Investigating elevated error rates"
+}
+```
+
+#### Resume Campaign
+
+```
+POST /api/v1/patch-campaigns/{campaignId}/resume
+```
+
+#### Cancel Campaign
+
+```
+POST /api/v1/patch-campaigns/{campaignId}/cancel
+```
+
+**Request:**
+```json
+{
+  "reason": "New patch version available"
+}
+```
+
+#### Trigger Rollback
+
+```
+POST /api/v1/patch-campaigns/{campaignId}/rollback
+```
+
+**Request:**
+```json
+{
+  "reason": "Health check failures detected",
+  "rollback_scope": "all"
+}
+```
+
+**Response:**
+```json
+{
+  "rollback_id": "uuid",
+  "campaign_id": "uuid",
+  "status": "in_progress",
+  "assets_to_rollback": 8,
+  "started_at": "2025-01-16T12:00:00Z"
+}
 ```
 
 ---

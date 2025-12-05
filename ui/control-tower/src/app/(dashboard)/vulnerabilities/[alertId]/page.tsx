@@ -16,11 +16,12 @@ import {
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { PageSkeleton, ErrorState, EmptyState } from "@/components/feedback";
+import { BlastRadiusDiagram } from "@/components/vulnerabilities";
 import {
   useCVEAlert,
   useBlastRadius,
   useUpdateCVEAlertStatus,
-  useCreatePatchCampaign,
+  useCreateCampaignFromAlert,
   type CVEAlertWithBlastRadius,
   type BlastRadiusResult,
   type CVESeverity,
@@ -83,7 +84,7 @@ export default function CVEAlertDetailPage({
   } = useBlastRadius(alertId);
 
   const updateStatus = useUpdateCVEAlertStatus();
-  const createCampaign = useCreatePatchCampaign();
+  const createCampaign = useCreateCampaignFromAlert();
 
   // AI hooks
   const aiContext = useAIContext();
@@ -420,6 +421,7 @@ export default function CVEAlertDetailPage({
       <Tabs defaultValue="affected" className="space-y-4">
         <TabsList>
           <TabsTrigger value="affected">Affected Items</TabsTrigger>
+          <TabsTrigger value="visualization">Visualization</TabsTrigger>
           <TabsTrigger value="details">CVE Details</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
         </TabsList>
@@ -427,6 +429,36 @@ export default function CVEAlertDetailPage({
         {/* Affected Items Tab */}
         <TabsContent value="affected" className="space-y-4">
           {blastRadius && <BlastRadiusDetails blastRadius={blastRadius} />}
+        </TabsContent>
+
+        {/* Blast Radius Visualization Tab */}
+        <TabsContent value="visualization" className="space-y-4">
+          {blastRadius && (
+            <BlastRadiusDiagram
+              packages={blastRadius.affected_packages?.map((pkg) => ({
+                name: pkg.package_name,
+                version: pkg.package_version,
+                type: pkg.package_type,
+                fixed_version: pkg.fixed_version,
+              })) || []}
+              images={blastRadius.affected_images?.map((img) => ({
+                id: img.image_id,
+                name: img.image_family,
+                version: img.image_version || "latest",
+                lineage_depth: img.lineage_depth || 0,
+                is_direct: img.is_direct,
+                children_count: img.child_image_ids?.length,
+              })) || []}
+              assets={blastRadius.affected_assets?.map((asset) => ({
+                id: asset.asset_id,
+                name: asset.asset_name,
+                platform: asset.platform,
+                region: asset.region || "unknown",
+                environment: asset.environment || "development",
+                is_production: asset.environment?.toLowerCase() === "production",
+              })) || []}
+            />
+          )}
         </TabsContent>
 
         {/* CVE Details Tab */}

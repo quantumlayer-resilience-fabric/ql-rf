@@ -1,0 +1,1140 @@
+openapi: 3.0.3
+info:
+  title: QL-RF Vulnerability Response API
+  description: |
+    API for managing CVE alerts, blast radius analysis, and patch campaigns
+    in the QuantumLayer Resilience Fabric platform.
+  version: 1.0.0
+  contact:
+    name: QuantumLayer Platform Team
+
+servers:
+  - url: http://localhost:8083/api/v1
+    description: Local orchestrator development server
+
+tags:
+  - name: CVE Alerts
+    description: CVE alert management and tracking
+  - name: Blast Radius
+    description: Vulnerability impact analysis
+  - name: Patch Campaigns
+    description: Multi-phase patch rollout orchestration
+
+paths:
+  # ==========================================================================
+  # CVE Alerts
+  # ==========================================================================
+  /cve-alerts:
+    get:
+      tags: [CVE Alerts]
+      summary: List CVE alerts
+      description: Retrieve a paginated list of CVE alerts with optional filtering.
+      operationId: listCVEAlerts
+      parameters:
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [new, investigating, confirmed, in_progress, resolved, dismissed]
+        - name: priority
+          in: query
+          schema:
+            type: string
+            enum: [P1, P2, P3, P4]
+        - name: cve_id
+          in: query
+          schema:
+            type: string
+        - name: min_urgency_score
+          in: query
+          schema:
+            type: number
+            minimum: 0
+            maximum: 100
+        - name: sla_breached
+          in: query
+          schema:
+            type: boolean
+        - name: has_exploit
+          in: query
+          schema:
+            type: boolean
+        - name: cisa_kev_only
+          in: query
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: List of CVE alerts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVEAlertListResponse'
+
+  /cve-alerts/summary:
+    get:
+      tags: [CVE Alerts]
+      summary: Get CVE alert summary
+      description: Retrieve aggregate statistics for CVE alerts.
+      operationId: getCVEAlertSummary
+      responses:
+        '200':
+          description: CVE alert summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVEAlertSummary'
+
+  /cve-alerts/{alertId}:
+    get:
+      tags: [CVE Alerts]
+      summary: Get CVE alert details
+      description: Retrieve detailed information about a specific CVE alert.
+      operationId: getCVEAlert
+      parameters:
+        - name: alertId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: CVE alert details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVEAlert'
+        '404':
+          description: Alert not found
+
+  /cve-alerts/{alertId}/status:
+    patch:
+      tags: [CVE Alerts]
+      summary: Update CVE alert status
+      description: Update the status of a CVE alert.
+      operationId: updateCVEAlertStatus
+      parameters:
+        - name: alertId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCVEAlertStatusRequest'
+      responses:
+        '200':
+          description: Updated CVE alert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVEAlert'
+
+  /cve-alerts/{alertId}/blast-radius:
+    get:
+      tags: [Blast Radius]
+      summary: Get CVE alert blast radius
+      description: Calculate and return the blast radius for a CVE alert.
+      operationId: getCVEAlertBlastRadius
+      parameters:
+        - name: alertId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Blast radius analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlastRadiusResult'
+
+  /cve-alerts/{alertId}/create-campaign:
+    post:
+      tags: [CVE Alerts, Patch Campaigns]
+      summary: Create patch campaign from alert
+      description: Create a new patch campaign to remediate a CVE alert.
+      operationId: createPatchCampaignFromAlert
+      parameters:
+        - name: alertId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePatchCampaignFromAlertRequest'
+      responses:
+        '201':
+          description: Patch campaign created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign_id:
+                    type: string
+                    format: uuid
+                  alert_id:
+                    type: string
+                    format: uuid
+                  message:
+                    type: string
+
+  # ==========================================================================
+  # Patch Campaigns
+  # ==========================================================================
+  /patch-campaigns:
+    get:
+      tags: [Patch Campaigns]
+      summary: List patch campaigns
+      description: Retrieve a paginated list of patch campaigns.
+      operationId: listPatchCampaigns
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, pending_approval, approved, scheduled, in_progress, paused, completed, failed, rolled_back, cancelled]
+        - name: campaign_type
+          in: query
+          schema:
+            type: string
+            enum: [cve_response, scheduled, emergency, compliance]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: List of patch campaigns
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchCampaignListResponse'
+
+    post:
+      tags: [Patch Campaigns]
+      summary: Create patch campaign
+      description: Create a new patch campaign.
+      operationId: createPatchCampaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePatchCampaignRequest'
+      responses:
+        '201':
+          description: Patch campaign created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchCampaign'
+
+  /patch-campaigns/summary:
+    get:
+      tags: [Patch Campaigns]
+      summary: Get patch campaign summary
+      description: Retrieve aggregate statistics for patch campaigns.
+      operationId: getPatchCampaignSummary
+      responses:
+        '200':
+          description: Patch campaign summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchCampaignSummary'
+
+  /patch-campaigns/{campaignId}:
+    get:
+      tags: [Patch Campaigns]
+      summary: Get patch campaign details
+      description: Retrieve detailed information about a specific patch campaign.
+      operationId: getPatchCampaign
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Patch campaign details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchCampaign'
+
+  /patch-campaigns/{campaignId}/approve:
+    post:
+      tags: [Patch Campaigns]
+      summary: Approve patch campaign
+      description: Approve a patch campaign that requires approval.
+      operationId: approvePatchCampaign
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovePatchCampaignRequest'
+      responses:
+        '200':
+          description: Campaign approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchCampaign'
+
+  /patch-campaigns/{campaignId}/reject:
+    post:
+      tags: [Patch Campaigns]
+      summary: Reject patch campaign
+      description: Reject a patch campaign that requires approval.
+      operationId: rejectPatchCampaign
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectPatchCampaignRequest'
+      responses:
+        '200':
+          description: Campaign rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchCampaign'
+
+  /patch-campaigns/{campaignId}/start:
+    post:
+      tags: [Patch Campaigns]
+      summary: Start patch campaign
+      description: Start execution of a patch campaign.
+      operationId: startPatchCampaign
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Campaign started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchCampaign'
+
+  /patch-campaigns/{campaignId}/pause:
+    post:
+      tags: [Patch Campaigns]
+      summary: Pause patch campaign
+      description: Pause an in-progress patch campaign.
+      operationId: pausePatchCampaign
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Campaign paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchCampaign'
+
+  /patch-campaigns/{campaignId}/resume:
+    post:
+      tags: [Patch Campaigns]
+      summary: Resume patch campaign
+      description: Resume a paused patch campaign.
+      operationId: resumePatchCampaign
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Campaign resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchCampaign'
+
+  /patch-campaigns/{campaignId}/cancel:
+    post:
+      tags: [Patch Campaigns]
+      summary: Cancel patch campaign
+      description: Cancel a patch campaign.
+      operationId: cancelPatchCampaign
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Campaign cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchCampaign'
+
+  /patch-campaigns/{campaignId}/rollback:
+    post:
+      tags: [Patch Campaigns]
+      summary: Trigger rollback
+      description: Trigger a rollback for a patch campaign.
+      operationId: rollbackPatchCampaign
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerRollbackRequest'
+      responses:
+        '200':
+          description: Rollback initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign:
+                    $ref: '#/components/schemas/PatchCampaign'
+                  rollback_scope:
+                    type: string
+                  rollback_reason:
+                    type: string
+                  message:
+                    type: string
+
+  /patch-campaigns/{campaignId}/phases:
+    get:
+      tags: [Patch Campaigns]
+      summary: Get campaign phases
+      description: Get the phases of a patch campaign.
+      operationId: getPatchCampaignPhases
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Campaign phases
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign_id:
+                    type: string
+                  phases:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PatchCampaignPhase'
+
+  /patch-campaigns/{campaignId}/assets:
+    get:
+      tags: [Patch Campaigns]
+      summary: Get campaign assets
+      description: Get the assets in a patch campaign.
+      operationId: getPatchCampaignAssets
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: phase_id
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Campaign assets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign_id:
+                    type: string
+                  assets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PatchCampaignAsset'
+                  total:
+                    type: integer
+
+  /patch-campaigns/{campaignId}/progress:
+    get:
+      tags: [Patch Campaigns]
+      summary: Get campaign progress
+      description: Get real-time progress of a patch campaign.
+      operationId: getPatchCampaignProgress
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Campaign progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchCampaignProgress'
+
+components:
+  schemas:
+    # ==========================================================================
+    # CVE Alert Schemas
+    # ==========================================================================
+    CVEAlert:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+        cve_id:
+          type: string
+          example: CVE-2024-1234
+        severity:
+          type: string
+          enum: [critical, high, medium, low, unknown]
+        urgency_score:
+          type: number
+          minimum: 0
+          maximum: 100
+        status:
+          type: string
+          enum: [new, investigating, confirmed, in_progress, resolved, dismissed, auto_resolved]
+        priority:
+          type: string
+          enum: [P1, P2, P3, P4]
+        sla_due_at:
+          type: string
+          format: date-time
+        sla_breached:
+          type: boolean
+        affected_images_count:
+          type: integer
+        affected_assets_count:
+          type: integer
+        affected_packages_count:
+          type: integer
+        production_assets_count:
+          type: integer
+        assigned_to:
+          type: string
+        resolution_type:
+          type: string
+        resolution_notes:
+          type: string
+        patch_campaign_id:
+          type: string
+          format: uuid
+        detected_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        cve_details:
+          $ref: '#/components/schemas/CVECache'
+
+    CVECache:
+      type: object
+      properties:
+        cve_id:
+          type: string
+        cvss_v3_score:
+          type: number
+        cvss_v3_vector:
+          type: string
+        severity:
+          type: string
+        epss_score:
+          type: number
+        epss_percentile:
+          type: number
+        exploit_available:
+          type: boolean
+        exploit_maturity:
+          type: string
+        cisa_kev_listed:
+          type: boolean
+        cisa_kev_due_date:
+          type: string
+        cisa_kev_ransomware:
+          type: boolean
+        description:
+          type: string
+        published_date:
+          type: string
+        primary_source:
+          type: string
+        reference_urls:
+          type: array
+          items:
+            type: string
+        remediation_summary:
+          type: string
+
+    CVEAlertListResponse:
+      type: object
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/CVEAlert'
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total_pages:
+          type: integer
+
+    CVEAlertSummary:
+      type: object
+      properties:
+        total_alerts:
+          type: integer
+        new_alerts:
+          type: integer
+        in_progress_alerts:
+          type: integer
+        resolved_alerts:
+          type: integer
+        critical_alerts:
+          type: integer
+        high_alerts:
+          type: integer
+        medium_alerts:
+          type: integer
+        low_alerts:
+          type: integer
+        sla_breached_alerts:
+          type: integer
+        exploitable_alerts:
+          type: integer
+        cisa_kev_alerts:
+          type: integer
+        average_urgency_score:
+          type: number
+        total_affected_assets:
+          type: integer
+        production_affected_assets:
+          type: integer
+
+    UpdateCVEAlertStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [new, investigating, confirmed, in_progress, resolved, dismissed]
+        assigned_to:
+          type: string
+        resolution_type:
+          type: string
+        resolution_notes:
+          type: string
+        ticket_id:
+          type: string
+
+    # ==========================================================================
+    # Blast Radius Schemas
+    # ==========================================================================
+    BlastRadiusResult:
+      type: object
+      properties:
+        cve_id:
+          type: string
+        total_packages:
+          type: integer
+        total_images:
+          type: integer
+        total_assets:
+          type: integer
+        production_assets:
+          type: integer
+        affected_platforms:
+          type: array
+          items:
+            type: string
+        affected_regions:
+          type: array
+          items:
+            type: string
+        affected_packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/AffectedPackage'
+        affected_images:
+          type: array
+          items:
+            $ref: '#/components/schemas/AffectedImage'
+        affected_assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/AffectedAsset'
+        urgency_score:
+          type: number
+        calculated_at:
+          type: string
+          format: date-time
+
+    AffectedPackage:
+      type: object
+      properties:
+        package_id:
+          type: string
+        package_name:
+          type: string
+        package_version:
+          type: string
+        package_type:
+          type: string
+        fixed_version:
+          type: string
+
+    AffectedImage:
+      type: object
+      properties:
+        image_id:
+          type: string
+        image_family:
+          type: string
+        image_version:
+          type: string
+        is_direct:
+          type: boolean
+        lineage_depth:
+          type: integer
+
+    AffectedAsset:
+      type: object
+      properties:
+        asset_id:
+          type: string
+        asset_name:
+          type: string
+        platform:
+          type: string
+        region:
+          type: string
+        environment:
+          type: string
+        is_production:
+          type: boolean
+
+    # ==========================================================================
+    # Patch Campaign Schemas
+    # ==========================================================================
+    PatchCampaign:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        campaign_type:
+          type: string
+          enum: [cve_response, scheduled, emergency, compliance]
+        cve_alert_ids:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [draft, pending_approval, approved, scheduled, in_progress, paused, completed, failed, rolled_back, cancelled]
+        requires_approval:
+          type: boolean
+        approved_by:
+          type: string
+        approved_at:
+          type: string
+          format: date-time
+        rollout_strategy:
+          type: string
+          enum: [immediate, canary, rolling, blue_green]
+        canary_percentage:
+          type: integer
+        wave_percentage:
+          type: integer
+        failure_threshold_percentage:
+          type: integer
+        health_check_enabled:
+          type: boolean
+        auto_rollback_enabled:
+          type: boolean
+        total_assets:
+          type: integer
+        pending_assets:
+          type: integer
+        in_progress_assets:
+          type: integer
+        completed_assets:
+          type: integer
+        failed_assets:
+          type: integer
+        skipped_assets:
+          type: integer
+        scheduled_start_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        phases:
+          type: array
+          items:
+            $ref: '#/components/schemas/PatchCampaignPhase'
+
+    PatchCampaignPhase:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        campaign_id:
+          type: string
+        phase_number:
+          type: integer
+        name:
+          type: string
+        phase_type:
+          type: string
+          enum: [canary, wave, final]
+        target_percentage:
+          type: integer
+        status:
+          type: string
+          enum: [pending, in_progress, health_check, completed, failed, rolled_back, skipped]
+        total_assets:
+          type: integer
+        completed_assets:
+          type: integer
+        failed_assets:
+          type: integer
+        health_check_passed:
+          type: boolean
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    PatchCampaignAsset:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        campaign_id:
+          type: string
+        asset_id:
+          type: string
+        asset_name:
+          type: string
+        platform:
+          type: string
+        status:
+          type: string
+          enum: [pending, queued, preflight, in_progress, health_check, completed, failed, rolled_back, skipped]
+        before_version:
+          type: string
+        after_version:
+          type: string
+        error_message:
+          type: string
+
+    PatchCampaignListResponse:
+      type: object
+      properties:
+        campaigns:
+          type: array
+          items:
+            $ref: '#/components/schemas/PatchCampaign'
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total_pages:
+          type: integer
+
+    PatchCampaignSummary:
+      type: object
+      properties:
+        total_campaigns:
+          type: integer
+        active_campaigns:
+          type: integer
+        completed_campaigns:
+          type: integer
+        failed_campaigns:
+          type: integer
+        total_assets_patched:
+          type: integer
+        total_rollbacks:
+          type: integer
+        success_rate:
+          type: number
+
+    PatchCampaignProgress:
+      type: object
+      properties:
+        campaign_id:
+          type: string
+        status:
+          type: string
+        total_assets:
+          type: integer
+        completed_assets:
+          type: integer
+        failed_assets:
+          type: integer
+        skipped_assets:
+          type: integer
+        completion_percentage:
+          type: number
+        failure_percentage:
+          type: number
+        total_phases:
+          type: integer
+        completed_phases:
+          type: integer
+        current_phase:
+          type: string
+        current_phase_progress:
+          type: number
+        estimated_completion:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        elapsed_time_minutes:
+          type: integer
+
+    CreatePatchCampaignRequest:
+      type: object
+      required: [name, campaign_type, rollout_strategy]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        campaign_type:
+          type: string
+          enum: [cve_response, scheduled, emergency, compliance]
+        cve_alert_ids:
+          type: array
+          items:
+            type: string
+        rollout_strategy:
+          type: string
+          enum: [immediate, canary, rolling, blue_green]
+        canary_percentage:
+          type: integer
+          minimum: 1
+          maximum: 50
+        wave_percentage:
+          type: integer
+          minimum: 5
+          maximum: 100
+        failure_threshold_percentage:
+          type: integer
+          minimum: 1
+          maximum: 100
+        health_check_enabled:
+          type: boolean
+        auto_rollback_enabled:
+          type: boolean
+        requires_approval:
+          type: boolean
+        scheduled_start_at:
+          type: string
+          format: date-time
+        target_asset_ids:
+          type: array
+          items:
+            type: string
+
+    CreatePatchCampaignFromAlertRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        campaign_type:
+          type: string
+          default: cve_response
+        rollout_strategy:
+          type: string
+          enum: [immediate, canary, rolling, blue_green]
+        canary_percentage:
+          type: integer
+        wave_percentage:
+          type: integer
+        requires_approval:
+          type: boolean
+        scheduled_start_at:
+          type: string
+        target_asset_ids:
+          type: array
+          items:
+            type: string
+
+    ApprovePatchCampaignRequest:
+      type: object
+      required: [approved_by]
+      properties:
+        approved_by:
+          type: string
+        comment:
+          type: string
+
+    RejectPatchCampaignRequest:
+      type: object
+      required: [rejected_by, reason]
+      properties:
+        rejected_by:
+          type: string
+        reason:
+          type: string
+
+    TriggerRollbackRequest:
+      type: object
+      required: [scope, reason]
+      properties:
+        scope:
+          type: string
+          enum: [asset, phase, campaign]
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+        asset_ids:
+          type: array
+          items:
+            type: string
+        phase_id:
+          type: string
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - bearerAuth: []

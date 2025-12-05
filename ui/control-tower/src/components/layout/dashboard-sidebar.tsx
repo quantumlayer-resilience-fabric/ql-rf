@@ -30,6 +30,7 @@ import {
   ClipboardCheck,
   KeyRound,
   ShieldAlert,
+  Rocket,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -45,6 +46,7 @@ const mainNavItems: NavItem[] = [
   { label: "Overview", href: "/overview", icon: LayoutDashboard },
   { label: "Risk", href: "/risk", icon: AlertTriangle },
   { label: "Vulnerabilities", href: "/vulnerabilities", icon: ShieldAlert },
+  { label: "Patch Campaigns", href: "/patch-campaigns", icon: Rocket },
   { label: "Images", href: "/images", icon: Image },
   { label: "SBOM", href: "/sbom", icon: Package },
   { label: "Certificates", href: "/certificates", icon: KeyRound },

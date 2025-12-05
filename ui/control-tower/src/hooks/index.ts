@@ -11,3 +11,5 @@ export * from "./use-lineage";
 export * from "./use-risk";
 export * from "./use-permissions";
 export * from "./use-certificates";
+export * from "./use-cve-alerts";
+export * from "./use-patch-campaigns";

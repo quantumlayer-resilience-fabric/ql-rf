@@ -28,6 +28,7 @@ type Config struct {
 	Temporal      TemporalConfig      `mapstructure:"temporal"`
 	OPA           OPAConfig           `mapstructure:"opa"`
 	Notifications NotificationConfig  `mapstructure:"notifications"`
+	CVE           CVEConfig           `mapstructure:"cve"`
 }
 
 // APIConfig holds API server configuration.
@@ -246,6 +247,41 @@ type NotificationConfig struct {
 	TeamsWebhookURL string `mapstructure:"teams_webhook_url"`
 }
 
+// CVEConfig holds CVE aggregator service configuration.
+type CVEConfig struct {
+	// Service configuration
+	Host string `mapstructure:"host"`
+	Port int    `mapstructure:"port"`
+
+	// Poll interval for checking feeds
+	PollInterval time.Duration `mapstructure:"poll_interval"`
+
+	// NVD (National Vulnerability Database) configuration
+	NVDEnabled bool   `mapstructure:"nvd_enabled"`
+	NVDAPIKey  string `mapstructure:"nvd_api_key"` // Optional, increases rate limit
+
+	// OSV (Open Source Vulnerabilities) configuration
+	OSVEnabled bool `mapstructure:"osv_enabled"`
+
+	// GitHub Security Advisories configuration
+	GitHubEnabled bool   `mapstructure:"github_enabled"`
+	GitHubToken   string `mapstructure:"github_token"` // Optional, increases rate limit
+
+	// CISA KEV (Known Exploited Vulnerabilities) configuration
+	CISAKEVEnabled bool `mapstructure:"cisa_kev_enabled"`
+
+	// Alert thresholds
+	CriticalThreshold float64 `mapstructure:"critical_threshold"` // Urgency score for critical alerts
+	HighThreshold     float64 `mapstructure:"high_threshold"`     // Urgency score for high alerts
+
+	// Kafka topics for CVE events
+	Topics struct {
+		CVEDiscovered string `mapstructure:"cve_discovered"`
+		CVEMatchFound string `mapstructure:"cve_match_found"`
+		CVEAlertCreated string `mapstructure:"cve_alert_created"`
+	} `mapstructure:"topics"`
+}
+
 // TemporalAddress returns the Temporal server address.
 func (c *TemporalConfig) Address() string {
 	return fmt.Sprintf("%s:%d", c.Host, c.Port)
@@ -417,6 +453,20 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("notifications.smtp_port", 587)
 	v.SetDefault("notifications.webhook_enabled", false)
 	v.SetDefault("notifications.teams_enabled", false)
+
+	// CVE Aggregator
+	v.SetDefault("cve.host", "0.0.0.0")
+	v.SetDefault("cve.port", 8084)
+	v.SetDefault("cve.poll_interval", "15m")
+	v.SetDefault("cve.nvd_enabled", true)
+	v.SetDefault("cve.osv_enabled", true)
+	v.SetDefault("cve.github_enabled", true)
+	v.SetDefault("cve.cisa_kev_enabled", true)
+	v.SetDefault("cve.critical_threshold", 80.0)
+	v.SetDefault("cve.high_threshold", 60.0)
+	v.SetDefault("cve.topics.cve_discovered", "cve.discovered")
+	v.SetDefault("cve.topics.cve_match_found", "cve.match.found")
+	v.SetDefault("cve.topics.cve_alert_created", "cve.alert.created")
 }
 
 func bindEnvVars(v *viper.Viper) error {
@@ -500,6 +550,18 @@ func bindEnvVars(v *viper.Viper) error {
 		"notifications.webhook_secret",
 		"notifications.teams_enabled",
 		"notifications.teams_webhook_url",
+		// CVE Aggregator
+		"cve.host",
+		"cve.port",
+		"cve.poll_interval",
+		"cve.nvd_enabled",
+		"cve.nvd_api_key",
+		"cve.osv_enabled",
+		"cve.github_enabled",
+		"cve.github_token",
+		"cve.cisa_kev_enabled",
+		"cve.critical_threshold",
+		"cve.high_threshold",
 	}
 
 	for _, key := range envVars {

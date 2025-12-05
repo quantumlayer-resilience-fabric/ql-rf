@@ -114,6 +114,7 @@ func (h *Handler) Router() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.OptionalAuth(authCfg, h.log))
 			h.RegisterCVEAlertRoutes(r)
+			h.RegisterPatchCampaignRoutes(r)
 		})
 
 		// AI execution routes - require auth (optional in dev mode)

@@ -50,6 +50,20 @@ const (
 	EventPhaseStarted        EventType = "phase_started"
 	EventPhaseCompleted      EventType = "phase_completed"
 	EventPhaseFailed         EventType = "phase_failed"
+
+	// CVE/Vulnerability events
+	EventCVEAlertCreated       EventType = "cve_alert_created"
+	EventCVEAlertCritical      EventType = "cve_alert_critical"
+	EventCVEAlertSLABreaching  EventType = "cve_alert_sla_breaching"
+	EventCVEAlertResolved      EventType = "cve_alert_resolved"
+
+	// Patch campaign events
+	EventCampaignCreated       EventType = "campaign_created"
+	EventCampaignStarted       EventType = "campaign_started"
+	EventCampaignPhaseComplete EventType = "campaign_phase_complete"
+	EventCampaignCompleted     EventType = "campaign_completed"
+	EventCampaignFailed        EventType = "campaign_failed"
+	EventCampaignRollback      EventType = "campaign_rollback"
 )
 
 // Event represents a notification event.
@@ -779,4 +793,185 @@ func (n *Notifier) buildTeamsMessageCard(event Event) map[string]interface{} {
 			},
 		},
 	}
+}
+
+// =============================================================================
+// CVE Alert Notifications
+// =============================================================================
+
+// CVEAlertInfo contains information about a CVE alert for notifications.
+type CVEAlertInfo struct {
+	AlertID        string
+	CVEID          string
+	Severity       string
+	UrgencyScore   int
+	AffectedAssets int
+	ProductionAssets int
+	Description    string
+}
+
+// NotifyCVEAlertCreated sends notification when a new CVE alert is created.
+func (n *Notifier) NotifyCVEAlertCreated(ctx context.Context, alert CVEAlertInfo) error {
+	return n.Notify(ctx, Event{
+		Type:      EventCVEAlertCreated,
+		TaskID:    alert.AlertID,
+		RiskLevel: alert.Severity,
+		Summary:   fmt.Sprintf("%s: %s", alert.CVEID, alert.Description),
+		Metadata: map[string]interface{}{
+			"cve_id":           alert.CVEID,
+			"urgency_score":    alert.UrgencyScore,
+			"affected_assets":  alert.AffectedAssets,
+			"production_assets": alert.ProductionAssets,
+		},
+	})
+}
+
+// NotifyCVEAlertCritical sends urgent notification for critical CVE alerts.
+func (n *Notifier) NotifyCVEAlertCritical(ctx context.Context, alert CVEAlertInfo) error {
+	return n.Notify(ctx, Event{
+		Type:      EventCVEAlertCritical,
+		TaskID:    alert.AlertID,
+		RiskLevel: "critical",
+		Summary:   fmt.Sprintf("CRITICAL: %s affecting %d assets (%d production)", alert.CVEID, alert.AffectedAssets, alert.ProductionAssets),
+		Metadata: map[string]interface{}{
+			"cve_id":           alert.CVEID,
+			"urgency_score":    alert.UrgencyScore,
+			"affected_assets":  alert.AffectedAssets,
+			"production_assets": alert.ProductionAssets,
+		},
+	})
+}
+
+// NotifyCVEAlertSLABreaching sends notification when an alert is about to breach SLA.
+func (n *Notifier) NotifyCVEAlertSLABreaching(ctx context.Context, alert CVEAlertInfo, hoursRemaining int) error {
+	return n.Notify(ctx, Event{
+		Type:      EventCVEAlertSLABreaching,
+		TaskID:    alert.AlertID,
+		RiskLevel: alert.Severity,
+		Summary:   fmt.Sprintf("SLA BREACHING: %s - %d hours remaining", alert.CVEID, hoursRemaining),
+		Metadata: map[string]interface{}{
+			"cve_id":         alert.CVEID,
+			"hours_remaining": hoursRemaining,
+			"affected_assets": alert.AffectedAssets,
+		},
+	})
+}
+
+// NotifyCVEAlertResolved sends notification when a CVE alert is resolved.
+func (n *Notifier) NotifyCVEAlertResolved(ctx context.Context, alert CVEAlertInfo, resolutionType string) error {
+	return n.Notify(ctx, Event{
+		Type:      EventCVEAlertResolved,
+		TaskID:    alert.AlertID,
+		RiskLevel: alert.Severity,
+		Summary:   fmt.Sprintf("RESOLVED: %s - %s", alert.CVEID, resolutionType),
+		Metadata: map[string]interface{}{
+			"cve_id":          alert.CVEID,
+			"resolution_type": resolutionType,
+		},
+	})
+}
+
+// =============================================================================
+// Patch Campaign Notifications
+// =============================================================================
+
+// CampaignInfo contains information about a patch campaign for notifications.
+type CampaignInfo struct {
+	CampaignID    string
+	Name          string
+	CVEID         string
+	Status        string
+	TotalAssets   int
+	PatchedAssets int
+	FailedAssets  int
+	Phase         string
+}
+
+// NotifyCampaignCreated sends notification when a patch campaign is created.
+func (n *Notifier) NotifyCampaignCreated(ctx context.Context, campaign CampaignInfo) error {
+	return n.Notify(ctx, Event{
+		Type:    EventCampaignCreated,
+		TaskID:  campaign.CampaignID,
+		Summary: fmt.Sprintf("Patch Campaign Created: %s for %s", campaign.Name, campaign.CVEID),
+		Metadata: map[string]interface{}{
+			"campaign_name": campaign.Name,
+			"cve_id":       campaign.CVEID,
+			"total_assets": campaign.TotalAssets,
+		},
+	})
+}
+
+// NotifyCampaignStarted sends notification when a patch campaign starts execution.
+func (n *Notifier) NotifyCampaignStarted(ctx context.Context, campaign CampaignInfo) error {
+	return n.Notify(ctx, Event{
+		Type:    EventCampaignStarted,
+		TaskID:  campaign.CampaignID,
+		Summary: fmt.Sprintf("Patch Campaign Started: %s (%d assets)", campaign.Name, campaign.TotalAssets),
+		Metadata: map[string]interface{}{
+			"campaign_name": campaign.Name,
+			"total_assets":  campaign.TotalAssets,
+		},
+	})
+}
+
+// NotifyCampaignPhaseComplete sends notification when a campaign phase completes.
+func (n *Notifier) NotifyCampaignPhaseComplete(ctx context.Context, campaign CampaignInfo) error {
+	return n.Notify(ctx, Event{
+		Type:    EventCampaignPhaseComplete,
+		TaskID:  campaign.CampaignID,
+		Summary: fmt.Sprintf("Phase Complete: %s - %d/%d patched", campaign.Phase, campaign.PatchedAssets, campaign.TotalAssets),
+		Metadata: map[string]interface{}{
+			"campaign_name":  campaign.Name,
+			"phase":          campaign.Phase,
+			"patched_assets": campaign.PatchedAssets,
+			"total_assets":   campaign.TotalAssets,
+		},
+	})
+}
+
+// NotifyCampaignCompleted sends notification when a campaign completes successfully.
+func (n *Notifier) NotifyCampaignCompleted(ctx context.Context, campaign CampaignInfo) error {
+	return n.Notify(ctx, Event{
+		Type:    EventCampaignCompleted,
+		TaskID:  campaign.CampaignID,
+		Summary: fmt.Sprintf("Campaign Completed: %s - %d assets patched", campaign.Name, campaign.PatchedAssets),
+		Metadata: map[string]interface{}{
+			"campaign_name":  campaign.Name,
+			"patched_assets": campaign.PatchedAssets,
+			"failed_assets":  campaign.FailedAssets,
+		},
+	})
+}
+
+// NotifyCampaignFailed sends notification when a campaign fails.
+func (n *Notifier) NotifyCampaignFailed(ctx context.Context, campaign CampaignInfo, reason string) error {
+	return n.Notify(ctx, Event{
+		Type:      EventCampaignFailed,
+		TaskID:    campaign.CampaignID,
+		RiskLevel: "high",
+		Summary:   fmt.Sprintf("Campaign Failed: %s - %s", campaign.Name, reason),
+		Metadata: map[string]interface{}{
+			"campaign_name":  campaign.Name,
+			"failed_assets":  campaign.FailedAssets,
+			"patched_assets": campaign.PatchedAssets,
+			"reason":         reason,
+		},
+	})
+}
+
+// NotifyCampaignRollback sends notification when a campaign triggers rollback.
+func (n *Notifier) NotifyCampaignRollback(ctx context.Context, campaign CampaignInfo, reason string) error {
+	return n.Notify(ctx, Event{
+		Type:      EventCampaignRollback,
+		TaskID:    campaign.CampaignID,
+		RiskLevel: "critical",
+		Summary:   fmt.Sprintf("ROLLBACK TRIGGERED: %s - %s", campaign.Name, reason),
+		Metadata: map[string]interface{}{
+			"campaign_name":  campaign.Name,
+			"phase":          campaign.Phase,
+			"patched_assets": campaign.PatchedAssets,
+			"failed_assets":  campaign.FailedAssets,
+			"reason":         reason,
+		},
+	})
 }
