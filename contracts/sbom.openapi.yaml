@@ -1,0 +1,741 @@
+openapi: 3.0.3
+info:
+  title: QL-RF SBOM API
+  description: Software Bill of Materials (SBOM) generation and management API
+  version: 1.0.0
+  contact:
+    name: QuantumLayer Platform
+    url: https://ql-rf.io
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://api.ql-rf.io
+    description: Production
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: SBOM
+    description: SBOM generation and management operations
+  - name: Vulnerabilities
+    description: Vulnerability scanning and reporting
+
+paths:
+  /api/v1/sbom:
+    get:
+      summary: List all SBOMs
+      description: Returns a paginated list of SBOMs for the organization
+      operationId: listSBOMs
+      tags:
+        - SBOM
+      parameters:
+        - name: page
+          in: query
+          description: Page number (1-indexed)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          description: Number of items per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: List of SBOMs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SBOMListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/sbom/{id}:
+    get:
+      summary: Get SBOM by ID
+      description: Retrieves a specific SBOM with optional packages and vulnerabilities
+      operationId: getSBOM
+      tags:
+        - SBOM
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: SBOM ID
+          schema:
+            type: string
+            format: uuid
+        - name: include_packages
+          in: query
+          description: Include package details
+          schema:
+            type: boolean
+            default: false
+        - name: include_vulns
+          in: query
+          description: Include vulnerability details
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: SBOM details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SBOM'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      summary: Delete SBOM
+      description: Deletes an SBOM and all associated data
+      operationId: deleteSBOM
+      tags:
+        - SBOM
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: SBOM ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: SBOM deleted successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/images/{id}/sbom:
+    get:
+      summary: Get SBOM for image
+      description: Retrieves the most recent SBOM for a specific golden image
+      operationId: getImageSBOM
+      tags:
+        - SBOM
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Image ID
+          schema:
+            type: string
+            format: uuid
+        - name: include_packages
+          in: query
+          description: Include package details
+          schema:
+            type: boolean
+            default: false
+        - name: include_vulns
+          in: query
+          description: Include vulnerability details
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: SBOM for the image
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SBOM'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/images/{id}/sbom/generate:
+    post:
+      summary: Generate SBOM for image
+      description: Generates a new SBOM for a golden image using specified scanner and format
+      operationId: generateSBOM
+      tags:
+        - SBOM
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Image ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SBOMGenerateRequest'
+            examples:
+              spdx:
+                summary: Generate SPDX SBOM
+                value:
+                  format: "spdx"
+                  scanner: "syft"
+                  include_vulns: true
+              cyclonedx:
+                summary: Generate CycloneDX SBOM
+                value:
+                  format: "cyclonedx"
+                  scanner: "trivy"
+                  include_vulns: true
+      responses:
+        '201':
+          description: SBOM generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SBOMGenerationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/sbom/{id}/export:
+    get:
+      summary: Export SBOM
+      description: Exports an SBOM in the specified format (SPDX or CycloneDX)
+      operationId: exportSBOM
+      tags:
+        - SBOM
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: SBOM ID
+          schema:
+            type: string
+            format: uuid
+        - name: format
+          in: query
+          description: Export format (defaults to original format)
+          schema:
+            type: string
+            enum: [spdx, cyclonedx]
+      responses:
+        '200':
+          description: Exported SBOM
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SBOMExportResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/sbom/{id}/vulnerabilities:
+    get:
+      summary: Get SBOM vulnerabilities
+      description: Retrieves vulnerabilities for an SBOM with filtering options
+      operationId: getSBOMVulnerabilities
+      tags:
+        - Vulnerabilities
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: SBOM ID
+          schema:
+            type: string
+            format: uuid
+        - name: severity
+          in: query
+          description: Filter by severity levels (can specify multiple)
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [critical, high, medium, low, unknown]
+          style: form
+          explode: true
+        - name: min_cvss
+          in: query
+          description: Minimum CVSS score
+          schema:
+            type: number
+            format: double
+            minimum: 0.0
+            maximum: 10.0
+        - name: has_exploit
+          in: query
+          description: Filter by exploit availability
+          schema:
+            type: boolean
+        - name: fix_available
+          in: query
+          description: Filter by fix availability
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: List of vulnerabilities with statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VulnerabilityListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from Clerk authentication
+
+  schemas:
+    SBOM:
+      type: object
+      required:
+        - id
+        - image_id
+        - org_id
+        - format
+        - version
+        - package_count
+        - generated_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique SBOM identifier
+        image_id:
+          type: string
+          format: uuid
+          description: Associated golden image ID
+        org_id:
+          type: string
+          format: uuid
+          description: Organization ID
+        format:
+          type: string
+          enum: [spdx, cyclonedx]
+          description: SBOM format type
+        version:
+          type: string
+          description: Format version (e.g., SPDX-2.3, CycloneDX-1.5)
+          example: "SPDX-2.3"
+        content:
+          type: object
+          description: Full SBOM document as JSON
+          additionalProperties: true
+        package_count:
+          type: integer
+          description: Number of packages in SBOM
+          example: 247
+        vuln_count:
+          type: integer
+          description: Number of vulnerabilities detected
+          example: 12
+        scanner:
+          type: string
+          description: Scanner tool used
+          example: "syft"
+        generated_at:
+          type: string
+          format: date-time
+          description: When the SBOM was generated
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+        packages:
+          type: array
+          description: Package details (included when include_packages=true)
+          items:
+            $ref: '#/components/schemas/Package'
+        vulnerabilities:
+          type: array
+          description: Vulnerability details (included when include_vulns=true)
+          items:
+            $ref: '#/components/schemas/Vulnerability'
+
+    Package:
+      type: object
+      required:
+        - id
+        - sbom_id
+        - name
+        - version
+        - type
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        sbom_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: Package name
+          example: "openssl"
+        version:
+          type: string
+          description: Package version
+          example: "3.0.2"
+        type:
+          type: string
+          description: Package type
+          enum: [deb, rpm, apk, npm, pip, go, jar, gem, nuget]
+          example: "deb"
+        purl:
+          type: string
+          description: Package URL (purl)
+          example: "pkg:deb/ubuntu/openssl@3.0.2"
+        cpe:
+          type: string
+          description: Common Platform Enumeration
+          example: "cpe:2.3:a:openssl:openssl:3.0.2:*:*:*:*:*:*:*"
+        license:
+          type: string
+          description: Package license
+          example: "Apache-2.0"
+        supplier:
+          type: string
+          description: Package supplier/vendor
+        checksum:
+          type: string
+          description: SHA256 hash
+        source_url:
+          type: string
+          format: uri
+          description: Source code URL
+        location:
+          type: string
+          description: File path in image
+          example: "/usr/lib/x86_64-linux-gnu/libssl.so.3"
+        created_at:
+          type: string
+          format: date-time
+
+    Vulnerability:
+      type: object
+      required:
+        - id
+        - sbom_id
+        - package_id
+        - cve_id
+        - severity
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        sbom_id:
+          type: string
+          format: uuid
+        package_id:
+          type: string
+          format: uuid
+        cve_id:
+          type: string
+          description: CVE identifier
+          example: "CVE-2024-1234"
+        severity:
+          type: string
+          enum: [critical, high, medium, low, unknown]
+          description: Vulnerability severity
+        cvss_score:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 10.0
+          description: CVSS score
+          example: 7.5
+        cvss_vector:
+          type: string
+          description: CVSS vector string
+          example: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+        description:
+          type: string
+          description: Vulnerability description
+        fixed_version:
+          type: string
+          description: Version with fix
+          example: "3.0.3"
+        published_date:
+          type: string
+          format: date-time
+          description: CVE publication date
+        modified_date:
+          type: string
+          format: date-time
+          description: Last modified date
+        references:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: URLs to advisories
+        data_source:
+          type: string
+          description: Vulnerability data source
+          example: "NVD"
+        exploit_available:
+          type: boolean
+          description: Whether exploit is publicly available
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    SBOMGenerateRequest:
+      type: object
+      required:
+        - format
+      properties:
+        format:
+          type: string
+          enum: [spdx, cyclonedx]
+          description: SBOM format to generate
+        scanner:
+          type: string
+          description: Scanner to use (defaults to ql-rf)
+          example: "syft"
+        include_vulns:
+          type: boolean
+          description: Whether to scan for vulnerabilities
+          default: false
+        dockerfile:
+          type: string
+          description: Optional Dockerfile content
+        manifests:
+          type: object
+          additionalProperties:
+            type: string
+          description: Optional package manifest files
+
+    SBOMGenerationResponse:
+      type: object
+      required:
+        - sbom
+        - status
+        - package_count
+        - vuln_count
+        - generated_at
+      properties:
+        sbom:
+          $ref: '#/components/schemas/SBOM'
+        status:
+          type: string
+          enum: [success, partial, failed]
+          description: Generation status
+        message:
+          type: string
+          description: Additional status message
+        package_count:
+          type: integer
+          description: Number of packages detected
+        vuln_count:
+          type: integer
+          description: Number of vulnerabilities found
+        generated_at:
+          type: string
+          format: date-time
+
+    SBOMExportResponse:
+      type: object
+      required:
+        - format
+        - content
+      properties:
+        format:
+          type: string
+          enum: [spdx, cyclonedx]
+          description: Export format
+        content:
+          type: object
+          additionalProperties: true
+          description: SBOM content in requested format
+
+    SBOMSummary:
+      type: object
+      required:
+        - id
+        - image_id
+        - format
+        - package_count
+        - vuln_count
+        - generated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        image_id:
+          type: string
+          format: uuid
+        format:
+          type: string
+          enum: [spdx, cyclonedx]
+        package_count:
+          type: integer
+        vuln_count:
+          type: integer
+        critical:
+          type: integer
+          description: Critical vulnerabilities
+        high:
+          type: integer
+          description: High severity vulnerabilities
+        medium:
+          type: integer
+          description: Medium severity vulnerabilities
+        low:
+          type: integer
+          description: Low severity vulnerabilities
+        generated_at:
+          type: string
+          format: date-time
+
+    SBOMListResponse:
+      type: object
+      required:
+        - sboms
+        - total
+        - page
+        - page_size
+        - total_pages
+      properties:
+        sboms:
+          type: array
+          items:
+            $ref: '#/components/schemas/SBOMSummary'
+        total:
+          type: integer
+          description: Total number of SBOMs
+        page:
+          type: integer
+          description: Current page number
+        page_size:
+          type: integer
+          description: Items per page
+        total_pages:
+          type: integer
+          description: Total number of pages
+
+    VulnerabilityListResponse:
+      type: object
+      required:
+        - sbom_id
+        - vulnerabilities
+        - count
+        - stats
+      properties:
+        sbom_id:
+          type: string
+          format: uuid
+        vulnerabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vulnerability'
+        count:
+          type: integer
+          description: Total vulnerabilities returned
+        stats:
+          type: object
+          description: Vulnerability statistics
+          additionalProperties: true
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Error message
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "invalid request body"
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "organization not found"
+
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "access denied"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "SBOM not found"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "internal server error"

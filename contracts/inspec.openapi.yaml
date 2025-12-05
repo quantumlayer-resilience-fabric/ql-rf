@@ -1,0 +1,852 @@
+openapi: 3.0.3
+info:
+  title: QL-RF InSpec API
+  description: InSpec integration API for automated compliance assessment
+  version: 1.0.0
+  contact:
+    name: QuantumLayer Platform
+    url: https://ql-rf.io
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://api.ql-rf.io
+    description: Production
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Profiles
+    description: InSpec profile management
+  - name: Runs
+    description: InSpec execution runs
+  - name: Results
+    description: Run results and control mappings
+
+paths:
+  /api/v1/inspec/profiles:
+    get:
+      summary: List InSpec profiles
+      description: Returns all available InSpec profiles
+      operationId: listProfiles
+      tags:
+        - Profiles
+      responses:
+        '200':
+          description: List of profiles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      summary: Create InSpec profile
+      description: Creates a new InSpec profile
+      operationId: createProfile
+      tags:
+        - Profiles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProfileRequest'
+            examples:
+              cis:
+                summary: CIS Docker Benchmark
+                value:
+                  name: "cis-docker-benchmark"
+                  version: "2.1.0"
+                  title: "CIS Docker Benchmark"
+                  maintainer: "DevSec Hardening Framework"
+                  summary: "CIS Docker 1.13.0 Benchmark Profile"
+                  framework_id: "550e8400-e29b-41d4-a716-446655440000"
+                  profile_url: "https://github.com/dev-sec/cis-docker-benchmark"
+                  platforms: ["linux"]
+      responses:
+        '201':
+          description: Profile created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/inspec/profiles/{profileId}:
+    get:
+      summary: Get profile details
+      description: Returns details of a specific InSpec profile
+      operationId: getProfile
+      tags:
+        - Profiles
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          description: Profile ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Profile details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/inspec/profiles/{profileId}/mappings:
+    get:
+      summary: Get control mappings
+      description: Returns control mappings for a profile
+      operationId: getControlMappings
+      tags:
+        - Results
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          description: Profile ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Control mappings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControlMappingListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      summary: Create control mapping
+      description: Creates a new control mapping between InSpec control and compliance control
+      operationId: createControlMapping
+      tags:
+        - Results
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          description: Profile ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateControlMappingRequest'
+            examples:
+              mapping:
+                summary: Map InSpec control to CIS control
+                value:
+                  inspec_control_id: "docker-1.1.1"
+                  compliance_control_id: "550e8400-e29b-41d4-a716-446655440001"
+                  mapping_confidence: 1.0
+                  notes: "Direct 1:1 mapping to CIS Docker 1.1.1"
+      responses:
+        '201':
+          description: Mapping created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControlMapping'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/inspec/run:
+    post:
+      summary: Run InSpec profile
+      description: Initiates an InSpec profile run against an asset
+      operationId: runProfile
+      tags:
+        - Runs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunProfileRequest'
+            examples:
+              run:
+                summary: Run CIS Docker profile
+                value:
+                  profile_id: "550e8400-e29b-41d4-a716-446655440000"
+                  asset_id: "660e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '202':
+          description: Run initiated (async)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/inspec/runs:
+    get:
+      summary: List InSpec runs
+      description: Returns InSpec runs for the organization with pagination
+      operationId: listRuns
+      tags:
+        - Runs
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of runs to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Number of runs to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/inspec/runs/{runId}:
+    get:
+      summary: Get run details
+      description: Returns details of a specific InSpec run
+      operationId: getRun
+      tags:
+        - Runs
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          description: Run ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Run details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/inspec/runs/{runId}/results:
+    get:
+      summary: Get run results
+      description: Returns control results for a specific run
+      operationId: getRunResults
+      tags:
+        - Results
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          description: Run ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Run results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunResultsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/inspec/runs/{runId}/cancel:
+    post:
+      summary: Cancel run
+      description: Cancels a pending or running InSpec run
+      operationId: cancelRun
+      tags:
+        - Runs
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          description: Run ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Run cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "run cancelled successfully"
+                  run_id:
+                    type: string
+                    format: uuid
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from Clerk authentication
+
+  schemas:
+    Profile:
+      type: object
+      required:
+        - id
+        - name
+        - version
+        - title
+        - maintainer
+        - summary
+        - framework_id
+        - profile_url
+        - platforms
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique profile identifier
+        name:
+          type: string
+          description: Profile name
+          example: "cis-docker-benchmark"
+        version:
+          type: string
+          description: Profile version
+          example: "2.1.0"
+        title:
+          type: string
+          description: Profile title
+          example: "CIS Docker Benchmark"
+        maintainer:
+          type: string
+          description: Profile maintainer
+          example: "DevSec Hardening Framework"
+        summary:
+          type: string
+          description: Profile summary
+        framework_id:
+          type: string
+          format: uuid
+          description: Associated compliance framework ID
+        profile_url:
+          type: string
+          format: uri
+          description: Git URL or supermarket URL
+        platforms:
+          type: array
+          items:
+            type: string
+          description: Supported platforms
+          example: ["linux", "windows", "aws"]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateProfileRequest:
+      type: object
+      required:
+        - name
+        - version
+        - title
+        - framework_id
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Profile name
+        version:
+          type: string
+          minLength: 1
+          description: Profile version
+        title:
+          type: string
+          minLength: 1
+          description: Profile title
+        maintainer:
+          type: string
+          description: Profile maintainer
+        summary:
+          type: string
+          description: Profile summary
+        framework_id:
+          type: string
+          format: uuid
+          description: Associated compliance framework ID
+        profile_url:
+          type: string
+          format: uri
+          description: Profile URL
+        platforms:
+          type: array
+          items:
+            type: string
+          description: Supported platforms
+
+    ProfileListResponse:
+      type: object
+      required:
+        - profiles
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/AvailableProfile'
+
+    AvailableProfile:
+      type: object
+      required:
+        - profile_id
+        - name
+        - title
+        - version
+        - framework
+        - framework_id
+        - platforms
+        - control_count
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        title:
+          type: string
+        version:
+          type: string
+        framework:
+          type: string
+          description: Framework name
+          example: "CIS"
+        framework_id:
+          type: string
+          format: uuid
+        platforms:
+          type: array
+          items:
+            type: string
+        control_count:
+          type: integer
+          description: Number of controls in profile
+
+    Run:
+      type: object
+      required:
+        - id
+        - org_id
+        - asset_id
+        - profile_id
+        - status
+        - total_tests
+        - passed_tests
+        - failed_tests
+        - skipped_tests
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique run identifier
+        org_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+          description: Asset being tested
+        profile_id:
+          type: string
+          format: uuid
+          description: Profile being run
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+          description: Run status
+        started_at:
+          type: string
+          format: date-time
+          description: When the run started
+        completed_at:
+          type: string
+          format: date-time
+          description: When the run completed
+        duration:
+          type: integer
+          description: Duration in seconds
+        total_tests:
+          type: integer
+          description: Total number of tests
+        passed_tests:
+          type: integer
+          description: Number of passed tests
+        failed_tests:
+          type: integer
+          description: Number of failed tests
+        skipped_tests:
+          type: integer
+          description: Number of skipped tests
+        error_message:
+          type: string
+          description: Error message if failed
+        raw_output:
+          type: string
+          description: Raw InSpec JSON output
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    RunProfileRequest:
+      type: object
+      required:
+        - profile_id
+        - asset_id
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: Profile to run
+        asset_id:
+          type: string
+          format: uuid
+          description: Asset to test
+
+    RunListResponse:
+      type: object
+      required:
+        - runs
+        - limit
+        - offset
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunSummary'
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    RunSummary:
+      type: object
+      required:
+        - run_id
+        - asset_id
+        - asset_name
+        - profile_name
+        - framework
+        - status
+        - pass_rate
+        - total_tests
+        - passed_tests
+        - failed_tests
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        asset_name:
+          type: string
+          description: Asset name
+        profile_name:
+          type: string
+          description: Profile name
+        framework:
+          type: string
+          description: Framework name
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        duration:
+          type: integer
+          description: Duration in seconds
+        pass_rate:
+          type: number
+          format: double
+          description: Pass rate percentage (0-100)
+        total_tests:
+          type: integer
+        passed_tests:
+          type: integer
+        failed_tests:
+          type: integer
+
+    Result:
+      type: object
+      required:
+        - id
+        - run_id
+        - control_id
+        - control_title
+        - status
+        - run_time
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        run_id:
+          type: string
+          format: uuid
+        control_id:
+          type: string
+          description: InSpec control ID
+          example: "docker-1.1.1"
+        control_title:
+          type: string
+          description: Control title
+        status:
+          type: string
+          enum: [passed, failed, skipped, error]
+          description: Result status
+        message:
+          type: string
+          description: Result message
+        resource:
+          type: string
+          description: Resource being tested
+        source_location:
+          type: string
+          description: Source file location
+        run_time:
+          type: number
+          format: double
+          description: Execution time in seconds
+        code_description:
+          type: string
+          description: Code description
+        created_at:
+          type: string
+          format: date-time
+
+    RunResultsResponse:
+      type: object
+      required:
+        - run
+        - results
+      properties:
+        run:
+          $ref: '#/components/schemas/Run'
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Result'
+
+    ControlMapping:
+      type: object
+      required:
+        - id
+        - inspec_control_id
+        - compliance_control_id
+        - profile_id
+        - mapping_confidence
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        inspec_control_id:
+          type: string
+          description: InSpec control ID
+        compliance_control_id:
+          type: string
+          format: uuid
+          description: Compliance control ID
+        profile_id:
+          type: string
+          format: uuid
+          description: Associated profile ID
+        mapping_confidence:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+          description: Confidence score (0.0 to 1.0)
+        notes:
+          type: string
+          description: Mapping notes
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateControlMappingRequest:
+      type: object
+      required:
+        - inspec_control_id
+        - compliance_control_id
+      properties:
+        inspec_control_id:
+          type: string
+          minLength: 1
+          description: InSpec control ID
+        compliance_control_id:
+          type: string
+          format: uuid
+          description: Compliance control ID
+        mapping_confidence:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+          description: Confidence score (defaults to 1.0)
+          default: 1.0
+        notes:
+          type: string
+          description: Mapping notes
+
+    ControlMappingListResponse:
+      type: object
+      required:
+        - mappings
+      properties:
+        mappings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ControlMapping'
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Error message
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "invalid request body"
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "organization not found"
+
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "access denied"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "run not found"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "internal server error"

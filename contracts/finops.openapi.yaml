@@ -1,0 +1,815 @@
+openapi: 3.0.3
+info:
+  title: QL-RF FinOps API
+  description: FinOps cost optimization and financial operations API
+  version: 1.0.0
+  contact:
+    name: QuantumLayer Platform
+    url: https://ql-rf.io
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://api.ql-rf.io
+    description: Production
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Costs
+    description: Cost tracking and analysis operations
+  - name: Budgets
+    description: Budget management operations
+  - name: Recommendations
+    description: Cost optimization recommendations
+  - name: Forecasting
+    description: Cost forecasting and trends
+
+paths:
+  /api/v1/finops/summary:
+    get:
+      summary: Get cost summary
+      description: Returns aggregated cost summary for the organization
+      operationId: getCostSummary
+      tags:
+        - Costs
+      parameters:
+        - name: period
+          in: query
+          description: Time period for cost aggregation
+          schema:
+            type: string
+            enum: [7d, 30d, 90d, 365d, week, month, quarter, year, this_month, last_month]
+            default: "30d"
+      responses:
+        '200':
+          description: Cost summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/finops/breakdown:
+    get:
+      summary: Get cost breakdown
+      description: Returns cost breakdown by specified dimension
+      operationId: getCostBreakdown
+      tags:
+        - Costs
+      parameters:
+        - name: dimension
+          in: query
+          description: Dimension to break down costs by
+          schema:
+            type: string
+            enum: [cloud, service, region, site, resource_type]
+            default: cloud
+        - name: period
+          in: query
+          description: Time period for analysis
+          schema:
+            type: string
+            enum: [7d, 30d, 90d, 365d, this_month, last_month]
+            default: "30d"
+      responses:
+        '200':
+          description: Cost breakdown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostBreakdown'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/finops/trend:
+    get:
+      summary: Get cost trend
+      description: Returns cost trend over time
+      operationId: getCostTrend
+      tags:
+        - Forecasting
+      parameters:
+        - name: days
+          in: query
+          description: Number of days to include in trend (1-365)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        '200':
+          description: Cost trend data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostTrendResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/finops/resources:
+    get:
+      summary: Get resource costs
+      description: Returns cost breakdown by individual resources
+      operationId: getResourceCosts
+      tags:
+        - Costs
+      parameters:
+        - name: resource_type
+          in: query
+          description: Filter by resource type
+          schema:
+            type: string
+            example: "ec2_instance"
+        - name: period
+          in: query
+          description: Time period for analysis
+          schema:
+            type: string
+            enum: [7d, 30d, 90d, 365d]
+            default: "30d"
+      responses:
+        '200':
+          description: Resource costs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceCostListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/finops/recommendations:
+    get:
+      summary: Get cost optimization recommendations
+      description: Returns AI-powered cost optimization recommendations
+      operationId: getRecommendations
+      tags:
+        - Recommendations
+      parameters:
+        - name: type
+          in: query
+          description: Filter by recommendation type
+          schema:
+            type: string
+            enum: [all, rightsizing, reserved_instances, spot_instances, idle_resources, storage_optimization, unused_volumes, old_snapshots]
+            default: all
+      responses:
+        '200':
+          description: Cost recommendations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/finops/budgets:
+    get:
+      summary: List budgets
+      description: Returns all budgets for the organization
+      operationId: listBudgets
+      tags:
+        - Budgets
+      parameters:
+        - name: active_only
+          in: query
+          description: Return only active budgets
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: List of budgets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      summary: Create budget
+      description: Creates a new cost budget
+      operationId: createBudget
+      tags:
+        - Budgets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBudgetRequest'
+            examples:
+              monthly:
+                summary: Monthly organization budget
+                value:
+                  name: "Monthly Cloud Budget"
+                  description: "Organization-wide monthly cloud spend limit"
+                  amount: 50000
+                  currency: "USD"
+                  period: "monthly"
+                  scope: "organization"
+                  alert_threshold: 80
+                  start_date: "2025-01-01"
+              aws:
+                summary: AWS service budget
+                value:
+                  name: "AWS EC2 Budget"
+                  description: "EC2 instance spending limit"
+                  amount: 10000
+                  currency: "USD"
+                  period: "monthly"
+                  scope: "cloud"
+                  scope_value: "aws"
+                  alert_threshold: 85
+                  start_date: "2025-01-01"
+      responses:
+        '201':
+          description: Budget created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostBudget'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from Clerk authentication
+
+  schemas:
+    CostSummary:
+      type: object
+      required:
+        - org_id
+        - total_cost
+        - currency
+        - period
+        - start_date
+        - end_date
+        - by_cloud
+        - by_service
+        - by_site
+        - by_resource
+        - trend_change
+      properties:
+        org_id:
+          type: string
+          format: uuid
+          description: Organization ID
+        total_cost:
+          type: number
+          format: double
+          description: Total cost for period
+          example: 45678.90
+        currency:
+          type: string
+          description: Currency code
+          example: "USD"
+        period:
+          type: string
+          description: Aggregation period
+          enum: [daily, weekly, monthly]
+        start_date:
+          type: string
+          format: date-time
+          description: Period start date
+        end_date:
+          type: string
+          format: date-time
+          description: Period end date
+        by_cloud:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+          description: Cost breakdown by cloud provider
+          example:
+            aws: 25000.00
+            azure: 15000.00
+            gcp: 5678.90
+        by_service:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+          description: Cost breakdown by service
+          example:
+            ec2: 12000.00
+            rds: 8000.00
+            s3: 3000.00
+        by_site:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+          description: Cost breakdown by site/region
+          example:
+            us-east-1: 20000.00
+            eu-west-1: 15000.00
+        by_resource:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ResourceCost'
+          description: Top resources by cost
+        trend_change:
+          type: number
+          format: double
+          description: Percentage change from previous period
+          example: 12.5
+
+    ResourceCost:
+      type: object
+      required:
+        - resource_id
+        - resource_type
+        - resource_name
+        - platform
+        - cost
+        - currency
+      properties:
+        resource_id:
+          type: string
+          description: Cloud resource identifier
+          example: "i-0abc123def456789"
+        resource_type:
+          type: string
+          description: Type of resource
+          example: "ec2_instance"
+        resource_name:
+          type: string
+          description: Resource name or tag
+          example: "web-server-prod-01"
+        platform:
+          type: string
+          description: Cloud platform
+          enum: [aws, azure, gcp, vsphere]
+        cost:
+          type: number
+          format: double
+          description: Cost for this resource
+          example: 1234.56
+        currency:
+          type: string
+          example: "USD"
+        usage_hours:
+          type: number
+          format: double
+          description: Total usage hours
+          example: 720.0
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+          description: Resource tags
+
+    CostBreakdown:
+      type: object
+      required:
+        - dimension
+        - items
+        - total_cost
+        - currency
+        - period
+        - start_date
+        - end_date
+      properties:
+        dimension:
+          type: string
+          description: Breakdown dimension
+          enum: [cloud, service, region, site, resource_type]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CostBreakdownItem'
+        total_cost:
+          type: number
+          format: double
+          description: Total cost across all items
+        currency:
+          type: string
+          example: "USD"
+        period:
+          type: string
+          description: Time period
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+
+    CostBreakdownItem:
+      type: object
+      required:
+        - name
+        - cost
+        - percentage
+      properties:
+        name:
+          type: string
+          description: Item name
+          example: "aws"
+        cost:
+          type: number
+          format: double
+          description: Cost for this item
+          example: 25000.00
+        percentage:
+          type: number
+          format: double
+          description: Percentage of total cost
+          example: 54.7
+
+    CostTrend:
+      type: object
+      required:
+        - date
+        - cost
+        - currency
+      properties:
+        date:
+          type: string
+          format: date-time
+          description: Date for this data point
+        cost:
+          type: number
+          format: double
+          description: Total cost for this date
+        currency:
+          type: string
+          example: "USD"
+        by_cloud:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+          description: Cost breakdown by cloud
+
+    CostTrendResponse:
+      type: object
+      required:
+        - trend
+        - days
+      properties:
+        trend:
+          type: array
+          items:
+            $ref: '#/components/schemas/CostTrend'
+        days:
+          type: integer
+          description: Number of days included
+
+    CostRecommendation:
+      type: object
+      required:
+        - id
+        - org_id
+        - type
+        - resource_id
+        - resource_type
+        - platform
+        - current_cost
+        - potential_savings
+        - currency
+        - action
+        - priority
+        - status
+        - detected_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [rightsizing, reserved_instances, spot_instances, idle_resources, storage_optimization, unused_volumes, old_snapshots]
+          description: Recommendation type
+        resource_id:
+          type: string
+          description: Cloud resource ID
+        resource_type:
+          type: string
+          description: Type of resource
+          example: "ec2_instance"
+        resource_name:
+          type: string
+          description: Resource name
+        platform:
+          type: string
+          enum: [aws, azure, gcp, vsphere]
+        current_cost:
+          type: number
+          format: double
+          description: Current monthly cost
+        potential_savings:
+          type: number
+          format: double
+          description: Potential monthly savings
+          example: 450.00
+        currency:
+          type: string
+          example: "USD"
+        action:
+          type: string
+          description: Recommended action
+          example: "Resize instance from m5.2xlarge to m5.xlarge"
+        details:
+          type: string
+          description: Additional details in JSON format
+        priority:
+          type: string
+          enum: [high, medium, low]
+        status:
+          type: string
+          enum: [pending, applied, dismissed]
+        detected_at:
+          type: string
+          format: date-time
+        applied_at:
+          type: string
+          format: date-time
+        dismissed_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    RecommendationListResponse:
+      type: object
+      required:
+        - recommendations
+        - total_recommendations
+        - total_potential_savings
+        - currency
+      properties:
+        recommendations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CostRecommendation'
+        total_recommendations:
+          type: integer
+          description: Total number of recommendations
+        total_potential_savings:
+          type: number
+          format: double
+          description: Sum of all potential savings
+        currency:
+          type: string
+          example: "USD"
+
+    CostBudget:
+      type: object
+      required:
+        - id
+        - org_id
+        - name
+        - amount
+        - currency
+        - period
+        - scope
+        - alert_threshold
+        - start_date
+        - current_spend
+        - active
+        - created_by
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: Budget name
+          example: "Monthly Cloud Budget"
+        description:
+          type: string
+          description: Budget description
+        amount:
+          type: number
+          format: double
+          description: Budget amount
+          example: 50000.00
+        currency:
+          type: string
+          example: "USD"
+        period:
+          type: string
+          enum: [daily, weekly, monthly, quarterly, yearly]
+          description: Budget period
+        scope:
+          type: string
+          enum: [organization, cloud, service, site]
+          description: Budget scope
+        scope_value:
+          type: string
+          description: Scope-specific value (e.g., "aws", "ec2")
+        alert_threshold:
+          type: number
+          format: double
+          description: Alert threshold percentage (0-100)
+          example: 80.0
+        start_date:
+          type: string
+          format: date-time
+          description: Budget start date
+        end_date:
+          type: string
+          format: date-time
+          description: Budget end date (optional)
+        current_spend:
+          type: number
+          format: double
+          description: Current spending against budget
+          example: 35000.00
+        active:
+          type: boolean
+          description: Whether budget is active
+        created_by:
+          type: string
+          description: User who created the budget
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateBudgetRequest:
+      type: object
+      required:
+        - name
+        - amount
+        - period
+        - scope
+        - start_date
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Budget name
+        description:
+          type: string
+          description: Budget description
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+          description: Budget amount
+        currency:
+          type: string
+          description: Currency code (defaults to USD)
+          default: "USD"
+        period:
+          type: string
+          enum: [daily, weekly, monthly, quarterly, yearly]
+          description: Budget period
+        scope:
+          type: string
+          enum: [organization, cloud, service, site]
+          description: Budget scope
+        scope_value:
+          type: string
+          description: Scope-specific value (required for non-organization scopes)
+        alert_threshold:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+          description: Alert threshold percentage (defaults to 80)
+          default: 80.0
+        start_date:
+          type: string
+          description: Budget start date (RFC3339 or YYYY-MM-DD)
+        end_date:
+          type: string
+          description: Budget end date (optional)
+
+    BudgetListResponse:
+      type: object
+      required:
+        - budgets
+        - total
+      properties:
+        budgets:
+          type: array
+          items:
+            $ref: '#/components/schemas/CostBudget'
+        total:
+          type: integer
+          description: Total number of budgets
+
+    ResourceCostListResponse:
+      type: object
+      required:
+        - resources
+        - total_cost
+        - currency
+      properties:
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceCost'
+        total_cost:
+          type: number
+          format: double
+          description: Total cost across all resources
+        currency:
+          type: string
+          example: "USD"
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Error message
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "invalid period parameter"
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "organization not found"
+
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "access denied"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "budget not found"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "internal server error"
