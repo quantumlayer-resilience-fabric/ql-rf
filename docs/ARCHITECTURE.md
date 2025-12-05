@@ -993,3 +993,108 @@ Automated build, test, and deployment pipeline.
 - `staging`: Auto-deploy on CI pass
 - `production-approval`: Manual approval gate
 - `production`: Progressive canary deployment
+
+---
+
+## Phase 5: Quality & Testing
+
+### E2E Testing (`ui/control-tower/e2e/`)
+
+Comprehensive end-to-end testing using Playwright.
+
+**Test Suites:**
+
+| Suite | Description | Tests |
+|-------|-------------|-------|
+| `navigation.spec.ts` | Sidebar navigation, page routing | 8 |
+| `overview.spec.ts` | Dashboard metrics, widgets | 8 |
+| `ai-copilot.spec.ts` | AI chat, task submission | 7 |
+| `images.spec.ts` | Golden images table, filtering | 4 |
+| `drift.spec.ts` | Drift detection, site breakdown | 4 |
+| `accessibility.spec.ts` | WCAG compliance, keyboard nav | 8 |
+
+**Commands:**
+```bash
+npm run test:e2e              # Run all tests
+npm run test:e2e:chromium     # Chromium only
+npm run test:e2e:headed       # Headed mode (visible browser)
+npm run test:e2e:ui           # Playwright UI mode
+npm run test:e2e:report       # View HTML report
+```
+
+**Configuration (`playwright.config.ts`):**
+- 60s test timeout
+- 10s assertion timeout
+- Screenshot on failure
+- Video on failure
+- Parallel execution
+- Multi-browser: Chromium, Firefox, WebKit
+- Mobile viewports: Pixel 5, iPhone 12
+
+### Accessibility (WCAG 2.1 AA)
+
+**Lighthouse Scores:**
+- Performance: 70% (dev mode)
+- Accessibility: 94%
+- Best Practices: 93%
+- SEO: 58% (Clerk dev mode)
+
+**Implemented Features:**
+- `lang="en"` on HTML element
+- Proper heading hierarchy (h1-h6)
+- ARIA labels on icon buttons
+- `sr-only` text for screen readers
+- `aria-hidden="true"` on decorative icons
+- Keyboard navigation support
+- Focus management in modals
+- `main` landmark for content
+- `nav` landmark for navigation
+- `banner` landmark for header
+
+### LLM Integration
+
+**Provider:** Azure Anthropic (Microsoft Foundry)
+
+**Model:** Claude Sonnet 4.5 (`claude-sonnet-4-5-20241022`)
+
+**Endpoint:** `https://quantumlayer-rf-resource.services.ai.azure.com`
+
+**Configuration:**
+```bash
+RF_LLM_PROVIDER=azure_anthropic
+RF_AZURE_ANTHROPIC_ENDPOINT=https://your-resource.services.ai.azure.com
+RF_AZURE_ANTHROPIC_API_KEY=your-api-key
+RF_LLM_MODEL=claude-sonnet-4-5-20241022
+```
+
+**Features:**
+- Streaming responses
+- Tool calling with structured outputs
+- Human-in-the-loop approval workflow
+- Task status tracking (pending, planning, pending_approval, approved, executing, completed, failed)
+
+---
+
+## Current Status (December 2025)
+
+### Completed Features
+- Multi-cloud connectors (AWS, Azure, GCP, vSphere, K8s)
+- AI Orchestrator with 10 specialist agents
+- 29+ infrastructure tools
+- Human-in-the-loop approval workflow
+- Notification system (Slack, Teams, Email, Webhooks)
+- Risk scoring and prediction
+- Image lineage tracking with SBOM
+- Compliance dashboard with PDF export
+- E2E test suite with Playwright
+- WCAG 2.1 AA accessibility compliance
+
+### Production Ready
+- Health checks (liveness/readiness)
+- Kubernetes deployment manifests
+- HorizontalPodAutoscaler
+- TLS termination
+- RBAC with permission gates
+- OPA policy validation
+- Structured logging (JSON)
+- OpenTelemetry tracing

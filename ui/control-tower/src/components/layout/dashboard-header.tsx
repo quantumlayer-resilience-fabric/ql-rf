@@ -47,11 +47,17 @@ const UserButton = hasClerkKey
 // Fallback avatar for dev mode
 function DevModeAvatar() {
   return (
-    <Avatar className="h-8 w-8 cursor-pointer ring-2 ring-transparent transition-all hover:ring-brand-accent/30">
-      <AvatarFallback className="bg-gradient-to-br from-brand-accent to-primary text-white font-medium">
-        D
-      </AvatarFallback>
-    </Avatar>
+    <button
+      type="button"
+      aria-label="Open user menu"
+      className="rounded-full focus:outline-none focus:ring-2 focus:ring-brand-accent focus:ring-offset-2"
+    >
+      <Avatar className="h-8 w-8 cursor-pointer ring-2 ring-transparent transition-all hover:ring-brand-accent/30">
+        <AvatarFallback className="bg-gradient-to-br from-brand-accent to-primary text-white font-medium">
+          D
+        </AvatarFallback>
+      </Avatar>
+    </button>
   );
 }
 
@@ -131,9 +137,11 @@ export function DashboardHeader({ className }: DashboardHeaderProps) {
                 size="icon"
                 className="h-9 w-9 text-muted-foreground hover:text-brand-accent"
                 asChild
+                aria-label="AI Copilot"
               >
-                <Link href="/ai">
-                  <Sparkles className="h-4 w-4" />
+                <Link href="/ai" aria-label="Open AI Copilot">
+                  <Sparkles className="h-4 w-4" aria-hidden="true" />
+                  <span className="sr-only">AI Copilot</span>
                 </Link>
               </Button>
             </TooltipTrigger>
@@ -148,12 +156,14 @@ export function DashboardHeader({ className }: DashboardHeaderProps) {
                 size="icon"
                 onClick={toggleTheme}
                 className="h-9 w-9 text-muted-foreground hover:text-foreground"
+                aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
               >
                 {theme === "light" ? (
-                  <Moon className="h-4 w-4" />
+                  <Moon className="h-4 w-4" aria-hidden="true" />
                 ) : (
-                  <Sun className="h-4 w-4" />
+                  <Sun className="h-4 w-4" aria-hidden="true" />
                 )}
+                <span className="sr-only">{theme === "light" ? "Dark mode" : "Light mode"}</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -169,9 +179,11 @@ export function DashboardHeader({ className }: DashboardHeaderProps) {
                 size="icon"
                 className="h-9 w-9 text-muted-foreground hover:text-foreground"
                 asChild
+                aria-label="Help and Documentation"
               >
-                <Link href="/docs">
-                  <HelpCircle className="h-4 w-4" />
+                <Link href="/docs" aria-label="Open help and documentation">
+                  <HelpCircle className="h-4 w-4" aria-hidden="true" />
+                  <span className="sr-only">Help & Documentation</span>
                 </Link>
               </Button>
             </TooltipTrigger>
@@ -187,13 +199,15 @@ export function DashboardHeader({ className }: DashboardHeaderProps) {
                     variant="ghost"
                     size="icon"
                     className="relative h-9 w-9 text-muted-foreground hover:text-foreground"
+                    aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
                   >
-                    <Bell className="h-4 w-4" />
+                    <Bell className="h-4 w-4" aria-hidden="true" />
                     {unreadCount > 0 && (
-                      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-status-amber px-1 text-[10px] font-medium text-white animate-in zoom-in-50 duration-200">
+                      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-status-amber px-1 text-[10px] font-medium text-white animate-in zoom-in-50 duration-200" aria-hidden="true">
                         {unreadCount}
                       </span>
                     )}
+                    <span className="sr-only">Notifications{unreadCount > 0 ? `, ${unreadCount} unread` : ''}</span>
                   </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>

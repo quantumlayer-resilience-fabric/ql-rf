@@ -408,6 +408,15 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("opa.policies_dir", "./policy")
 	v.SetDefault("opa.url", "http://localhost:8181")
 	v.SetDefault("opa.eval_timeout", "5s")
+
+	// Notifications
+	v.SetDefault("notifications.app_base_url", "http://localhost:3000")
+	v.SetDefault("notifications.slack_enabled", false)
+	v.SetDefault("notifications.slack_channel", "#alerts")
+	v.SetDefault("notifications.email_enabled", false)
+	v.SetDefault("notifications.smtp_port", 587)
+	v.SetDefault("notifications.webhook_enabled", false)
+	v.SetDefault("notifications.teams_enabled", false)
 }
 
 func bindEnvVars(v *viper.Viper) error {
@@ -474,6 +483,23 @@ func bindEnvVars(v *viper.Viper) error {
 		"opa.url",
 		"opa.policies_dir",
 		"opa.eval_timeout",
+		// Notifications
+		"notifications.app_base_url",
+		"notifications.slack_enabled",
+		"notifications.slack_webhook_url",
+		"notifications.slack_channel",
+		"notifications.email_enabled",
+		"notifications.smtp_host",
+		"notifications.smtp_port",
+		"notifications.smtp_user",
+		"notifications.smtp_password",
+		"notifications.email_from",
+		"notifications.email_recipients",
+		"notifications.webhook_enabled",
+		"notifications.webhook_url",
+		"notifications.webhook_secret",
+		"notifications.teams_enabled",
+		"notifications.teams_webhook_url",
 	}
 
 	for _, key := range envVars {

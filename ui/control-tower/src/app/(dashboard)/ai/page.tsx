@@ -10,7 +10,8 @@ import { StatusBadge } from "@/components/status/status-badge";
 import { GradientText } from "@/components/brand/gradient-text";
 import { TaskApprovalCard } from "@/components/ai/task-approval-card";
 import { PendingTaskCard } from "@/components/ai/pending-task-card";
-import { useSendAIMessage, useAIContext, useProactiveInsights, usePendingTasks, AITask, TaskWithPlan } from "@/hooks/use-ai";
+import { useSendAIMessage, useAIContext, useProactiveInsights, usePendingTasks, AITask } from "@/hooks/use-ai";
+import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import {
   Sparkles,
@@ -147,18 +148,18 @@ export default function AICopilotPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <a href="/ai/agents">
+            <Link href="/ai/agents">
               <Button variant="outline" size="sm">
                 <Bot className="mr-2 h-4 w-4" />
                 Agents
               </Button>
-            </a>
-            <a href="/ai/tasks">
+            </Link>
+            <Link href="/ai/tasks">
               <Button variant="outline" size="sm">
                 <History className="mr-2 h-4 w-4" />
                 Task History
               </Button>
-            </a>
+            </Link>
           </div>
         </div>
 

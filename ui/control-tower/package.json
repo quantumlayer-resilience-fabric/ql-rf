@@ -9,7 +9,12 @@
     "lint": "eslint",
     "generate:api-types": "openapi-typescript ../../api/openapi/spec.yaml -o src/lib/api-types/schema.ts",
     "typecheck": "tsc --noEmit",
-    "validate:contracts": "npm run generate:api-types && npm run typecheck"
+    "validate:contracts": "npm run generate:api-types && npm run typecheck",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:chromium": "playwright test --project=chromium",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@anthropic-ai/foundry-sdk": "^0.2.0",
@@ -40,6 +45,7 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

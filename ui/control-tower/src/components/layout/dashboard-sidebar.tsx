@@ -226,16 +226,19 @@ function SidebarContent({
           <TooltipTrigger asChild>
             <button
               onClick={() => setCollapsed(!collapsed)}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!collapsed}
               className={cn(
                 "mt-4 hidden w-full items-center justify-center rounded-lg py-2 text-sidebar-foreground/50 transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-foreground md:flex",
                 collapsed ? "hover:scale-110" : ""
               )}
             >
               {collapsed ? (
-                <ChevronRight className="h-5 w-5" />
+                <ChevronRight className="h-5 w-5" aria-hidden="true" />
               ) : (
-                <ChevronLeft className="h-5 w-5" />
+                <ChevronLeft className="h-5 w-5" aria-hidden="true" />
               )}
+              <span className="sr-only">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</span>
             </button>
           </TooltipTrigger>
           {collapsed && (
@@ -261,8 +264,12 @@ export function DashboardSidebar() {
         size="icon"
         className="fixed left-4 top-4 z-50 md:hidden shadow-md bg-background/80 backdrop-blur-sm"
         onClick={() => setMobileOpen(true)}
+        aria-label="Open navigation menu"
+        aria-expanded={mobileOpen}
+        aria-controls="mobile-sidebar"
       >
-        <Menu className="h-6 w-6" />
+        <Menu className="h-6 w-6" aria-hidden="true" />
+        <span className="sr-only">Open navigation menu</span>
       </Button>
 
       {/* Mobile Sheet */}
