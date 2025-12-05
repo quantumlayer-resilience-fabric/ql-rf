@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/quantumlayerhq/ql-rf/pkg/finops"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/middleware"
@@ -352,8 +350,6 @@ func (h *FinOpsHandler) GetResourceCosts(w http.ResponseWriter, r *http.Request)
 // Helper functions
 
 func parseTimeRange(period string) (finops.TimeRange, error) {
-	now := time.Now()
-
 	switch period {
 	case "7d", "week":
 		return finops.NewTimeRangeLast(7), nil
@@ -378,14 +374,5 @@ func parseTimeRange(period string) (finops.TimeRange, error) {
 		}
 		// Default to 30 days
 		return finops.NewTimeRangeLast(30), nil
-	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		// Log error but can't change response at this point
-		return
 	}
 }

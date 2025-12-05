@@ -56,7 +56,6 @@ func (a *InSpecActivities) PrepareInSpecExecution(ctx context.Context, input map
 	}
 
 	profilePath := tempDir
-	var err error
 
 	// If profile URL is provided, fetch/clone the profile
 	if profileURL != "" {

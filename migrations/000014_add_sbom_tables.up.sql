@@ -111,7 +111,7 @@ CREATE TABLE sbom_vulnerabilities (
     modified_date TIMESTAMPTZ,
 
     -- Additional metadata
-    references JSONB, -- Array of reference URLs
+    reference_urls JSONB, -- Array of reference URLs
     data_source VARCHAR(63), -- NVD, OSV, GitHub, Snyk, etc.
     exploit_available BOOLEAN NOT NULL DEFAULT false,
 
