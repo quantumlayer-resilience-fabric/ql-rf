@@ -8,6 +8,29 @@
 -- Note: compliance_frameworks and compliance_controls tables may already exist
 -- This migration extends them with additional fields and data
 
+-- Make org_id nullable to allow system-level frameworks (NULL = system framework)
+DO $$
+BEGIN
+    -- Drop the NOT NULL constraint on org_id if it exists
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'compliance_frameworks'
+        AND column_name = 'org_id'
+        AND is_nullable = 'NO'
+    ) THEN
+        ALTER TABLE compliance_frameworks ALTER COLUMN org_id DROP NOT NULL;
+    END IF;
+END$$;
+
+-- Add is_system flag to distinguish system frameworks from org-specific ones
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'compliance_frameworks' AND column_name = 'is_system') THEN
+        ALTER TABLE compliance_frameworks ADD COLUMN is_system BOOLEAN DEFAULT false;
+    END IF;
+END$$;
+
 -- Add additional fields to compliance_frameworks if not exist
 DO $$
 BEGIN
@@ -291,47 +314,47 @@ CREATE INDEX idx_checks_control ON compliance_checks(control_id);
 -- INSERT CIS BENCHMARK FRAMEWORK
 -- =============================================================================
 
-INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body)
+INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body, is_system)
 VALUES
-('CIS AWS Foundations', 'CIS Amazon Web Services Foundations Benchmark', 'Cloud Security', 'v1.5.0', 'Center for Internet Security')
+('CIS AWS Foundations', 'CIS Amazon Web Services Foundations Benchmark', 'Cloud Security', 'v1.5.0', 'Center for Internet Security', true)
 ON CONFLICT DO NOTHING;
 
-INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body)
+INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body, is_system)
 VALUES
-('CIS Azure Foundations', 'CIS Microsoft Azure Foundations Benchmark', 'Cloud Security', 'v2.0.0', 'Center for Internet Security')
+('CIS Azure Foundations', 'CIS Microsoft Azure Foundations Benchmark', 'Cloud Security', 'v2.0.0', 'Center for Internet Security', true)
 ON CONFLICT DO NOTHING;
 
-INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body)
+INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body, is_system)
 VALUES
-('CIS GCP Foundations', 'CIS Google Cloud Platform Foundation Benchmark', 'Cloud Security', 'v2.0.0', 'Center for Internet Security')
+('CIS GCP Foundations', 'CIS Google Cloud Platform Foundation Benchmark', 'Cloud Security', 'v2.0.0', 'Center for Internet Security', true)
 ON CONFLICT DO NOTHING;
 
-INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body)
+INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body, is_system)
 VALUES
-('CIS Kubernetes', 'CIS Kubernetes Benchmark', 'Container Security', 'v1.8.0', 'Center for Internet Security')
+('CIS Kubernetes', 'CIS Kubernetes Benchmark', 'Container Security', 'v1.8.0', 'Center for Internet Security', true)
 ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- INSERT SOC 2 FRAMEWORK
 -- =============================================================================
 
-INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body)
+INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body, is_system)
 VALUES
-('SOC 2 Type II', 'Service Organization Control 2 Type II', 'Security & Privacy', '2017', 'AICPA')
+('SOC 2 Type II', 'Service Organization Control 2 Type II', 'Security & Privacy', '2017', 'AICPA', true)
 ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- INSERT NIST FRAMEWORKS
 -- =============================================================================
 
-INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body)
+INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body, is_system)
 VALUES
-('NIST CSF', 'NIST Cybersecurity Framework', 'Cybersecurity', 'v1.1', 'National Institute of Standards and Technology')
+('NIST CSF', 'NIST Cybersecurity Framework', 'Cybersecurity', 'v1.1', 'National Institute of Standards and Technology', true)
 ON CONFLICT DO NOTHING;
 
-INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body)
+INSERT INTO compliance_frameworks (name, description, category, version, regulatory_body, is_system)
 VALUES
-('NIST 800-53', 'Security and Privacy Controls for Information Systems', 'Security Controls', 'Rev 5', 'National Institute of Standards and Technology')
+('NIST 800-53', 'Security and Privacy Controls for Information Systems', 'Security Controls', 'Rev 5', 'National Institute of Standards and Technology', true)
 ON CONFLICT DO NOTHING;
 
 -- =============================================================================
@@ -347,7 +370,7 @@ BEGIN
 
     IF v_framework_id IS NOT NULL THEN
         -- IAM Controls
-        INSERT INTO compliance_controls (framework_id, control_id, name, description, severity, control_family, automation_support, priority)
+        INSERT INTO compliance_controls (framework_id, control_id, title, description, severity, control_family, automation_support, priority)
         VALUES
         (v_framework_id, '1.1', 'Maintain current contact details', 'Ensure contact email and telephone details are current', 'low', 'IAM', 'manual', 'P3'),
         (v_framework_id, '1.4', 'Ensure no root account access key exists', 'The root account is the most privileged user in AWS', 'critical', 'IAM', 'automated', 'P1'),
@@ -358,7 +381,7 @@ BEGIN
         ON CONFLICT DO NOTHING;
 
         -- Logging Controls
-        INSERT INTO compliance_controls (framework_id, control_id, name, description, severity, control_family, automation_support, priority)
+        INSERT INTO compliance_controls (framework_id, control_id, title, description, severity, control_family, automation_support, priority)
         VALUES
         (v_framework_id, '3.1', 'Ensure CloudTrail is enabled in all regions', 'CloudTrail provides event history of AWS account activity', 'high', 'Logging', 'automated', 'P1'),
         (v_framework_id, '3.2', 'Ensure CloudTrail log file validation is enabled', 'Validates log file integrity', 'medium', 'Logging', 'automated', 'P2'),
@@ -367,7 +390,7 @@ BEGIN
         ON CONFLICT DO NOTHING;
 
         -- Networking Controls
-        INSERT INTO compliance_controls (framework_id, control_id, name, description, severity, control_family, automation_support, priority)
+        INSERT INTO compliance_controls (framework_id, control_id, title, description, severity, control_family, automation_support, priority)
         VALUES
         (v_framework_id, '5.1', 'Ensure no Network ACLs allow ingress from 0.0.0.0/0 to SSH', 'Restrict SSH access', 'high', 'Networking', 'automated', 'P1'),
         (v_framework_id, '5.2', 'Ensure no security groups allow ingress from 0.0.0.0/0 to port 3389', 'Restrict RDP access', 'high', 'Networking', 'automated', 'P1'),
@@ -388,7 +411,7 @@ BEGIN
 
     IF v_framework_id IS NOT NULL THEN
         -- Security Controls (CC)
-        INSERT INTO compliance_controls (framework_id, control_id, name, description, severity, control_family, automation_support, priority)
+        INSERT INTO compliance_controls (framework_id, control_id, title, description, severity, control_family, automation_support, priority)
         VALUES
         (v_framework_id, 'CC1.1', 'Control Environment', 'The entity demonstrates a commitment to integrity and ethical values', 'high', 'Security', 'manual', 'P1'),
         (v_framework_id, 'CC2.1', 'Information and Communication', 'Information about entity objectives is communicated', 'medium', 'Security', 'manual', 'P2'),
@@ -405,7 +428,7 @@ BEGIN
         ON CONFLICT DO NOTHING;
 
         -- Availability Controls (A)
-        INSERT INTO compliance_controls (framework_id, control_id, name, description, severity, control_family, automation_support, priority)
+        INSERT INTO compliance_controls (framework_id, control_id, title, description, severity, control_family, automation_support, priority)
         VALUES
         (v_framework_id, 'A1.1', 'System Availability', 'Entity maintains system availability to meet objectives', 'high', 'Availability', 'automated', 'P1'),
         (v_framework_id, 'A1.2', 'Capacity Management', 'Entity plans for capacity to meet availability goals', 'medium', 'Availability', 'automated', 'P2'),
@@ -413,7 +436,7 @@ BEGIN
         ON CONFLICT DO NOTHING;
 
         -- Confidentiality Controls (C)
-        INSERT INTO compliance_controls (framework_id, control_id, name, description, severity, control_family, automation_support, priority)
+        INSERT INTO compliance_controls (framework_id, control_id, title, description, severity, control_family, automation_support, priority)
         VALUES
         (v_framework_id, 'C1.1', 'Confidential Information', 'Entity identifies confidential information', 'high', 'Confidentiality', 'hybrid', 'P1'),
         (v_framework_id, 'C1.2', 'Confidential Information Disposal', 'Entity disposes of confidential information properly', 'high', 'Confidentiality', 'hybrid', 'P1')
@@ -433,7 +456,7 @@ BEGIN
 
     IF v_framework_id IS NOT NULL THEN
         -- Identify Function
-        INSERT INTO compliance_controls (framework_id, control_id, name, description, severity, control_family, automation_support, priority)
+        INSERT INTO compliance_controls (framework_id, control_id, title, description, severity, control_family, automation_support, priority)
         VALUES
         (v_framework_id, 'ID.AM-1', 'Asset Management', 'Physical devices and systems are inventoried', 'high', 'Identify', 'automated', 'P1'),
         (v_framework_id, 'ID.AM-2', 'Software Inventory', 'Software platforms and applications are inventoried', 'high', 'Identify', 'automated', 'P1'),
@@ -442,7 +465,7 @@ BEGIN
         ON CONFLICT DO NOTHING;
 
         -- Protect Function
-        INSERT INTO compliance_controls (framework_id, control_id, name, description, severity, control_family, automation_support, priority)
+        INSERT INTO compliance_controls (framework_id, control_id, title, description, severity, control_family, automation_support, priority)
         VALUES
         (v_framework_id, 'PR.AC-1', 'Access Control', 'Identities and credentials are managed', 'critical', 'Protect', 'automated', 'P1'),
         (v_framework_id, 'PR.AC-3', 'Access Control', 'Remote access is managed', 'high', 'Protect', 'automated', 'P1'),
@@ -456,7 +479,7 @@ BEGIN
         ON CONFLICT DO NOTHING;
 
         -- Detect Function
-        INSERT INTO compliance_controls (framework_id, control_id, name, description, severity, control_family, automation_support, priority)
+        INSERT INTO compliance_controls (framework_id, control_id, title, description, severity, control_family, automation_support, priority)
         VALUES
         (v_framework_id, 'DE.AE-1', 'Anomalies and Events', 'Baseline of operations is established', 'high', 'Detect', 'automated', 'P1'),
         (v_framework_id, 'DE.CM-1', 'Continuous Monitoring', 'Network is monitored for security events', 'high', 'Detect', 'automated', 'P1'),
@@ -465,7 +488,7 @@ BEGIN
         ON CONFLICT DO NOTHING;
 
         -- Respond Function
-        INSERT INTO compliance_controls (framework_id, control_id, name, description, severity, control_family, automation_support, priority)
+        INSERT INTO compliance_controls (framework_id, control_id, title, description, severity, control_family, automation_support, priority)
         VALUES
         (v_framework_id, 'RS.RP-1', 'Response Planning', 'Response plan is executed during incidents', 'critical', 'Respond', 'hybrid', 'P1'),
         (v_framework_id, 'RS.CO-1', 'Communications', 'Personnel know their incident response roles', 'high', 'Respond', 'manual', 'P1'),
@@ -474,7 +497,7 @@ BEGIN
         ON CONFLICT DO NOTHING;
 
         -- Recover Function
-        INSERT INTO compliance_controls (framework_id, control_id, name, description, severity, control_family, automation_support, priority)
+        INSERT INTO compliance_controls (framework_id, control_id, title, description, severity, control_family, automation_support, priority)
         VALUES
         (v_framework_id, 'RC.RP-1', 'Recovery Planning', 'Recovery plan is executed during incidents', 'critical', 'Recover', 'hybrid', 'P1'),
         (v_framework_id, 'RC.IM-1', 'Improvements', 'Recovery plans incorporate lessons learned', 'medium', 'Recover', 'manual', 'P2'),

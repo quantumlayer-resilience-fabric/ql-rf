@@ -45,19 +45,14 @@ const (
 
 // Control represents a compliance control within a framework.
 type Control struct {
-	ID                     uuid.UUID         `json:"id" db:"id"`
-	FrameworkID            uuid.UUID         `json:"framework_id" db:"framework_id"`
-	ControlID              string            `json:"control_id" db:"control_id"`
-	Name                   string            `json:"name" db:"name"`
-	Description            string            `json:"description,omitempty" db:"description"`
-	Severity               Severity          `json:"severity" db:"severity"`
-	ControlFamily          string            `json:"control_family,omitempty" db:"control_family"`
-	ImplementationGuidance string            `json:"implementation_guidance,omitempty" db:"implementation_guidance"`
-	AssessmentProcedure    string            `json:"assessment_procedure,omitempty" db:"assessment_procedure"`
-	AutomationSupport      AutomationSupport `json:"automation_support,omitempty" db:"automation_support"`
-	Priority               string            `json:"priority,omitempty" db:"priority"`
-	CreatedAt              time.Time         `json:"created_at" db:"created_at"`
-	UpdatedAt              time.Time         `json:"updated_at" db:"updated_at"`
+	ID             uuid.UUID `json:"id" db:"id"`
+	FrameworkID    uuid.UUID `json:"framework_id" db:"framework_id"`
+	ControlID      string    `json:"control_id" db:"control_id"`
+	Name           string    `json:"name" db:"title"` // Maps to 'title' column in DB
+	Description    string    `json:"description,omitempty" db:"description"`
+	Severity       Severity  `json:"severity" db:"severity"`
+	Recommendation string    `json:"recommendation,omitempty" db:"recommendation"`
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
 }
 
 // ControlMapping represents a mapping between controls in different frameworks.
@@ -213,10 +208,15 @@ func (s *Service) ListFrameworks(ctx context.Context) ([]Framework, error) {
 	var frameworks []Framework
 	for rows.Next() {
 		var f Framework
-		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.Category, &f.Version,
-			&f.RegulatoryBody, &f.EffectiveDate, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		var description, category, version, regulatoryBody sql.NullString
+		if err := rows.Scan(&f.ID, &f.Name, &description, &category, &version,
+			&regulatoryBody, &f.EffectiveDate, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan framework: %w", err)
 		}
+		f.Description = description.String
+		f.Category = category.String
+		f.Version = version.String
+		f.RegulatoryBody = regulatoryBody.String
 		frameworks = append(frameworks, f)
 	}
 
@@ -226,26 +226,29 @@ func (s *Service) ListFrameworks(ctx context.Context) ([]Framework, error) {
 // GetFramework returns a framework by ID.
 func (s *Service) GetFramework(ctx context.Context, frameworkID uuid.UUID) (*Framework, error) {
 	var f Framework
+	var description, category, version, regulatoryBody sql.NullString
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, name, description, category, version, regulatory_body, effective_date, created_at, updated_at
 		FROM compliance_frameworks WHERE id = $1
-	`, frameworkID).Scan(&f.ID, &f.Name, &f.Description, &f.Category, &f.Version,
-		&f.RegulatoryBody, &f.EffectiveDate, &f.CreatedAt, &f.UpdatedAt)
+	`, frameworkID).Scan(&f.ID, &f.Name, &description, &category, &version,
+		&regulatoryBody, &f.EffectiveDate, &f.CreatedAt, &f.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get framework: %w", err)
 	}
+	f.Description = description.String
+	f.Category = category.String
+	f.Version = version.String
+	f.RegulatoryBody = regulatoryBody.String
 	return &f, nil
 }
 
 // ListControls returns all controls for a framework.
 func (s *Service) ListControls(ctx context.Context, frameworkID uuid.UUID) ([]Control, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, framework_id, control_id, name, description, severity, control_family,
-		       implementation_guidance, assessment_procedure, automation_support, priority,
-		       created_at, updated_at
+		SELECT id, framework_id, control_id, title, description, severity, recommendation, created_at
 		FROM compliance_controls
 		WHERE framework_id = $1
 		ORDER BY control_id
@@ -258,11 +261,13 @@ func (s *Service) ListControls(ctx context.Context, frameworkID uuid.UUID) ([]Co
 	var controls []Control
 	for rows.Next() {
 		var c Control
-		if err := rows.Scan(&c.ID, &c.FrameworkID, &c.ControlID, &c.Name, &c.Description,
-			&c.Severity, &c.ControlFamily, &c.ImplementationGuidance, &c.AssessmentProcedure,
-			&c.AutomationSupport, &c.Priority, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		var description, recommendation sql.NullString
+		if err := rows.Scan(&c.ID, &c.FrameworkID, &c.ControlID, &c.Name, &description,
+			&c.Severity, &recommendation, &c.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan control: %w", err)
 		}
+		c.Description = description.String
+		c.Recommendation = recommendation.String
 		controls = append(controls, c)
 	}
 
@@ -272,36 +277,50 @@ func (s *Service) ListControls(ctx context.Context, frameworkID uuid.UUID) ([]Co
 // GetControl returns a control by ID.
 func (s *Service) GetControl(ctx context.Context, controlID uuid.UUID) (*Control, error) {
 	var c Control
+	var description, recommendation sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, framework_id, control_id, name, description, severity, control_family,
-		       implementation_guidance, assessment_procedure, automation_support, priority,
-		       created_at, updated_at
+		SELECT id, framework_id, control_id, title, description, severity, recommendation, created_at
 		FROM compliance_controls WHERE id = $1
-	`, controlID).Scan(&c.ID, &c.FrameworkID, &c.ControlID, &c.Name, &c.Description,
-		&c.Severity, &c.ControlFamily, &c.ImplementationGuidance, &c.AssessmentProcedure,
-		&c.AutomationSupport, &c.Priority, &c.CreatedAt, &c.UpdatedAt)
+	`, controlID).Scan(&c.ID, &c.FrameworkID, &c.ControlID, &c.Name, &description,
+		&c.Severity, &recommendation, &c.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get control: %w", err)
 	}
+	c.Description = description.String
+	c.Recommendation = recommendation.String
 	return &c, nil
 }
 
 // GetMappedControls returns controls that map to a given control.
+// Note: Returns empty slice if control_mappings table doesn't exist.
 func (s *Service) GetMappedControls(ctx context.Context, controlID uuid.UUID) ([]Control, error) {
+	// Check if control_mappings table exists
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables
+			WHERE table_name = 'control_mappings'
+		)
+	`).Scan(&exists)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check control_mappings table: %w", err)
+	}
+	if !exists {
+		return []Control{}, nil
+	}
+
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.id, c.framework_id, c.control_id, c.name, c.description, c.severity,
-		       c.control_family, c.implementation_guidance, c.assessment_procedure,
-		       c.automation_support, c.priority, c.created_at, c.updated_at
+		SELECT c.id, c.framework_id, c.control_id, c.title, c.description, c.severity,
+		       c.recommendation, c.created_at
 		FROM compliance_controls c
 		JOIN control_mappings m ON c.id = m.target_control_id
 		WHERE m.source_control_id = $1
 		UNION
-		SELECT c.id, c.framework_id, c.control_id, c.name, c.description, c.severity,
-		       c.control_family, c.implementation_guidance, c.assessment_procedure,
-		       c.automation_support, c.priority, c.created_at, c.updated_at
+		SELECT c.id, c.framework_id, c.control_id, c.title, c.description, c.severity,
+		       c.recommendation, c.created_at
 		FROM compliance_controls c
 		JOIN control_mappings m ON c.id = m.source_control_id
 		WHERE m.target_control_id = $1
@@ -314,11 +333,13 @@ func (s *Service) GetMappedControls(ctx context.Context, controlID uuid.UUID) ([
 	var controls []Control
 	for rows.Next() {
 		var c Control
-		if err := rows.Scan(&c.ID, &c.FrameworkID, &c.ControlID, &c.Name, &c.Description,
-			&c.Severity, &c.ControlFamily, &c.ImplementationGuidance, &c.AssessmentProcedure,
-			&c.AutomationSupport, &c.Priority, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		var description, recommendation sql.NullString
+		if err := rows.Scan(&c.ID, &c.FrameworkID, &c.ControlID, &c.Name, &description,
+			&c.Severity, &recommendation, &c.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan control: %w", err)
 		}
+		c.Description = description.String
+		c.Recommendation = recommendation.String
 		controls = append(controls, c)
 	}
 
