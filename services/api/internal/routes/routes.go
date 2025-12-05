@@ -150,6 +150,9 @@ func New(cfg Config) http.Handler {
 	inspecSvc := inspec.NewService(sqlDB)
 	inspecHandler := handlers.NewInSpecHandler(inspecSvc, cfg.Logger)
 
+	// Certificate management handler
+	certificateHandler := handlers.NewCertificateHandler(cfg.DB.Pool, cfg.Logger)
+
 	// Health endpoints (no auth required)
 	r.Get("/healthz", healthHandler.Liveness)
 	r.Get("/readyz", healthHandler.Readiness)
@@ -410,6 +413,24 @@ func New(cfg Config) http.Handler {
 			r.Get("/runs/{runId}", inspecHandler.GetRun)
 			r.Get("/runs/{runId}/results", inspecHandler.GetRunResults)
 			r.Post("/runs/{runId}/cancel", inspecHandler.CancelRun)
+		})
+
+		// Certificates (Certificate Lifecycle Management)
+		r.Route("/certificates", func(r chi.Router) {
+			// Read operations
+			r.Get("/", certificateHandler.ListCertificates)
+			r.Get("/summary", certificateHandler.GetCertificateSummary)
+			r.Get("/{id}", certificateHandler.GetCertificate)
+			r.Get("/{id}/usage", certificateHandler.GetCertificateUsage)
+
+			// Rotations
+			r.Get("/rotations", certificateHandler.ListRotations)
+			r.Get("/rotations/{id}", certificateHandler.GetRotation)
+
+			// Alerts
+			r.Get("/alerts", certificateHandler.ListAlerts)
+			r.With(middleware.RequirePermission(models.PermAcknowledgeAlerts)).
+				Post("/alerts/{id}/acknowledge", certificateHandler.AcknowledgeAlert)
 		})
 	})
 
