@@ -44,6 +44,47 @@ type ImageInfo struct {
 	Tags        map[string]string
 }
 
+// CertificateInfo represents certificate information from a platform.
+type CertificateInfo struct {
+	Platform           models.Platform   `json:"platform"`
+	Fingerprint        string            `json:"fingerprint"`
+	SerialNumber       string            `json:"serial_number"`
+	CommonName         string            `json:"common_name"`
+	SubjectAltNames    []string          `json:"subject_alt_names"`
+	Organization       string            `json:"organization"`
+	IssuerCommonName   string            `json:"issuer_common_name"`
+	IssuerOrganization string            `json:"issuer_organization"`
+	IsSelfSigned       bool              `json:"is_self_signed"`
+	IsCA               bool              `json:"is_ca"`
+	NotBefore          string            `json:"not_before"`
+	NotAfter           string            `json:"not_after"`
+	KeyAlgorithm       string            `json:"key_algorithm"`
+	KeySize            int               `json:"key_size"`
+	SignatureAlgorithm string            `json:"signature_algorithm"`
+	Source             string            `json:"source"` // acm, key_vault, k8s_secret, etc.
+	SourceRef          string            `json:"source_ref"`
+	Region             string            `json:"region"`
+	AutoRenew          bool              `json:"auto_renew"`
+	Status             string            `json:"status"` // active, pending_validation, expired, revoked
+	Tags               map[string]string `json:"tags"`
+	Usages             []CertificateUsageInfo `json:"usages,omitempty"`
+}
+
+// CertificateUsageInfo represents where a certificate is used.
+type CertificateUsageInfo struct {
+	UsageType   string `json:"usage_type"` // load_balancer, cloudfront, api_gateway, ingress, etc.
+	UsageRef    string `json:"usage_ref"`
+	ServiceName string `json:"service_name,omitempty"`
+	Endpoint    string `json:"endpoint,omitempty"`
+	Port        int    `json:"port,omitempty"`
+}
+
+// CertificateDiscoverer is an optional interface for connectors that can discover certificates.
+type CertificateDiscoverer interface {
+	// DiscoverCertificates discovers all certificates from the platform.
+	DiscoverCertificates(ctx context.Context) ([]CertificateInfo, error)
+}
+
 // Config holds common configuration for connectors.
 type Config struct {
 	OrgID        uuid.UUID
