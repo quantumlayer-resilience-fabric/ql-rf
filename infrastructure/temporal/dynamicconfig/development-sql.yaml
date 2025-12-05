@@ -1,27 +1,64 @@
 # Temporal Dynamic Configuration for Development
-# See: https://docs.temporal.io/references/dynamic-configuration
+# This file configures Temporal server behavior for the QL-RF platform
 
-# Limit the number of history events in a workflow execution
-limit.maxIDLength:
-  - value: 255
+# Workflow execution limits
+frontend.workflowExecutionMaxQueuedSignals:
+  - value: 50000
     constraints: {}
 
-# Enable advanced visibility (search attributes)
-system.enableActivityEagerExecution:
+# Higher timeouts for long-running infrastructure operations
+system.historyLongPollTimeout:
+  - value: 60s
+    constraints: {}
+
+# Persistence settings for PostgreSQL
+system.enablePersistence:
   - value: true
     constraints: {}
 
-# Workflow execution history size limits
-history.maximumSignalsPerExecution:
-  - value: 10000
+# History settings - allow long-running workflows
+history.workflowExecutionMaxInFlightCommands:
+  - value: 100
     constraints: {}
 
-# Frontend configuration
-frontend.enableClientVersionCheck:
-  - value: false
-    constraints: {}
-
-# Worker configuration
-worker.enablePurgeStickyTaskQueue:
+# Enable advanced visibility
+system.enableEagerNamespaceRefresher:
   - value: true
+    constraints: {}
+
+# Namespaces - workflow task timeout
+system.defaultWorkflowTaskTimeout:
+  - value: 10s
+    constraints: {}
+
+# Allow signal-with-start for workflow initiation patterns
+frontend.enableSignalWithStartWorkflow:
+  - value: true
+    constraints: {}
+
+# Activity settings for long-running operations
+system.activityDefaultRetryPolicy:
+  - value:
+      initialInterval: 1s
+      maximumInterval: 100s
+      backoffCoefficient: 2.0
+      maximumAttempts: 3
+    constraints: {}
+
+# Workflow execution timeouts
+system.maxWorkflowExecutionTimeout:
+  - value: 604800s  # 7 days for DR drills
+    constraints: {}
+
+system.maxWorkflowRunTimeout:
+  - value: 86400s  # 24 hours per run
+    constraints: {}
+
+# Task queue settings
+matching.numTaskqueueReadPartitions:
+  - value: 1
+    constraints: {}
+
+matching.numTaskqueueWritePartitions:
+  - value: 1
     constraints: {}

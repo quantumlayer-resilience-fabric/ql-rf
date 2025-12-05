@@ -1,0 +1,1127 @@
+openapi: 3.0.3
+info:
+  title: QL-RF API
+  description: |
+    QuantumLayer Resilience Fabric API - Infrastructure resilience platform
+    providing golden image management, drift detection, compliance, and DR capabilities.
+  version: 1.0.0
+  contact:
+    name: QL-RF Team
+    email: support@quantumlayer.com
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+  - url: https://api.ql-rf.example.com/api/v1
+    description: Production
+
+tags:
+  - name: Assets
+    description: Asset management
+  - name: Images
+    description: Golden image management
+  - name: Sites
+    description: Site management
+  - name: Drift
+    description: Drift detection and remediation
+  - name: Compliance
+    description: Compliance frameworks and assessments
+  - name: Risk
+    description: Risk scoring and predictions
+  - name: RBAC
+    description: Role-based access control
+  - name: Organization
+    description: Organization and multi-tenancy management
+
+paths:
+  # ============================================================================
+  # RBAC Endpoints
+  # ============================================================================
+  /rbac/roles:
+    get:
+      summary: List roles
+      description: List all roles available to the organization (including system roles)
+      tags: [RBAC]
+      responses:
+        '200':
+          description: List of roles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  roles:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Role'
+
+  /rbac/roles/{roleId}:
+    get:
+      summary: Get role details
+      tags: [RBAC]
+      parameters:
+        - $ref: '#/components/parameters/roleId'
+      responses:
+        '200':
+          description: Role details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbac/permissions:
+    get:
+      summary: List all permissions
+      description: List all available permissions in the system
+      tags: [RBAC]
+      responses:
+        '200':
+          description: List of permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permissions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Permission'
+
+  /rbac/users/{userId}/roles:
+    get:
+      summary: Get user roles
+      description: List roles assigned to a user
+      tags: [RBAC]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User roles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  roles:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Role'
+
+    post:
+      summary: Assign role to user
+      description: Assign a role to a user
+      tags: [RBAC]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role_id]
+              properties:
+                role_id:
+                  type: string
+                  format: uuid
+                expires_at:
+                  type: string
+                  format: date-time
+      responses:
+        '200':
+          description: Role assigned
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /rbac/users/{userId}/roles/{roleId}:
+    delete:
+      summary: Revoke role from user
+      tags: [RBAC]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/roleId'
+      responses:
+        '200':
+          description: Role revoked
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbac/users/{userId}/permissions:
+    get:
+      summary: Get user permissions
+      description: Get all effective permissions for a user
+      tags: [RBAC]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permissions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UserPermission'
+
+  /rbac/check:
+    post:
+      summary: Check permission
+      description: Check if a user has a specific permission
+      tags: [RBAC]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, resource_type, action]
+              properties:
+                user_id:
+                  type: string
+                resource_type:
+                  type: string
+                resource_id:
+                  type: string
+                  format: uuid
+                action:
+                  type: string
+      responses:
+        '200':
+          description: Permission check result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PermissionCheck'
+
+  /rbac/teams:
+    get:
+      summary: List teams
+      tags: [RBAC]
+      responses:
+        '200':
+          description: List of teams
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  teams:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Team'
+
+    post:
+      summary: Create team
+      tags: [RBAC]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Team created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+
+  /rbac/teams/{teamId}/members:
+    get:
+      summary: List team members
+      tags: [RBAC]
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Team members
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  members:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TeamMember'
+
+    post:
+      summary: Add team member
+      tags: [RBAC]
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+                role:
+                  type: string
+                  enum: [member, admin]
+                  default: member
+      responses:
+        '200':
+          description: Member added
+
+  # ============================================================================
+  # Organization / Multi-tenancy Endpoints
+  # ============================================================================
+  /organization/quota:
+    get:
+      summary: Get organization quota
+      description: Get the quota limits for the current organization
+      tags: [Organization]
+      responses:
+        '200':
+          description: Organization quota
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationQuota'
+
+  /organization/usage:
+    get:
+      summary: Get organization usage
+      description: Get current resource usage for the organization
+      tags: [Organization]
+      responses:
+        '200':
+          description: Organization usage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationUsage'
+
+  /organization/quota-status:
+    get:
+      summary: Get quota status
+      description: Get detailed quota status with remaining allocations
+      tags: [Organization]
+      responses:
+        '200':
+          description: Quota status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statuses:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/QuotaStatus'
+
+  /organization/subscription:
+    get:
+      summary: Get subscription
+      description: Get the current subscription for the organization
+      tags: [Organization]
+      responses:
+        '200':
+          description: Subscription details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+
+  /organization/plans:
+    get:
+      summary: List available plans
+      description: List all available subscription plans
+      tags: [Organization]
+      responses:
+        '200':
+          description: Available plans
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SubscriptionPlan'
+
+  # ============================================================================
+  # Enhanced Compliance Endpoints
+  # ============================================================================
+  /compliance/frameworks:
+    get:
+      summary: List compliance frameworks
+      description: List all available compliance frameworks (CIS, SOC2, NIST, etc.)
+      tags: [Compliance]
+      responses:
+        '200':
+          description: List of frameworks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  frameworks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ComplianceFramework'
+
+  /compliance/frameworks/{frameworkId}/controls:
+    get:
+      summary: List framework controls
+      description: List all controls for a specific framework
+      tags: [Compliance]
+      parameters:
+        - name: frameworkId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of controls
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  controls:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ComplianceControl'
+
+  /compliance/controls/{controlId}/mappings:
+    get:
+      summary: Get control mappings
+      description: Get cross-framework mappings for a control
+      tags: [Compliance]
+      parameters:
+        - name: controlId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Mapped controls from other frameworks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mappings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ComplianceControl'
+
+  /compliance/assessments:
+    get:
+      summary: List assessments
+      description: List compliance assessments
+      tags: [Compliance]
+      parameters:
+        - name: framework_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: List of assessments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ComplianceAssessment'
+
+    post:
+      summary: Create assessment
+      description: Start a new compliance assessment
+      tags: [Compliance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [framework_id, name]
+              properties:
+                framework_id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                description:
+                  type: string
+                assessment_type:
+                  type: string
+                  enum: [automated, manual, hybrid]
+                  default: automated
+                scope_sites:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                scope_assets:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '201':
+          description: Assessment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceAssessment'
+
+  /compliance/assessments/{assessmentId}:
+    get:
+      summary: Get assessment
+      description: Get assessment details and results
+      tags: [Compliance]
+      parameters:
+        - name: assessmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Assessment details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceAssessment'
+
+  /compliance/evidence:
+    get:
+      summary: List evidence
+      description: List compliance evidence
+      tags: [Compliance]
+      parameters:
+        - name: control_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: current_only
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: List of evidence
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  evidence:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ComplianceEvidence'
+
+    post:
+      summary: Upload evidence
+      description: Upload compliance evidence for a control
+      tags: [Compliance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [control_id, evidence_type, title, storage_type]
+              properties:
+                control_id:
+                  type: string
+                  format: uuid
+                evidence_type:
+                  type: string
+                  enum: [screenshot, log, config, report, attestation]
+                title:
+                  type: string
+                description:
+                  type: string
+                storage_type:
+                  type: string
+                storage_path:
+                  type: string
+                valid_until:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Evidence uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceEvidence'
+
+  /compliance/exemptions:
+    get:
+      summary: List exemptions
+      description: List active compliance exemptions
+      tags: [Compliance]
+      responses:
+        '200':
+          description: List of exemptions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exemptions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ComplianceExemption'
+
+    post:
+      summary: Create exemption
+      description: Request a compliance exemption
+      tags: [Compliance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [control_id, reason, expires_at]
+              properties:
+                control_id:
+                  type: string
+                  format: uuid
+                asset_id:
+                  type: string
+                  format: uuid
+                site_id:
+                  type: string
+                  format: uuid
+                reason:
+                  type: string
+                risk_acceptance:
+                  type: string
+                compensating_controls:
+                  type: string
+                expires_at:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Exemption created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceExemption'
+
+  /compliance/score:
+    get:
+      summary: Get compliance score
+      description: Get overall compliance score
+      tags: [Compliance]
+      parameters:
+        - name: framework_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Compliance score
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceScore'
+
+components:
+  parameters:
+    roleId:
+      name: roleId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    # RBAC Schemas
+    Role:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+        org_id:
+          type: string
+          format: uuid
+        is_system_role:
+          type: boolean
+        parent_role_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Permission:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        resource_type:
+          type: string
+        action:
+          type: string
+          enum: [read, write, delete, execute, approve, admin]
+        description:
+          type: string
+        is_system:
+          type: boolean
+
+    UserPermission:
+      type: object
+      properties:
+        permission_name:
+          type: string
+        resource_type:
+          type: string
+        action:
+          type: string
+        source:
+          type: string
+          enum: [role, direct, team]
+
+    PermissionCheck:
+      type: object
+      properties:
+        allowed:
+          type: boolean
+        source:
+          type: string
+        reason:
+          type: string
+
+    Team:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    TeamMember:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        team_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        role:
+          type: string
+          enum: [member, admin]
+        added_at:
+          type: string
+          format: date-time
+
+    # Multi-tenancy Schemas
+    OrganizationQuota:
+      type: object
+      properties:
+        org_id:
+          type: string
+          format: uuid
+        max_assets:
+          type: integer
+        max_images:
+          type: integer
+        max_sites:
+          type: integer
+        max_users:
+          type: integer
+        max_teams:
+          type: integer
+        max_ai_tasks_per_day:
+          type: integer
+        max_ai_tokens_per_month:
+          type: integer
+        max_storage_bytes:
+          type: integer
+        api_rate_limit_per_minute:
+          type: integer
+        dr_enabled:
+          type: boolean
+        compliance_enabled:
+          type: boolean
+        advanced_analytics_enabled:
+          type: boolean
+
+    OrganizationUsage:
+      type: object
+      properties:
+        org_id:
+          type: string
+          format: uuid
+        asset_count:
+          type: integer
+        image_count:
+          type: integer
+        site_count:
+          type: integer
+        user_count:
+          type: integer
+        team_count:
+          type: integer
+        storage_used_bytes:
+          type: integer
+        ai_tasks_today:
+          type: integer
+        ai_tokens_this_month:
+          type: integer
+        api_requests_today:
+          type: integer
+
+    QuotaStatus:
+      type: object
+      properties:
+        resource_type:
+          type: string
+        limit:
+          type: integer
+        used:
+          type: integer
+        remaining:
+          type: integer
+        percentage_used:
+          type: number
+        is_exceeded:
+          type: boolean
+
+    SubscriptionPlan:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+        plan_type:
+          type: string
+          enum: [free, starter, professional, enterprise]
+        monthly_price_usd:
+          type: number
+        annual_price_usd:
+          type: number
+        dr_included:
+          type: boolean
+        compliance_included:
+          type: boolean
+
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        plan_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, cancelled, suspended, trial]
+        trial_ends_at:
+          type: string
+          format: date-time
+        current_period_start:
+          type: string
+          format: date-time
+        current_period_end:
+          type: string
+          format: date-time
+
+    # Enhanced Compliance Schemas
+    ComplianceFramework:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        version:
+          type: string
+        regulatory_body:
+          type: string
+
+    ComplianceControl:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        framework_id:
+          type: string
+          format: uuid
+        control_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        control_family:
+          type: string
+        automation_support:
+          type: string
+          enum: [automated, hybrid, manual]
+        priority:
+          type: string
+
+    ComplianceAssessment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        framework_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        assessment_type:
+          type: string
+          enum: [automated, manual, hybrid]
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed]
+        total_controls:
+          type: integer
+        passed_controls:
+          type: integer
+        failed_controls:
+          type: integer
+        not_applicable:
+          type: integer
+        score:
+          type: number
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        initiated_by:
+          type: string
+
+    ComplianceEvidence:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        control_id:
+          type: string
+          format: uuid
+        evidence_type:
+          type: string
+          enum: [screenshot, log, config, report, attestation]
+        title:
+          type: string
+        description:
+          type: string
+        storage_type:
+          type: string
+        storage_path:
+          type: string
+        collected_at:
+          type: string
+          format: date-time
+        collected_by:
+          type: string
+        is_current:
+          type: boolean
+        review_status:
+          type: string
+          enum: [pending, approved, rejected]
+
+    ComplianceExemption:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        control_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        site_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+        risk_acceptance:
+          type: string
+        compensating_controls:
+          type: string
+        approved_by:
+          type: string
+        approved_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, expired, revoked]
+
+    ComplianceScore:
+      type: object
+      properties:
+        org_id:
+          type: string
+          format: uuid
+        framework_id:
+          type: string
+          format: uuid
+        assessment_count:
+          type: integer
+        average_score:
+          type: number
+        total_passed:
+          type: integer
+        total_failed:
+          type: integer
+        total_not_applicable:
+          type: integer
+        pass_rate:
+          type: number
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          type: object
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Permission denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

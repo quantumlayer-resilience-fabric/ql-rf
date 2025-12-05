@@ -235,6 +235,201 @@ export interface ComplianceFramework {
   totalControls: number;
   status: "passing" | "warning" | "failing";
   level?: number;
+  category?: string;
+  version?: string;
+  regulatoryBody?: string;
+}
+
+// =============================================================================
+// RBAC Types
+// =============================================================================
+
+export type RBACAction = "read" | "write" | "delete" | "execute" | "approve" | "admin";
+
+export interface Role {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string;
+  orgId?: string;
+  isSystemRole: boolean;
+  parentRoleId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Permission {
+  id: string;
+  name: string;
+  resourceType: string;
+  action: RBACAction;
+  description: string;
+  isSystem: boolean;
+}
+
+export interface UserPermission {
+  permissionName: string;
+  resourceType: string;
+  action: RBACAction;
+  source: "role" | "direct" | "team";
+}
+
+export interface PermissionCheck {
+  allowed: boolean;
+  source: string;
+  reason: string;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  description: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface TeamMember {
+  id: string;
+  teamId: string;
+  userId: string;
+  role: "member" | "admin";
+  addedAt: string;
+}
+
+// =============================================================================
+// Multi-tenancy Types
+// =============================================================================
+
+export interface OrganizationQuota {
+  orgId: string;
+  maxAssets: number;
+  maxImages: number;
+  maxSites: number;
+  maxUsers: number;
+  maxTeams: number;
+  maxAiTasksPerDay: number;
+  maxAiTokensPerMonth: number;
+  maxStorageBytes: number;
+  apiRateLimitPerMinute: number;
+  drEnabled: boolean;
+  complianceEnabled: boolean;
+  advancedAnalyticsEnabled: boolean;
+}
+
+export interface OrganizationUsage {
+  orgId: string;
+  assetCount: number;
+  imageCount: number;
+  siteCount: number;
+  userCount: number;
+  teamCount: number;
+  storageUsedBytes: number;
+  aiTasksToday: number;
+  aiTokensThisMonth: number;
+  apiRequestsToday: number;
+}
+
+export interface QuotaStatus {
+  resourceType: string;
+  limit: number;
+  used: number;
+  remaining: number;
+  percentageUsed: number;
+  isExceeded: boolean;
+}
+
+export interface SubscriptionPlan {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string;
+  planType: "free" | "starter" | "professional" | "enterprise";
+  monthlyPriceUsd: number;
+  annualPriceUsd: number;
+  drIncluded: boolean;
+  complianceIncluded: boolean;
+}
+
+export interface Subscription {
+  id: string;
+  orgId: string;
+  planId: string;
+  status: "active" | "cancelled" | "suspended" | "trial";
+  trialEndsAt?: string;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+}
+
+// =============================================================================
+// Enhanced Compliance Types
+// =============================================================================
+
+export interface ComplianceControl {
+  id: string;
+  frameworkId: string;
+  controlId: string;
+  name: string;
+  description: string;
+  severity: "critical" | "high" | "medium" | "low";
+  controlFamily: string;
+  automationSupport: "automated" | "hybrid" | "manual";
+  priority: string;
+}
+
+export interface ComplianceAssessment {
+  id: string;
+  frameworkId: string;
+  name: string;
+  description: string;
+  assessmentType: "automated" | "manual" | "hybrid";
+  status: "pending" | "in_progress" | "completed" | "failed";
+  totalControls: number;
+  passedControls: number;
+  failedControls: number;
+  notApplicable: number;
+  score: number;
+  startedAt?: string;
+  completedAt?: string;
+  initiatedBy: string;
+}
+
+export interface ComplianceEvidence {
+  id: string;
+  controlId: string;
+  evidenceType: "screenshot" | "log" | "config" | "report" | "attestation";
+  title: string;
+  description: string;
+  storageType: string;
+  storagePath: string;
+  collectedAt: string;
+  collectedBy: string;
+  isCurrent: boolean;
+  reviewStatus: "pending" | "approved" | "rejected";
+}
+
+export interface ComplianceExemption {
+  id: string;
+  controlId: string;
+  assetId?: string;
+  siteId?: string;
+  reason: string;
+  riskAcceptance: string;
+  compensatingControls: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  expiresAt: string;
+  status: "active" | "expired" | "revoked";
+}
+
+export interface ComplianceScore {
+  orgId: string;
+  frameworkId?: string;
+  assessmentCount: number;
+  averageScore: number;
+  totalPassed: number;
+  totalFailed: number;
+  totalNotApplicable: number;
+  passRate: number;
 }
 
 export interface FailingControl {
@@ -1037,6 +1232,197 @@ export const api = {
     getAnomalies: () => apiFetch<RiskAnomaly[]>("/risk/anomalies"),
     getAssetPrediction: (assetId: string) =>
       apiFetch<RiskPrediction>(`/risk/assets/${assetId}/prediction`),
+  },
+
+  // =============================================================================
+  // RBAC API
+  // =============================================================================
+  rbac: {
+    // Roles
+    listRoles: () =>
+      apiFetch<{ roles: Role[] }>("/rbac/roles"),
+    getRole: (roleId: string) =>
+      apiFetch<Role>(`/rbac/roles/${roleId}`),
+
+    // Permissions
+    listPermissions: () =>
+      apiFetch<{ permissions: Permission[] }>("/rbac/permissions"),
+
+    // User roles
+    getUserRoles: (userId: string) =>
+      apiFetch<{ roles: Role[] }>(`/rbac/users/${userId}/roles`),
+    assignRole: (userId: string, roleId: string, expiresAt?: string) =>
+      apiFetch<void>(`/rbac/users/${userId}/roles`, {
+        method: "POST",
+        body: JSON.stringify({ role_id: roleId, expires_at: expiresAt }),
+      }),
+    revokeRole: (userId: string, roleId: string) =>
+      apiFetch<void>(`/rbac/users/${userId}/roles/${roleId}`, {
+        method: "DELETE",
+      }),
+
+    // User permissions
+    getUserPermissions: (userId: string) =>
+      apiFetch<{ permissions: UserPermission[] }>(`/rbac/users/${userId}/permissions`),
+
+    // Permission check
+    checkPermission: (userId: string, resourceType: string, action: string, resourceId?: string) =>
+      apiFetch<PermissionCheck>("/rbac/check", {
+        method: "POST",
+        body: JSON.stringify({
+          user_id: userId,
+          resource_type: resourceType,
+          action: action,
+          resource_id: resourceId,
+        }),
+      }),
+
+    // Teams
+    listTeams: () =>
+      apiFetch<{ teams: Team[] }>("/rbac/teams"),
+    createTeam: (name: string, description?: string) =>
+      apiFetch<Team>("/rbac/teams", {
+        method: "POST",
+        body: JSON.stringify({ name, description }),
+      }),
+    getTeamMembers: (teamId: string) =>
+      apiFetch<{ members: TeamMember[] }>(`/rbac/teams/${teamId}/members`),
+    addTeamMember: (teamId: string, userId: string, role: "member" | "admin" = "member") =>
+      apiFetch<void>(`/rbac/teams/${teamId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ user_id: userId, role }),
+      }),
+  },
+
+  // =============================================================================
+  // Organization / Multi-tenancy API
+  // =============================================================================
+  organization: {
+    // Quota
+    getQuota: () =>
+      apiFetch<OrganizationQuota>("/organization/quota"),
+
+    // Usage
+    getUsage: () =>
+      apiFetch<OrganizationUsage>("/organization/usage"),
+
+    // Quota status
+    getQuotaStatus: () =>
+      apiFetch<{ statuses: QuotaStatus[] }>("/organization/quota-status"),
+
+    // Subscription
+    getSubscription: () =>
+      apiFetch<Subscription>("/organization/subscription"),
+
+    // Plans
+    listPlans: () =>
+      apiFetch<{ plans: SubscriptionPlan[] }>("/organization/plans"),
+  },
+
+  // =============================================================================
+  // Enhanced Compliance API
+  // =============================================================================
+  complianceV2: {
+    // Frameworks
+    listFrameworks: () =>
+      apiFetch<{ frameworks: ComplianceFramework[] }>("/compliance/frameworks"),
+
+    // Controls
+    listControls: (frameworkId: string) =>
+      apiFetch<{ controls: ComplianceControl[] }>(`/compliance/frameworks/${frameworkId}/controls`),
+    getControlMappings: (controlId: string) =>
+      apiFetch<{ mappings: ComplianceControl[] }>(`/compliance/controls/${controlId}/mappings`),
+
+    // Assessments
+    listAssessments: (frameworkId?: string, limit?: number) => {
+      const params = new URLSearchParams();
+      if (frameworkId) params.set("framework_id", frameworkId);
+      if (limit) params.set("limit", String(limit));
+      const query = params.toString();
+      return apiFetch<{ assessments: ComplianceAssessment[] }>(`/compliance/assessments${query ? `?${query}` : ""}`);
+    },
+    getAssessment: (assessmentId: string) =>
+      apiFetch<ComplianceAssessment>(`/compliance/assessments/${assessmentId}`),
+    createAssessment: (data: {
+      frameworkId: string;
+      name: string;
+      description?: string;
+      assessmentType?: "automated" | "manual" | "hybrid";
+      scopeSites?: string[];
+      scopeAssets?: string[];
+    }) =>
+      apiFetch<ComplianceAssessment>("/compliance/assessments", {
+        method: "POST",
+        body: JSON.stringify({
+          framework_id: data.frameworkId,
+          name: data.name,
+          description: data.description,
+          assessment_type: data.assessmentType || "automated",
+          scope_sites: data.scopeSites,
+          scope_assets: data.scopeAssets,
+        }),
+      }),
+
+    // Evidence
+    listEvidence: (controlId?: string, currentOnly?: boolean) => {
+      const params = new URLSearchParams();
+      if (controlId) params.set("control_id", controlId);
+      if (currentOnly !== undefined) params.set("current_only", String(currentOnly));
+      const query = params.toString();
+      return apiFetch<{ evidence: ComplianceEvidence[] }>(`/compliance/evidence${query ? `?${query}` : ""}`);
+    },
+    uploadEvidence: (data: {
+      controlId: string;
+      evidenceType: "screenshot" | "log" | "config" | "report" | "attestation";
+      title: string;
+      description?: string;
+      storageType: string;
+      storagePath?: string;
+      validUntil?: string;
+    }) =>
+      apiFetch<ComplianceEvidence>("/compliance/evidence", {
+        method: "POST",
+        body: JSON.stringify({
+          control_id: data.controlId,
+          evidence_type: data.evidenceType,
+          title: data.title,
+          description: data.description,
+          storage_type: data.storageType,
+          storage_path: data.storagePath,
+          valid_until: data.validUntil,
+        }),
+      }),
+
+    // Exemptions
+    listExemptions: () =>
+      apiFetch<{ exemptions: ComplianceExemption[] }>("/compliance/exemptions"),
+    createExemption: (data: {
+      controlId: string;
+      assetId?: string;
+      siteId?: string;
+      reason: string;
+      riskAcceptance?: string;
+      compensatingControls?: string;
+      expiresAt: string;
+    }) =>
+      apiFetch<ComplianceExemption>("/compliance/exemptions", {
+        method: "POST",
+        body: JSON.stringify({
+          control_id: data.controlId,
+          asset_id: data.assetId,
+          site_id: data.siteId,
+          reason: data.reason,
+          risk_acceptance: data.riskAcceptance,
+          compensating_controls: data.compensatingControls,
+          expires_at: data.expiresAt,
+        }),
+      }),
+
+    // Score
+    getScore: (frameworkId?: string) => {
+      const query = frameworkId ? `?framework_id=${frameworkId}` : "";
+      return apiFetch<ComplianceScore>(`/compliance/score${query}`);
+    },
   },
 };
 
