@@ -16,16 +16,17 @@ QL-RF (QuantumLayer Resilience Fabric) is an LLM-first infrastructure operations
 |--------|-------|
 | Go Services | 4 |
 | Go Files | 220+ |
-| Go LOC | ~87,000 |
-| Test Files | 60+ |
-| Test LOC | ~21,000 |
-| UI Components | 60 |
-| Dashboard Pages | 15 |
+| Go LOC | ~93,000 |
+| Test Files | 65+ |
+| Test LOC | ~24,000 |
+| UI Components | 75+ |
+| Dashboard Pages | 22 |
 | AI Agents | 10 |
 | Tools | 29+ |
 | OPA Policies | 6 |
 | Migrations | 15 |
 | E2E Tests | 230+ |
+| OpenAPI Contracts | 3 |
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -919,7 +920,14 @@ ui/control-tower/src/
 │   │   ├── drift/            # Drift analysis
 │   │   ├── compliance/       # Compliance dashboard + PDF export
 │   │   ├── risk/             # Risk scoring dashboard
-│   │   └── resilience/       # DR management
+│   │   ├── resilience/       # DR management
+│   │   ├── sbom/             # SBOM dashboard (Phase 5)
+│   │   │   └── [id]/         # SBOM detail page
+│   │   ├── costs/            # FinOps dashboard (Phase 5)
+│   │   │   └── budgets/      # Budget management
+│   │   └── inspec/           # InSpec compliance (Phase 5)
+│   │       ├── scans/[id]/   # Scan results detail
+│   │       └── profiles/[id]/ # Profile detail
 │   └── (marketing)/          # Public pages
 ├── components/
 │   ├── ai/                   # AI-specific components
@@ -936,14 +944,37 @@ ui/control-tower/src/
 │   │   ├── lineage-graph.tsx # Interactive canvas graph
 │   │   ├── vulnerability-summary.tsx
 │   │   └── vulnerability-trend-chart.tsx
+│   ├── sbom/                 # SBOM components (Phase 5)
+│   │   ├── sbom-components-table.tsx
+│   │   ├── sbom-vulnerability-card.tsx
+│   │   └── license-distribution-chart.tsx
+│   ├── finops/               # FinOps components (Phase 5)
+│   │   ├── cost-trend-chart.tsx
+│   │   ├── cost-breakdown-chart.tsx
+│   │   ├── budget-progress-card.tsx
+│   │   ├── recommendation-card.tsx
+│   │   └── cloud-spend-card.tsx
+│   ├── inspec/               # InSpec components (Phase 5)
+│   │   ├── profile-card.tsx
+│   │   ├── scan-status-badge.tsx
+│   │   ├── control-result-row.tsx
+│   │   ├── scan-summary-card.tsx
+│   │   └── schedule-form.tsx
 │   └── ui/                   # shadcn/ui components
 ├── lib/
+│   ├── api.ts                # Core API client with apiFetch
+│   ├── api-sbom.ts           # SBOM API client (Phase 5)
+│   ├── api-finops.ts         # FinOps API client (Phase 5)
+│   ├── api-inspec.ts         # InSpec API client (Phase 5)
 │   └── pdf-export.ts         # PDF report generation (jsPDF)
 └── hooks/
     ├── use-ai.ts             # AI task hooks
     ├── use-lineage.ts        # Image lineage hooks
     ├── use-risk.ts           # Risk scoring hooks
-    └── use-permissions.ts    # RBAC hooks
+    ├── use-permissions.ts    # RBAC hooks
+    ├── use-sbom.ts           # SBOM hooks (Phase 5)
+    ├── use-finops.ts         # FinOps hooks (Phase 5)
+    └── use-inspec.ts         # InSpec hooks (Phase 5)
 ```
 
 ### RBAC Implementation

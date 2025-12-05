@@ -112,6 +112,9 @@
 | License Analysis | ✅ Done | SPDX license identifiers |
 | REST API Handlers | ✅ Done | 7 endpoints |
 | Database Migrations | ✅ Done | Migration 000014 |
+| OpenAPI Contract | ✅ Done | contracts/sbom.openapi.yaml |
+| Frontend UI | ✅ Done | Dashboard + detail pages |
+| React Query Hooks | ✅ Done | use-sbom.ts |
 
 ### FinOps Integration (pkg/finops/)
 | Component | Status | Notes |
@@ -124,6 +127,9 @@
 | Optimization Recommendations | ✅ Done | Right-sizing, reserved |
 | REST API Handlers | ✅ Done | 7 endpoints |
 | Database Migrations | ✅ Done | Migration 000015 |
+| OpenAPI Contract | ✅ Done | contracts/finops.openapi.yaml |
+| Frontend UI | ✅ Done | Costs dashboard + budgets page |
+| React Query Hooks | ✅ Done | use-finops.ts |
 
 ### InSpec Integration (pkg/inspec/)
 | Component | Status | Notes |
@@ -135,6 +141,10 @@
 | Evidence Collection | ✅ Done | Automated capture |
 | REST API Handlers | ✅ Done | 10 endpoints |
 | Database Migrations | ✅ Done | Migration 000013 |
+| OpenAPI Contract | ✅ Done | contracts/inspec.openapi.yaml |
+| Frontend UI | ✅ Done | Profiles + scans pages |
+| React Query Hooks | ✅ Done | use-inspec.ts |
+| Unit Tests | ✅ Done | inspec_test.go, profiles_test.go |
 
 ### E2E Test Suite (ui/control-tower/e2e/)
 | Page | Tests | Status |
@@ -152,14 +162,22 @@
 
 ## Test Status
 
-### Integration Tests (15/15 PASS)
+### Integration Tests (39/39 PASS)
 | Suite | Tests | Status |
 |-------|-------|--------|
 | RBAC | 3 | ✅ Pass |
 | Multi-tenancy | 4 | ✅ Pass |
 | Compliance | 4 | ✅ Pass |
 | Secrets | 4 | ✅ Pass |
+| Phase 5 Features | 24 | ✅ Pass |
 | E2E (disabled) | 1 | ⏭ Skip |
+
+### OpenAPI Contracts
+| Contract | Endpoints | Status |
+|----------|-----------|--------|
+| contracts/sbom.openapi.yaml | 8 | ✅ Done |
+| contracts/finops.openapi.yaml | 7 | ✅ Done |
+| contracts/inspec.openapi.yaml | 11 | ✅ Done |
 
 ### Unit Tests
 | Package | Status |
@@ -170,6 +188,7 @@
 | pkg/resilience | ✅ Pass |
 | pkg/sbom | ✅ Pass |
 | pkg/finops | ✅ Pass |
+| pkg/inspec | ✅ Pass |
 | services/api | ✅ Pass |
 | services/orchestrator | ✅ Pass (11 packages) |
 | services/connectors | ✅ Pass (6 packages) |
@@ -201,11 +220,11 @@
 
 | Commit | Date | Description |
 |--------|------|-------------|
+| `5cfe97b` | Dec 2025 | feat(ui): Add frontend pages for Phase 5 - SBOM, FinOps, InSpec (6,297 lines) |
+| `fc396a5` | Dec 2025 | test: Add OpenAPI contracts and comprehensive tests for Phase 5 |
+| `6edeea9` | Dec 2025 | docs: Update PRD, Architecture, and API Reference for Phase 5 |
 | `ca6a415` | Dec 2025 | feat: Add Phase 5 - SBOM, FinOps, InSpec, E2E tests (14,204 lines) |
 | `86768b9` | Dec 2025 | docs: Add comprehensive enterprise documentation |
-| `35f22f0` | Dec 2025 | fix: Align compliance package with database schema |
-| `0e46671` | Dec 2025 | docs: Update documentation and add HTTP handlers |
-| `af5d123` | Dec 2025 | feat: Add enterprise features - RBAC, multi-tenancy, compliance |
 | `210dc1b` | Dec 2025 | test: Add LLM and handlers package tests |
 
 ---
