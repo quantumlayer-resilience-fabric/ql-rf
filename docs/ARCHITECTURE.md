@@ -10,21 +10,21 @@
 
 QL-RF (QuantumLayer Resilience Fabric) is an LLM-first infrastructure operations platform that transforms traditional dashboard-based workflows into AI-driven, human-approved automation.
 
-### Codebase Metrics (as of 2025-12-04)
+### Codebase Metrics (as of 2025-12-05)
 
 | Metric | Count |
 |--------|-------|
 | Go Services | 4 |
-| Go Files | 168 |
-| Go LOC | ~67,000 |
-| Test Files | 49 |
-| Test LOC | ~18,800 |
+| Go Files | 185 |
+| Go LOC | ~73,000 |
+| Test Files | 50 |
+| Test LOC | ~19,200 |
 | UI Components | 60 |
 | Dashboard Pages | 15 |
 | AI Agents | 10 |
 | Tools | 29+ |
 | OPA Policies | 6 |
-| Migrations | 7 |
+| Migrations | 12 |
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -453,6 +453,317 @@ if !hasImage { score += 15 }
 
 ---
 
+## Enterprise Packages
+
+QL-RF includes comprehensive enterprise-grade packages for production deployments:
+
+### 1. RBAC Package (`pkg/rbac/`)
+
+Hierarchical role-based access control with fine-grained permissions.
+
+**System Roles (8 levels):**
+- `org_owner` - Full organizational control
+- `org_admin` - Organization administration
+- `infra_admin` - Infrastructure management
+- `security_admin` - Security and compliance management
+- `dr_admin` - Disaster recovery operations
+- `operator` - Day-to-day operations
+- `analyst` - Read-only analysis
+- `viewer` - Read-only dashboard access
+
+**Permission Model:**
+- **Actions**: read, write, delete, execute, approve, admin
+- **Resources**: assets, images, sites, drift, compliance, dr, tasks, organization, audit
+- **Permission Sources**: role-based, direct grants, team-based
+
+**Key Features:**
+- Hierarchical role inheritance with parent roles
+- Resource-level permissions (per-asset, per-site, per-image)
+- Team-based permissions for group collaboration
+- Time-based permission expiration
+- Full audit trail of permission grants/revocations
+
+**Database Functions:**
+```sql
+check_permission(user_id, org_id, resource_type, resource_id, action) -> boolean
+get_user_permissions(user_id, org_id) -> table
+```
+
+### 2. Multi-Tenancy Package (`pkg/multitenancy/`)
+
+Organization isolation with quota management and usage tracking.
+
+**Organization Quotas:**
+- Max assets, images, sites, users, teams
+- Max AI tasks per day
+- Max AI tokens per month
+- Max concurrent tasks
+- Storage limits (bytes)
+- API rate limits (per minute/per day)
+
+**Feature Flags:**
+- DR operations enabled/disabled
+- Compliance frameworks enabled/disabled
+- Advanced analytics access
+- Custom integrations allowed
+
+**Subscription Plans:**
+Pre-configured tiers (Starter, Professional, Enterprise) with:
+- Default quota values
+- Feature inclusions
+- Monthly/annual pricing
+- Trial period support
+- External billing system integration (Stripe, etc.)
+
+**Usage Tracking:**
+Real-time usage counters for:
+- Asset count, image count, site count
+- User count, team count
+- Storage used (bytes)
+- AI tasks today, AI tokens this month
+- API requests (per minute/per day)
+
+**Database Functions:**
+```sql
+check_quota(org_id, resource_type, increment) -> boolean
+increment_usage(org_id, resource_type, increment)
+decrement_usage(org_id, resource_type, decrement)
+check_api_rate_limit(org_id) -> boolean
+set_tenant_context(org_id, user_id)
+```
+
+### 3. Compliance Package (`pkg/compliance/`)
+
+Compliance framework management with pre-populated controls and evidence tracking.
+
+**Supported Frameworks:**
+- CIS Benchmarks (Linux Level 1/2, Windows, Kubernetes)
+- SOC 2 Type I/II controls
+- NIST 800-53 (Rev 5)
+- ISO 27001:2013
+- PCI-DSS v4.0
+- HIPAA Security Rule
+
+**Control Management:**
+- Control definitions with severity (critical, high, medium, low)
+- Control families and categories
+- Implementation guidance
+- Assessment procedures
+- Automation support levels (automated, hybrid, manual)
+
+**Cross-Framework Mappings:**
+- Control mappings between frameworks (equivalent, partial, related)
+- Confidence scores for mappings
+- Evidence reuse across frameworks
+
+**Assessment Lifecycle:**
+1. Create assessment (scope: sites, assets, frameworks)
+2. Start assessment (status: pending → in_progress)
+3. Evaluate controls (passed, failed, not_applicable, manual_review)
+4. Record evidence (screenshots, logs, configs, reports, attestations)
+5. Complete assessment with score
+
+**Evidence Management:**
+- Evidence types: screenshot, log, config, report, attestation
+- Storage integration (S3, Azure Blob, GCS, local)
+- Content hashing for integrity
+- Validity periods with expiration
+- Review workflow (reviewed_by, review_status)
+- Auto-collection from scanners
+
+**Exemptions:**
+- Control exemptions with risk acceptance
+- Compensating controls documentation
+- Time-boxed expiration
+- Periodic review requirements
+- Approval workflow
+
+### 4. Audit Trail Package (`pkg/audit/`)
+
+Comprehensive audit logging with configurable retention and export.
+
+**Audit Event Types:**
+- Authentication events (login, logout, failed attempts)
+- Authorization events (permission grants, denials)
+- Data access events (read, write, delete)
+- Configuration changes (settings, policies, integrations)
+- AI task lifecycle (created, approved, rejected, executed)
+- Infrastructure changes (assets, images, sites, DR drills)
+
+**Event Schema:**
+```go
+type AuditEvent struct {
+    ID           uuid.UUID
+    OrgID        uuid.UUID
+    EventType    string
+    ActorID      string
+    ActorEmail   string
+    ActorIP      string
+    ResourceType string
+    ResourceID   uuid.UUID
+    Action       string
+    OldValue     json.RawMessage
+    NewValue     json.RawMessage
+    Metadata     json.RawMessage
+    Timestamp    time.Time
+}
+```
+
+**Features:**
+- Immutable append-only log
+- IP address and user agent tracking
+- Before/after value tracking
+- Retention policies (30d, 90d, 1y, 7y for compliance)
+- Compressed cold storage
+- Audit log export to S3/Azure/GCS
+- CSV/JSON/NDJSON export formats
+- Search and filtering capabilities
+
+**Export Configuration:**
+```bash
+RF_AUDIT_RETENTION_DAYS=90
+RF_AUDIT_EXPORT_ENABLED=true
+RF_AUDIT_EXPORT_BUCKET=s3://audit-logs-bucket
+RF_AUDIT_EXPORT_SCHEDULE=daily
+```
+
+### 5. Billing Package (`pkg/billing/`)
+
+LLM cost tracking with per-model pricing.
+
+**Cost Tracking:**
+- Per-organization LLM usage tracking
+- Per-task cost attribution
+- Per-model pricing configuration
+- Real-time cost accumulation
+
+**Supported Models:**
+- Claude (Anthropic): Sonnet 3.5, Opus 3.5, Haiku 3.5
+- GPT (OpenAI): GPT-4, GPT-4-Turbo, GPT-3.5-Turbo
+- Azure OpenAI: Same models via Azure endpoint
+
+**Pricing Model:**
+```go
+type LLMPricing struct {
+    Provider      string
+    Model         string
+    InputCostPer1M  float64  // Cost per 1M input tokens
+    OutputCostPer1M float64  // Cost per 1M output tokens
+}
+```
+
+**Usage Metrics:**
+```go
+type LLMUsage struct {
+    OrgID          uuid.UUID
+    TaskID         uuid.UUID
+    Provider       string
+    Model          string
+    InputTokens    int64
+    OutputTokens   int64
+    TotalTokens    int64
+    EstimatedCostUSD float64
+    Timestamp      time.Time
+}
+```
+
+**Monthly Cost Reporting:**
+- Per-organization monthly summaries
+- Per-model cost breakdown
+- Token usage trends
+- Cost forecasting
+- Budget alerts and quota enforcement
+
+### 6. OpenTelemetry Package (`pkg/telemetry/`)
+
+Distributed tracing infrastructure with OpenTelemetry.
+
+**Tracing Features:**
+- Automatic span creation for HTTP handlers
+- Database query tracing
+- LLM API call tracing with token counts
+- External service calls (Kafka, Redis, external APIs)
+- Error and exception tracking
+
+**Exporters:**
+- OTLP (OpenTelemetry Protocol) - default
+- Jaeger (for local development)
+- Zipkin
+- Datadog APM
+- AWS X-Ray
+
+**Configuration:**
+```bash
+RF_OTEL_ENABLED=true
+RF_OTEL_EXPORTER=otlp
+RF_OTEL_ENDPOINT=http://localhost:4318
+RF_OTEL_SERVICE_NAME=ql-rf-api
+RF_OTEL_ENVIRONMENT=production
+RF_OTEL_SAMPLE_RATE=0.1  # 10% sampling
+```
+
+**Instrumentation:**
+```go
+// Automatic HTTP middleware tracing
+router.Use(telemetry.Middleware())
+
+// Manual span creation
+ctx, span := telemetry.StartSpan(ctx, "operation-name")
+defer span.End()
+
+// Add attributes
+span.SetAttributes(
+    attribute.String("org.id", orgID),
+    attribute.Int64("asset.count", count),
+)
+```
+
+### 7. Secrets Management Package (`pkg/secrets/`)
+
+HashiCorp Vault integration for secure credential storage.
+
+**Supported Backends:**
+- HashiCorp Vault (KV v2 engine)
+- AWS Secrets Manager (planned)
+- Azure Key Vault (planned)
+- GCP Secret Manager (planned)
+
+**Secret Types:**
+- Database credentials with auto-rotation
+- Cloud provider credentials (AWS, Azure, GCP)
+- vCenter credentials
+- API keys (Anthropic, OpenAI, Slack, etc.)
+- Webhook signing secrets
+
+**Key Features:**
+- Secret versioning
+- Automatic lease renewal
+- Dynamic secret generation (database, cloud IAM)
+- Secret rotation policies
+- Access audit logging
+
+**Configuration:**
+```bash
+RF_VAULT_ENABLED=true
+RF_VAULT_ADDRESS=https://vault.example.com
+RF_VAULT_TOKEN=vault-token
+RF_VAULT_NAMESPACE=ql-rf
+RF_VAULT_MOUNT_PATH=secret
+```
+
+**Usage:**
+```go
+// Fetch secret
+secret, err := secretsClient.GetSecret(ctx, "database/postgres")
+
+// Store secret
+err = secretsClient.PutSecret(ctx, "api/anthropic", map[string]string{
+    "api_key": "sk-ant-...",
+})
+```
+
+---
+
 ## Frontend Architecture
 
 ### Control Tower UI (`ui/control-tower/`)
@@ -555,14 +866,31 @@ image_tags             -- Custom key-value metadata
 -- Drift tracking
 drift_reports, drift_items
 
--- Compliance
+-- Compliance (Migrations 000008-000012)
 compliance_frameworks, compliance_controls, control_evidence
+compliance_assessments, compliance_assessment_results
+compliance_exemptions, control_mappings
+
+-- Audit Trail (Migration 000008)
+audit_events, permission_grants_log
+
+-- LLM Cost Tracking (Migration 000009)
+llm_usage, llm_pricing
+
+-- RBAC (Migration 000010)
+roles, permissions, role_permissions
+user_roles, resource_permissions
+teams, team_members
+
+-- Multi-Tenancy (Migration 000011)
+organization_quotas, organization_usage
+subscription_plans, organization_subscriptions
 
 -- DR
 dr_pairs, dr_drills, dr_drill_results
 
 -- AI tasks
-ai_tasks, ai_task_plans, ai_tool_invocations
+ai_tasks, ai_task_plans, ai_runs, ai_tool_invocations
 ```
 
 **Lineage Views:**

@@ -7,11 +7,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/quantumlayerhq/ql-rf/pkg/compliance"
 	"github.com/quantumlayerhq/ql-rf/pkg/config"
 	"github.com/quantumlayerhq/ql-rf/pkg/database"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
 	"github.com/quantumlayerhq/ql-rf/pkg/models"
+	"github.com/quantumlayerhq/ql-rf/pkg/multitenancy"
+	"github.com/quantumlayerhq/ql-rf/pkg/rbac"
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/handlers"
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/middleware"
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/repository"
@@ -107,6 +111,13 @@ func New(cfg Config) http.Handler {
 	riskSvc := service.NewRiskService(cfg.DB, cfg.Logger)
 	predictionSvc := service.NewPredictionService(cfg.DB, cfg.Logger)
 
+	// Initialize enterprise feature services (RBAC, Multitenancy, Compliance)
+	// Convert pgxpool to sql.DB for services that need it
+	sqlDB := stdlib.OpenDBFromPool(cfg.DB.Pool)
+	rbacSvc := rbac.NewService(sqlDB)
+	multitenancySvc := multitenancy.NewService(sqlDB)
+	complianceEnhancedSvc := compliance.NewService(sqlDB)
+
 	// Initialize handlers
 	healthHandler := handlers.NewHealthHandler(cfg.DB, cfg.BuildInfo.Version, cfg.BuildInfo.GitCommit)
 	imageHandler := handlers.NewImageHandler(imageSvc, cfg.Logger)
@@ -115,12 +126,14 @@ func New(cfg Config) http.Handler {
 	siteHandler := handlers.NewSiteHandler(siteSvc, cfg.Logger)
 	alertHandler := handlers.NewAlertHandler(alertSvc, cfg.Logger)
 	overviewHandler := handlers.NewOverviewHandler(overviewSvc, cfg.Logger)
-	complianceHandler := handlers.NewComplianceHandler(complianceSvc, cfg.Logger)
+	complianceHandler := handlers.NewComplianceHandlerWithSvc(complianceSvc, complianceEnhancedSvc, cfg.Logger)
 	resilienceHandler := handlers.NewResilienceHandler(resilienceSvc, cfg.Logger)
 	lineageHandler := handlers.NewLineageHandler(cfg.DB.Pool, cfg.Logger)
 	riskHandler := handlers.NewRiskHandler(riskSvc, cfg.Logger)
 	predictionHandler := handlers.NewPredictionHandler(predictionSvc, cfg.Logger)
 	userHandler := handlers.NewUserHandler(cfg.Logger)
+	rbacHandler := handlers.NewRBACHandler(rbacSvc, cfg.Logger)
+	organizationHandler := handlers.NewOrganizationHandler(multitenancySvc, cfg.Logger)
 
 	// Health endpoints (no auth required)
 	r.Get("/healthz", healthHandler.Liveness)
@@ -250,6 +263,18 @@ func New(cfg Config) http.Handler {
 			r.Get("/controls/failing", complianceHandler.FailingControls)
 			r.Get("/images", complianceHandler.ImageCompliance)
 
+			// Enhanced compliance endpoints
+			r.Get("/frameworks/{frameworkId}/controls", complianceHandler.ListControls)
+			r.Get("/controls/{controlId}/mappings", complianceHandler.GetControlMappings)
+			r.Get("/assessments", complianceHandler.ListAssessments)
+			r.Post("/assessments", complianceHandler.CreateAssessment)
+			r.Get("/assessments/{assessmentId}", complianceHandler.GetAssessment)
+			r.Get("/evidence", complianceHandler.ListEvidence)
+			r.Post("/evidence", complianceHandler.UploadEvidence)
+			r.Get("/exemptions", complianceHandler.ListExemptions)
+			r.Post("/exemptions", complianceHandler.CreateExemption)
+			r.Get("/score", complianceHandler.GetScore)
+
 			// Audit trigger - require trigger:drill permission (similar to DR drill)
 			r.With(middleware.RequirePermission(models.PermTriggerDrill)).
 				Post("/audit", complianceHandler.TriggerAudit)
@@ -285,6 +310,38 @@ func New(cfg Config) http.Handler {
 		// Users
 		r.Route("/users", func(r chi.Router) {
 			r.Get("/me", userHandler.GetCurrentUser)
+		})
+
+		// RBAC
+		r.Route("/rbac", func(r chi.Router) {
+			// Roles
+			r.Get("/roles", rbacHandler.ListRoles)
+			r.Get("/roles/{roleId}", rbacHandler.GetRole)
+			r.Get("/permissions", rbacHandler.ListPermissions)
+
+			// User roles
+			r.Get("/users/{userId}/roles", rbacHandler.GetUserRoles)
+			r.Post("/users/{userId}/roles", rbacHandler.AssignRole)
+			r.Delete("/users/{userId}/roles/{roleId}", rbacHandler.RevokeRole)
+			r.Get("/users/{userId}/permissions", rbacHandler.GetUserPermissions)
+
+			// Permission checking
+			r.Post("/check", rbacHandler.CheckPermission)
+
+			// Teams
+			r.Get("/teams", rbacHandler.ListTeams)
+			r.Post("/teams", rbacHandler.CreateTeam)
+			r.Get("/teams/{teamId}/members", rbacHandler.GetTeamMembers)
+			r.Post("/teams/{teamId}/members", rbacHandler.AddTeamMember)
+		})
+
+		// Organization / Multi-tenancy
+		r.Route("/organization", func(r chi.Router) {
+			r.Get("/quota", organizationHandler.GetQuota)
+			r.Get("/usage", organizationHandler.GetUsage)
+			r.Get("/quota-status", organizationHandler.GetQuotaStatus)
+			r.Get("/subscription", organizationHandler.GetSubscription)
+			r.Get("/plans", organizationHandler.ListPlans)
 		})
 
 		// Organizations (admin only)

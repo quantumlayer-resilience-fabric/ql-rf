@@ -393,12 +393,24 @@ platform_coords:
 - [x] Canary analysis with Prometheus/CloudWatch/Datadog providers
 - [x] CI/CD pipeline with progressive rollout
 
+### Phase 4.5: Enterprise Features ✅ Complete
+- [x] **Enterprise RBAC**: Hierarchical roles (8 system roles), resource-level permissions, teams
+- [x] **Multi-Tenancy**: Organization quotas, usage tracking, subscription plans
+- [x] **Compliance Frameworks**: CIS, SOC2, NIST, ISO 27001, PCI-DSS, HIPAA (500+ controls)
+- [x] **Control Mappings**: Cross-framework control relationships (200+ mappings)
+- [x] **Audit Trail**: Comprehensive audit logging with configurable retention
+- [x] **LLM Cost Tracking**: Per-organization usage and cost tracking with per-model pricing
+- [x] **OpenTelemetry**: Distributed tracing infrastructure
+- [x] **Secrets Management**: HashiCorp Vault integration
+
 ### Phase 5: Advanced Features 🚧 In Progress
 - [ ] Full SBOM generation and management
 - [ ] FinOps cost optimization features
 - [ ] Container registry scanning
 - [ ] CloudWatch/Datadog production integration
 - [ ] E2E test suite expansion
+- [ ] Compliance assessment automation (InSpec integration)
+- [ ] Evidence collection automation
 
 ### Phase 6: Ecosystem & Marketplace (Future)
 - [ ] Public contract registry + capsule sharing
@@ -647,6 +659,9 @@ Auto-generated evidence bundles:
 | ADR-009 | Tool Risk Taxonomy | Risk-based automation with human approval |
 | ADR-010 | RBAC Authorization | Role-based + permission-based access control |
 | ADR-011 | Row-Level Security | Multi-tenant data isolation at database level |
+| ADR-012 | Enterprise RBAC | Hierarchical roles with resource-level permissions |
+| ADR-013 | Multi-Tenancy Quotas | Quota-based resource management with subscription tiers |
+| ADR-014 | Compliance Frameworks | Pre-populated frameworks with cross-framework mappings |
 
 See `docs/adr/` for full decision records.
 

@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated:** 2025-12-04
+**Last Updated:** 2025-12-05
 
 ## Project Overview
 
@@ -15,19 +15,26 @@ QuantumLayer Resilience Fabric (QL-RF) is an **LLM-first infrastructure resilien
 - **BCP/DR Automation** - Disaster recovery readiness scoring, failover testing, and automated DR drills
 - **Compliance Evidence** - SBOM generation, SLSA attestations, and CIS benchmark validation
 - **AI Copilot** - Natural language interface for infrastructure operations with human-in-the-loop approval
+- **Enterprise RBAC** - Hierarchical roles with resource-level permissions and team collaboration
+- **Multi-Tenancy** - Organization quotas, usage tracking, subscription plans, and API rate limiting
+- **Compliance Frameworks** - Pre-populated CIS, SOC2, NIST, ISO 27001, PCI-DSS, HIPAA controls
+- **Audit Trail** - Comprehensive audit logging with configurable retention and export
+- **LLM Cost Tracking** - Per-organization usage tracking with per-model pricing
 
 ### Codebase Metrics
 
 | Metric | Count |
 |--------|-------|
 | Go Services | 4 |
-| Go Files | 168 |
-| Go LOC | ~67,000 |
-| Test Files | 49 |
+| Go Files | 185 |
+| Go LOC | ~73,000 |
+| Test Files | 50 |
+| Migrations | 12 |
 | UI Components | 60 |
 | Dashboard Pages | 15 |
 | AI Agents | 10 |
 | Tools | 29+ |
+| OPA Policies | 6 |
 
 ## Quick Start
 
@@ -399,6 +406,27 @@ RF_NOTIFICATIONS_SLACK_ENABLED=true
 RF_NOTIFICATIONS_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 RF_NOTIFICATIONS_TEAMS_ENABLED=true
 RF_NOTIFICATIONS_TEAMS_WEBHOOK_URL=https://...webhook.office.com/...
+
+# Enterprise Features
+# Audit Trail
+RF_AUDIT_RETENTION_DAYS=90                   # Audit log retention period
+RF_AUDIT_EXPORT_ENABLED=true                 # Enable audit export
+RF_AUDIT_EXPORT_BUCKET=s3://audit-logs       # Export destination
+RF_AUDIT_EXPORT_SCHEDULE=daily               # Export schedule
+
+# OpenTelemetry
+RF_OTEL_ENABLED=true                         # Enable distributed tracing
+RF_OTEL_EXPORTER=otlp                        # OTLP, Jaeger, Zipkin
+RF_OTEL_ENDPOINT=http://localhost:4318       # Exporter endpoint
+RF_OTEL_SERVICE_NAME=ql-rf-api               # Service name
+RF_OTEL_SAMPLE_RATE=0.1                      # Sample 10% of traces
+
+# Secrets Management (HashiCorp Vault)
+RF_VAULT_ENABLED=true                        # Enable Vault integration
+RF_VAULT_ADDRESS=https://vault.example.com   # Vault server URL
+RF_VAULT_TOKEN=...                           # Vault token
+RF_VAULT_NAMESPACE=ql-rf                     # Vault namespace
+RF_VAULT_MOUNT_PATH=secret                   # KV mount path
 ```
 
 ## Database Schema
@@ -407,7 +435,8 @@ PostgreSQL with golang-migrate. Key tables:
 
 ```
 # Multi-tenancy
-organizations, users
+organizations, users, organization_quotas, organization_usage
+subscription_plans, organization_subscriptions
 
 # Infrastructure
 sites, assets
@@ -415,8 +444,23 @@ sites, assets
 # Golden Images
 images, image_lineage, image_vulnerabilities, image_components
 
+# RBAC & Teams
+roles, permissions, role_permissions, user_roles
+resource_permissions, teams, team_members
+
+# Compliance
+compliance_frameworks, compliance_controls, control_mappings
+compliance_assessments, compliance_assessment_results
+compliance_evidence, compliance_exemptions
+
 # Operations
-drift_reports, compliance_frameworks, compliance_controls, alerts, activities
+drift_reports, alerts, activities
+
+# Audit Trail
+audit_events, permission_grants_log
+
+# LLM Cost Tracking
+llm_usage, llm_pricing
 
 # AI Orchestration
 ai_tasks, ai_plans, ai_runs, ai_tool_invocations
@@ -430,6 +474,11 @@ ai_tasks, ai_plans, ai_runs, ai_tool_invocations
 - `000005_add_row_level_security` - RLS policies
 - `000006_add_image_lineage` - Image family tree
 - `000007_add_drift_optimization_indexes` - Query optimization
+- `000008_add_audit_trail` - Audit logging infrastructure
+- `000009_add_llm_cost_tracking` - LLM usage and cost tracking
+- `000010_add_rbac` - RBAC roles, permissions, and teams
+- `000011_add_multitenancy` - Organization quotas and subscriptions
+- `000012_add_compliance_frameworks` - Compliance frameworks and controls
 
 ## Frontend (Control Tower)
 
@@ -554,3 +603,6 @@ See `docs/` for comprehensive documentation:
 | ADR-009 | Tool risk taxonomy & HITL |
 | ADR-010 | RBAC authorization model |
 | ADR-011 | Row-level security |
+| ADR-012 | Enterprise RBAC with hierarchical roles |
+| ADR-013 | Multi-tenancy with quota management |
+| ADR-014 | Compliance framework integration |
