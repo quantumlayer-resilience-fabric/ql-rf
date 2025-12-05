@@ -21,16 +21,17 @@ import (
 type TaskType string
 
 const (
-	TaskTypeDriftRemediation    TaskType = "drift_remediation"
-	TaskTypePatchRollout        TaskType = "patch_rollout"
-	TaskTypeComplianceAudit     TaskType = "compliance_audit"
-	TaskTypeIncidentResponse    TaskType = "incident_investigation"
-	TaskTypeDRDrill             TaskType = "dr_drill"
-	TaskTypeCostOptimization    TaskType = "cost_optimization"
-	TaskTypeSecurityScan        TaskType = "security_scan"
-	TaskTypeImageManagement     TaskType = "image_management"
-	TaskTypeSOPAuthoring        TaskType = "sop_authoring"
-	TaskTypeTerraformGeneration TaskType = "terraform_generation"
+	TaskTypeDriftRemediation     TaskType = "drift_remediation"
+	TaskTypePatchRollout         TaskType = "patch_rollout"
+	TaskTypeComplianceAudit      TaskType = "compliance_audit"
+	TaskTypeIncidentResponse     TaskType = "incident_investigation"
+	TaskTypeDRDrill              TaskType = "dr_drill"
+	TaskTypeCostOptimization     TaskType = "cost_optimization"
+	TaskTypeSecurityScan         TaskType = "security_scan"
+	TaskTypeImageManagement      TaskType = "image_management"
+	TaskTypeSOPAuthoring         TaskType = "sop_authoring"
+	TaskTypeTerraformGeneration  TaskType = "terraform_generation"
+	TaskTypeCertificateRotation  TaskType = "certificate_rotation"
 )
 
 // =============================================================================
@@ -184,6 +185,7 @@ func (r *Registry) registerAgents() {
 		NewImageAgent(r.llm, r.tools, r.log),
 		NewSOPAgent(r.llm, r.tools, r.log),
 		NewAdapterAgent(r.llm, r.tools, r.log),
+		NewCertificateAgent(r.llm, r.tools, r.log),
 	}
 
 	for _, agent := range agents {
