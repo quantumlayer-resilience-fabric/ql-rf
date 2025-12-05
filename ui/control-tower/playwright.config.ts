@@ -8,15 +8,16 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  retries: process.env.CI ? 2 : 1,
   workers: process.env.CI ? 1 : undefined,
   timeout: 60000, // 60 seconds per test
   expect: {
     timeout: 10000, // 10 seconds for assertions
   },
   reporter: [
-    ["html", { open: "never" }],
+    ["html", { open: "never", outputFolder: "playwright-report" }],
     ["list"],
+    ["json", { outputFile: "test-results/results.json" }],
   ],
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3000",
@@ -25,7 +26,13 @@ export default defineConfig({
     video: "retain-on-failure",
     actionTimeout: 15000, // 15 seconds for actions
     navigationTimeout: 30000, // 30 seconds for navigation
+    // Collect console errors
+    extraHTTPHeaders: {
+      "Accept-Language": "en-US",
+    },
   },
+  // Output folder for test artifacts
+  outputDir: "test-results",
   projects: [
     {
       name: "chromium",
