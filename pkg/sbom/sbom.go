@@ -193,7 +193,7 @@ func (s *Service) List(ctx context.Context, orgID uuid.UUID, page, pageSize int)
 	}
 	defer rows.Close()
 
-	var sboms []SBOMSummary
+	sboms := make([]SBOMSummary, 0) // Initialize as empty slice, not nil (for JSON serialization)
 	for rows.Next() {
 		var summary SBOMSummary
 		if err := rows.Scan(

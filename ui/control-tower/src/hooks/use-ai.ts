@@ -24,23 +24,21 @@ type UseAuthReturn = {
   orgId?: string;
 };
 
-// Dev mode auth - always returns dev token
-function useDevAuth(): UseAuthReturn {
-  return { getToken: async () => "dev-token", orgId: "dev-org" };
-}
+// Dev auth values - used when Clerk isn't configured
+const devAuthValue: UseAuthReturn = {
+  getToken: async () => "dev-token",
+  orgId: "dev-org",
+};
 
 // Get auth - use dev auth when Clerk isn't configured to avoid ClerkProvider errors
 function useAuth(): UseAuthReturn {
-  // In development without Clerk, use dev auth
-  if (!hasClerkKey) {
-    return useDevAuth();
-  }
-  // Even if Clerk key exists, we use dev auth in development to avoid provider issues
-  if (isDevelopment) {
-    return useDevAuth();
+  // In development without Clerk or in development mode, use dev auth
+  // This avoids conditional hook calls
+  if (!hasClerkKey || isDevelopment) {
+    return devAuthValue;
   }
   // Production with Clerk - would use actual Clerk auth (but this is wrapped in ClerkProvider)
-  return useDevAuth();
+  return devAuthValue;
 }
 
 // Types for AI messages

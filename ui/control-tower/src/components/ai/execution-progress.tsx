@@ -19,7 +19,6 @@ import {
   useResumeExecution,
   useCancelExecution,
   useRollbackExecution,
-  Execution,
   PhaseExecution,
   ExecutionStatus,
   PhaseStatus,
@@ -33,7 +32,6 @@ import {
   Clock,
   Loader2,
   AlertTriangle,
-  ChevronRight,
   Activity,
   Server,
 } from "lucide-react";

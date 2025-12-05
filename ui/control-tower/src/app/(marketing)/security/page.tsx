@@ -8,7 +8,6 @@ import {
   Shield,
   Lock,
   Eye,
-  Server,
   CheckCircle,
   ArrowRight,
   FileText,
@@ -20,7 +19,6 @@ import {
   Building,
   Award,
   AlertTriangle,
-  Clock,
 } from "lucide-react";
 
 const certifications = [
@@ -254,7 +252,7 @@ export default function SecurityPage() {
               <h3 className="text-lg font-semibold">Responsible Disclosure</h3>
               <p className="mt-1 text-sm text-muted-foreground">
                 Found a security vulnerability? We appreciate your help in keeping QL-RF secure.
-                Please report security issues to our security team and we'll respond within 24 hours.
+                Please report security issues to our security team and we&apos;ll respond within 24 hours.
               </p>
             </div>
             <Button variant="outline" asChild>

@@ -1097,14 +1097,14 @@ export const api = {
     listVersions: (familyId: string) =>
       apiFetch<Image[]>(`/images?family=${familyId}`),
     getVersion: (familyId: string, version: string) =>
-      apiFetch<Image>(`/images/${familyId}/latest`),
-    promote: (imageId: string, _version: string, targetStatus: string) =>
-      apiFetch<Image>(`/images/${imageId}/promote`, {
+      apiFetch<Image>(`/images/family/${familyId}/version/${version}`),
+    promote: (familyId: string, version: string, targetStatus: string) =>
+      apiFetch<Image>(`/images/family/${familyId}/version/${version}/promote`, {
         method: "POST",
         body: JSON.stringify({ status: targetStatus }),
       }),
-    deprecate: (imageId: string, _version: string) =>
-      apiFetch<Image>(`/images/${imageId}/promote`, {
+    deprecate: (familyId: string, version: string) =>
+      apiFetch<Image>(`/images/family/${familyId}/version/${version}/promote`, {
         method: "POST",
         body: JSON.stringify({ status: "deprecated" }),
       }),

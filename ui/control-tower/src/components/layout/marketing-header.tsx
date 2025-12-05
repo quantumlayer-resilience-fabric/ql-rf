@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
 import { Logo } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Menu, X, ChevronDown } from "lucide-react";

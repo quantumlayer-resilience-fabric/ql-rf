@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status/status-badge";
 import { GradientText } from "@/components/brand/gradient-text";
-import { useAllTasks, TaskWithPlan } from "@/hooks/use-ai";
+import { useAllTasks } from "@/hooks/use-ai";
 import { formatDistanceToNow, format } from "date-fns";
 import {
   History,
@@ -35,7 +35,6 @@ import {
   Bot,
   ChevronRight,
   Loader2,
-  Shield,
 } from "lucide-react";
 import Link from "next/link";
 

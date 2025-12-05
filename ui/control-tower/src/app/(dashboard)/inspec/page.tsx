@@ -34,7 +34,7 @@ export default function InSpecPage() {
 
   const { data: profiles, isLoading: profilesLoading, error: profilesError, refetch: refetchProfiles } = useProfiles();
   const { data: scansData, isLoading: scansLoading, error: scansError, refetch: refetchScans } = useScans({ limit: 10 });
-  const { data: schedules, isLoading: schedulesLoading } = useSchedules();
+  const { data: schedules } = useSchedules();
   const triggerScan = useTriggerScan();
 
   const scans = scansData?.runs || [];

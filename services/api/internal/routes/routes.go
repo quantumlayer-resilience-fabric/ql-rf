@@ -12,10 +12,13 @@ import (
 	"github.com/quantumlayerhq/ql-rf/pkg/compliance"
 	"github.com/quantumlayerhq/ql-rf/pkg/config"
 	"github.com/quantumlayerhq/ql-rf/pkg/database"
+	"github.com/quantumlayerhq/ql-rf/pkg/finops"
+	"github.com/quantumlayerhq/ql-rf/pkg/inspec"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
 	"github.com/quantumlayerhq/ql-rf/pkg/models"
 	"github.com/quantumlayerhq/ql-rf/pkg/multitenancy"
 	"github.com/quantumlayerhq/ql-rf/pkg/rbac"
+	"github.com/quantumlayerhq/ql-rf/pkg/sbom"
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/handlers"
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/middleware"
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/repository"
@@ -134,6 +137,18 @@ func New(cfg Config) http.Handler {
 	userHandler := handlers.NewUserHandler(cfg.Logger)
 	rbacHandler := handlers.NewRBACHandler(rbacSvc, cfg.Logger)
 	organizationHandler := handlers.NewOrganizationHandler(multitenancySvc, cfg.Logger)
+
+	// Phase 5 services and handlers (SBOM, FinOps, InSpec)
+	// SBOM uses slog.Logger internally (nil defaults to slog.Default())
+	sbomSvc := sbom.NewService(sqlDB, nil)
+	sbomGenerator := sbom.NewGenerator(sqlDB, nil)
+	sbomHandler := handlers.NewSBOMHandler(sbomSvc, sbomGenerator, cfg.Logger)
+
+	finopsSvc := finops.NewCostService(cfg.DB.Pool)
+	finopsHandler := handlers.NewFinOpsHandler(finopsSvc, cfg.Logger)
+
+	inspecSvc := inspec.NewService(sqlDB)
+	inspecHandler := handlers.NewInSpecHandler(inspecSvc, cfg.Logger)
 
 	// Health endpoints (no auth required)
 	r.Get("/healthz", healthHandler.Liveness)
@@ -349,6 +364,52 @@ func New(cfg Config) http.Handler {
 			r.Use(middleware.RequireRole("admin"))
 			r.Get("/", handlers.NotImplemented)
 			r.Post("/", handlers.NotImplemented)
+		})
+
+		// SBOM (Software Bill of Materials)
+		r.Route("/sbom", func(r chi.Router) {
+			r.Get("/", sbomHandler.ListSBOMs)
+			r.Get("/{id}", sbomHandler.GetSBOM)
+			r.Delete("/{id}", sbomHandler.DeleteSBOM)
+			r.Get("/{id}/export", sbomHandler.ExportSBOM)
+			r.Get("/{id}/vulnerabilities", sbomHandler.GetSBOMVulnerabilities)
+		})
+
+		// Additional SBOM routes under images
+		r.Route("/images/{id}/sbom", func(r chi.Router) {
+			r.Get("/", sbomHandler.GetImageSBOM)
+			r.With(middleware.RequirePermission(models.PermManageImages)).
+				Post("/generate", sbomHandler.GenerateSBOM)
+		})
+
+		// FinOps (Cost Optimization)
+		r.Route("/finops", func(r chi.Router) {
+			r.Get("/summary", finopsHandler.GetSummary)
+			r.Get("/breakdown", finopsHandler.GetBreakdown)
+			r.Get("/trend", finopsHandler.GetTrend)
+			r.Get("/recommendations", finopsHandler.GetRecommendations)
+			r.Get("/resources", finopsHandler.GetResourceCosts)
+
+			// Budgets
+			r.Get("/budgets", finopsHandler.ListBudgets)
+			r.Post("/budgets", finopsHandler.CreateBudget)
+		})
+
+		// InSpec (Compliance Scanning)
+		r.Route("/inspec", func(r chi.Router) {
+			// Profiles
+			r.Get("/profiles", inspecHandler.ListProfiles)
+			r.Get("/profiles/{profileId}", inspecHandler.GetProfile)
+			r.Post("/profiles", inspecHandler.CreateProfile)
+			r.Get("/profiles/{profileId}/mappings", inspecHandler.GetControlMappings)
+			r.Post("/profiles/{profileId}/mappings", inspecHandler.CreateControlMapping)
+
+			// Runs
+			r.Post("/run", inspecHandler.RunProfile)
+			r.Get("/runs", inspecHandler.ListRuns)
+			r.Get("/runs/{runId}", inspecHandler.GetRun)
+			r.Get("/runs/{runId}/results", inspecHandler.GetRunResults)
+			r.Post("/runs/{runId}/cancel", inspecHandler.CancelRun)
 		})
 	})
 

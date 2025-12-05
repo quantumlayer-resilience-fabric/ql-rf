@@ -3,6 +3,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@clerk/nextjs";
 import {
   getSBOMs,
   getSBOM,
@@ -51,10 +52,13 @@ export function useSBOMs(params?: {
   page?: number;
   pageSize?: number;
 }) {
+  const { isLoaded, isSignedIn } = useAuth();
+
   return useQuery<SBOMListResponse>({
     queryKey: sbomKeys.list(params),
     queryFn: () => getSBOMs(params),
     staleTime: 1000 * 60 * 5, // 5 minutes
+    enabled: isLoaded && isSignedIn, // Only fetch when auth is ready
   });
 }
 

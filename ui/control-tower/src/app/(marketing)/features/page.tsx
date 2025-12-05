@@ -8,8 +8,6 @@ import {
   Globe,
   Sparkles,
   Shield,
-  Zap,
-  Server,
   TrendingDown,
   RefreshCw,
   Eye,

@@ -1,6 +1,5 @@
 "use client";
 
-import { cn } from "@/lib/utils";
 
 // Placeholder logos - in production these would be real customer logos
 const customerLogos = [

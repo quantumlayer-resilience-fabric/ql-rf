@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -13,14 +14,36 @@ import (
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/middleware"
 )
 
+// InSpecServiceInterface defines the methods required from the InSpec service.
+type InSpecServiceInterface interface {
+	GetAvailableProfiles(ctx context.Context) ([]inspec.AvailableProfile, error)
+	GetProfile(ctx context.Context, profileID uuid.UUID) (*inspec.Profile, error)
+	CreateProfile(ctx context.Context, profile inspec.Profile) (*inspec.Profile, error)
+	CreateRun(ctx context.Context, orgID, assetID, profileID uuid.UUID) (*inspec.Run, error)
+	ListRuns(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]inspec.RunSummary, error)
+	GetRun(ctx context.Context, runID uuid.UUID) (*inspec.Run, error)
+	GetRunResults(ctx context.Context, runID uuid.UUID) ([]inspec.Result, error)
+	UpdateRunStatus(ctx context.Context, runID uuid.UUID, status inspec.RunStatus, errorMsg string) error
+	GetControlMappings(ctx context.Context, profileID uuid.UUID) ([]inspec.ControlMapping, error)
+	CreateControlMapping(ctx context.Context, mapping inspec.ControlMapping) (*inspec.ControlMapping, error)
+}
+
 // InSpecHandler handles InSpec-related requests.
 type InSpecHandler struct {
-	svc *inspec.Service
+	svc InSpecServiceInterface
 	log *logger.Logger
 }
 
 // NewInSpecHandler creates a new InSpecHandler.
 func NewInSpecHandler(svc *inspec.Service, log *logger.Logger) *InSpecHandler {
+	return &InSpecHandler{
+		svc: svc,
+		log: log.WithComponent("inspec-handler"),
+	}
+}
+
+// NewInSpecHandlerWithInterface creates a new InSpecHandler with interface dependency (for testing).
+func NewInSpecHandlerWithInterface(svc InSpecServiceInterface, log *logger.Logger) *InSpecHandler {
 	return &InSpecHandler{
 		svc: svc,
 		log: log.WithComponent("inspec-handler"),

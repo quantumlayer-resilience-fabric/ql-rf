@@ -4,7 +4,6 @@
  * Provides typed API client for cost management and financial operations.
  */
 
-import { apiFetch } from "./api";
 
 // =============================================================================
 // Types (matching OpenAPI contract)
@@ -20,7 +19,7 @@ export interface CostSummary {
   byCloud: Record<string, number>;
   byService: Record<string, number>;
   bySite: Record<string, number>;
-  byResource: Record<string, ResourceCost>;
+  byResource: Record<string, number>;
   trendChange: number;
 }
 
@@ -253,7 +252,7 @@ export async function getCostSummary(
     by_cloud: Record<string, number>;
     by_service: Record<string, number>;
     by_site: Record<string, number>;
-    by_resource: Record<string, any>;
+    by_resource: Record<string, number>;
     trend_change: number;
   }>(`/finops/summary?${params}`);
 

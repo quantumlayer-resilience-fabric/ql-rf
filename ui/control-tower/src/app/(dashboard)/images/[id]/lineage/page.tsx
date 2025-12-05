@@ -36,8 +36,6 @@ import {
   Terminal,
   Clock,
   AlertTriangle,
-  CheckCircle,
-  ExternalLink,
   Network,
   List,
 } from "lucide-react";
@@ -188,7 +186,7 @@ export default function ImageLineagePage() {
           <LineagePath
             parents={parentImages}
             current={currentImage}
-            children={childImages}
+            childImages={childImages}
             onSelectImage={(id) => router.push(`/images/${id}/lineage`)}
           />
         </CardContent>

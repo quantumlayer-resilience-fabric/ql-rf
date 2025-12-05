@@ -109,7 +109,7 @@ export function HeroSection() {
                   { label: "Drift Score", value: "94.2%", trend: "-2.1%", status: "warning" },
                   { label: "Compliance", value: "97.8%", trend: "stable", status: "success" },
                   { label: "DR Ready", value: "98.1%", trend: "+0.3%", status: "success" },
-                ].map((metric, i) => (
+                ].map((metric) => (
                   <div
                     key={metric.label}
                     className="rounded-lg border border-white/10 bg-white/5 p-4 transition-all hover:border-white/20 hover:bg-white/10"

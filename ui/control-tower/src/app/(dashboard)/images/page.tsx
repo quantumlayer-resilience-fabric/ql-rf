@@ -92,7 +92,7 @@ export default function ImagesPage() {
     router.push("/images/new");
   }, [router]);
 
-  const families = imageFamilies || [];
+  const families = useMemo(() => imageFamilies || [], [imageFamilies]);
 
   // Calculate metrics from real data
   const imageMetrics = useMemo(() => ({

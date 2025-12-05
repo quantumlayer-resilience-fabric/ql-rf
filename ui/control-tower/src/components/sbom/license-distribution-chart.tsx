@@ -60,8 +60,9 @@ export function LicenseDistributionChart({
     }
   };
 
-  // Sort licenses by count (descending)
-  const sortedLicenses = [...licenseSummary.licenses].sort(
+  // Sort licenses by count (descending) - handle null/undefined licenses array
+  const licenses = licenseSummary.licenses ?? [];
+  const sortedLicenses = [...licenses].sort(
     (a, b) => b.count - a.count
   );
 
@@ -77,7 +78,7 @@ export function LicenseDistributionChart({
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Licenses</p>
-                <p className="text-2xl font-bold">{licenseSummary.licenses.length}</p>
+                <p className="text-2xl font-bold">{licenses.length}</p>
               </div>
             </div>
           </CardContent>

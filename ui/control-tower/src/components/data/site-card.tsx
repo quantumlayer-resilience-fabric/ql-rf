@@ -7,7 +7,6 @@ import { PlatformIcon } from "@/components/status/platform-icon";
 import { Badge } from "@/components/ui/badge";
 import {
   Server,
-  RefreshCw,
   Shield,
   Clock,
   ArrowRight,

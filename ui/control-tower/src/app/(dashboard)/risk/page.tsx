@@ -22,7 +22,6 @@ import {
   Server,
   Cloud,
   MapPin,
-  Zap,
   Target,
   Lightbulb,
   ArrowRight,
@@ -426,7 +425,7 @@ function ForecastSection({ forecast }: { forecast: RiskForecast }) {
         </Card>
 
         {/* Predictions */}
-        {forecast.predictions.map((pred, i) => (
+        {forecast.predictions.map((pred) => (
           <PredictionCard
             key={pred.predictionHorizon}
             prediction={pred}

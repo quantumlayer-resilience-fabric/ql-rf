@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,10 +9,8 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
-  RefreshCw,
   GitBranch,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 interface GraphNode {
   id: string;
@@ -106,8 +104,8 @@ export function LineageGraph({
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
   const animationRef = useRef<number | null>(null);
 
-  // Initialize graph layout
-  useEffect(() => {
+  // Initialize graph layout - use useMemo to avoid setState in useEffect
+  const graphData = useMemo(() => {
     const { nodes: flatNodes, links: flatLinks } = flattenTree(tree);
 
     // Position nodes in a hierarchical layout
@@ -129,9 +127,14 @@ export function LineageGraph({
       });
     });
 
-    setNodes(flatNodes);
-    setLinks(flatLinks);
+    return { nodes: flatNodes, links: flatLinks };
   }, [tree]);
+
+  // Sync state with computed graph data
+  useEffect(() => {
+    setNodes(graphData.nodes);
+    setLinks(graphData.links);
+  }, [graphData]);
 
   // Draw function
   const draw = useCallback(() => {

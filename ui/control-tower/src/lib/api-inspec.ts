@@ -332,24 +332,94 @@ function transformResult(backend: {
 }
 
 // =============================================================================
+// Backend Response Types (snake_case from API)
+// =============================================================================
+
+interface BackendProfile {
+  profile_id?: string;
+  id?: string;
+  name: string;
+  version: string;
+  title: string;
+  maintainer?: string;
+  summary?: string;
+  framework_id?: string;
+  framework?: string;
+  profile_url?: string;
+  platforms?: string[];
+  control_count?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface BackendRun {
+  id?: string;
+  run_id?: string;
+  org_id?: string;
+  asset_id?: string;
+  asset_name?: string;
+  profile_id?: string;
+  profile_name?: string;
+  framework?: string;
+  status: string;
+  started_at?: string;
+  completed_at?: string;
+  duration?: number;
+  total_tests: number;
+  passed_tests: number;
+  failed_tests: number;
+  skipped_tests: number;
+  pass_rate?: number;
+  error_message?: string;
+  raw_output?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface BackendResult {
+  id: string;
+  run_id: string;
+  control_id: string;
+  control_title: string;
+  status: string;
+  message?: string;
+  resource?: string;
+  source_location?: string;
+  run_time: number;
+  code_description?: string;
+  created_at: string;
+}
+
+interface BackendMapping {
+  id: string;
+  inspec_control_id: string;
+  compliance_control_id: string;
+  profile_id: string;
+  mapping_confidence: number;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// =============================================================================
 // API Functions
 // =============================================================================
 
 export const inspecApi = {
   // Profiles
   getProfiles: async (): Promise<InSpecProfile[]> => {
-    const response = await apiFetch<{ profiles: any[] }>("/inspec/profiles");
+    const response = await apiFetch<{ profiles: BackendProfile[] }>("/inspec/profiles");
     return (response.profiles || []).map(transformProfile);
   },
 
   getProfile: async (id: string): Promise<InSpecProfile> => {
-    const response = await apiFetch<any>(`/inspec/profiles/${id}`);
+    const response = await apiFetch<BackendProfile>(`/inspec/profiles/${id}`);
     return transformProfile(response);
   },
 
   // Runs
   triggerScan: async (data: TriggerScanRequest): Promise<InSpecRun> => {
-    const response = await apiFetch<any>("/inspec/run", {
+    const response = await apiFetch<BackendRun>("/inspec/run", {
       method: "POST",
       body: JSON.stringify({
         profile_id: data.profileId,
@@ -369,7 +439,7 @@ export const inspecApi = {
     const query = searchParams.toString();
 
     const response = await apiFetch<{
-      runs: any[];
+      runs: BackendRun[];
       limit: number;
       offset: number;
     }>(`/inspec/runs${query ? `?${query}` : ""}`);
@@ -382,14 +452,14 @@ export const inspecApi = {
   },
 
   getScan: async (id: string): Promise<InSpecRun> => {
-    const response = await apiFetch<any>(`/inspec/runs/${id}`);
+    const response = await apiFetch<BackendRun>(`/inspec/runs/${id}`);
     return transformRun(response);
   },
 
   getScanResults: async (scanId: string): Promise<RunResultsResponse> => {
     const response = await apiFetch<{
-      run: any;
-      results: any[];
+      run: BackendRun;
+      results: BackendResult[];
     }>(`/inspec/runs/${scanId}/results`);
 
     return {
@@ -406,10 +476,10 @@ export const inspecApi = {
 
   // Control Mappings
   getControlMappings: async (profileId: string): Promise<ControlMapping[]> => {
-    const response = await apiFetch<{ mappings: any[] }>(
+    const response = await apiFetch<{ mappings: BackendMapping[] }>(
       `/inspec/profiles/${profileId}/mappings`
     );
-    return (response.mappings || []).map((m) => ({
+    return (response.mappings || []).map((m: BackendMapping) => ({
       id: m.id,
       inspecControlId: m.inspec_control_id,
       complianceControlId: m.compliance_control_id,
@@ -427,12 +497,12 @@ export const inspecApi = {
     return [];
   },
 
-  createSchedule: async (data: CreateScheduleRequest): Promise<ScanSchedule> => {
+  createSchedule: async (_data: CreateScheduleRequest): Promise<ScanSchedule> => {
     // Placeholder - implement when backend supports schedules
     throw new Error("Not implemented");
   },
 
-  deleteSchedule: async (id: string): Promise<void> => {
+  deleteSchedule: async (_id: string): Promise<void> => {
     // Placeholder - implement when backend supports schedules
     throw new Error("Not implemented");
   },

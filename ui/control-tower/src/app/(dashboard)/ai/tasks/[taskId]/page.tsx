@@ -1,13 +1,13 @@
 "use client";
 
 import { use } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/status/status-badge";
 import { GradientText } from "@/components/brand/gradient-text";
-import { useTask, useApproveTask, useRejectTask, useTaskExecutions, TaskWithPlan, QualityScore } from "@/hooks/use-ai";
+import { useTask, useApproveTask, useRejectTask, useTaskExecutions, QualityScore } from "@/hooks/use-ai";
 import { ExecutionStatus } from "@/components/ai/execution-status";
 import { ToolInvocationAudit } from "@/components/ai/tool-invocation-audit";
 import { ExecutionProgress } from "@/components/ai/execution-progress";
@@ -25,12 +25,9 @@ import {
   Clock,
   Loader2,
   AlertTriangle,
-  Server,
   Calendar,
-  User,
   Shield,
   FileText,
-  Edit,
   ShieldAlert,
 } from "lucide-react";
 import Link from "next/link";

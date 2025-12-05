@@ -24,7 +24,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MetricCard } from "@/components/data/metric-card";
-import { StatusBadge } from "@/components/status/status-badge";
 import { PageSkeleton, ErrorState, EmptyState } from "@/components/feedback";
 import { SBOMComponentsTable } from "@/components/sbom/sbom-components-table";
 import { SBOMVulnerabilityCard } from "@/components/sbom/sbom-vulnerability-card";
@@ -49,7 +48,6 @@ import {
   Loader2,
   Sparkles,
   Zap,
-  AlertTriangle,
 } from "lucide-react";
 
 export default function SBOMPage() {
@@ -61,7 +59,7 @@ export default function SBOMPage() {
   const [isCreatingAITask, setIsCreatingAITask] = useState(false);
 
   // Fetch data
-  const { data: sbomList, isLoading, error, refetch } = useSBOMs({ page: 1, pageSize: 100 });
+  const { data: sbomList, isLoading, isPending, error, refetch } = useSBOMs({ page: 1, pageSize: 100 });
   const { data: images } = useQuery({
     queryKey: ["images"],
     queryFn: () => api.images.listFamilies(),
@@ -71,9 +69,11 @@ export default function SBOMPage() {
   const latestSBOM = sbomList?.sboms?.[0];
   const activeSBOMId = selectedSBOMId || latestSBOM?.id;
 
-  const { data: components = [] } = useSBOMComponents({
+  const { data: componentsData } = useSBOMComponents({
     sbomId: activeSBOMId,
   });
+  // Ensure components is always an array (API might return null on error)
+  const components = componentsData ?? [];
 
   const { data: vulnerabilitiesData } = useSBOMVulnerabilities(
     activeSBOMId || "",
@@ -88,7 +88,7 @@ export default function SBOMPage() {
   const sendAIMessage = useSendAIMessage();
   const { data: pendingTasks = [] } = usePendingTasks();
 
-  const hasPendingSBOMTask = pendingTasks.some(
+  const hasPendingSBOMTask = (pendingTasks || []).some(
     (task) => task.user_intent?.toLowerCase().includes("sbom") ||
               task.user_intent?.toLowerCase().includes("vulnerability")
   );
@@ -132,7 +132,8 @@ export default function SBOMPage() {
     }
   };
 
-  if (isLoading) {
+  // isPending is true when query is disabled (auth not ready) or loading
+  if (isLoading || isPending) {
     return (
       <div className="page-transition space-y-6">
         <div className="flex items-start justify-between">
@@ -400,7 +401,7 @@ export default function SBOMPage() {
       )}
 
       {/* SBOM Selector */}
-      {sbomList && sbomList.sboms.length > 1 && (
+      {sbomList && sbomList.sboms && sbomList.sboms.length > 1 && (
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-4">
@@ -437,7 +438,7 @@ export default function SBOMPage() {
             Vulnerabilities ({totalVulnerabilities})
           </TabsTrigger>
           <TabsTrigger value="licenses">
-            Licenses ({licenseSummary?.licenses.length || 0})
+            Licenses ({licenseSummary?.licenses?.length || 0})
           </TabsTrigger>
         </TabsList>
 

@@ -15,10 +15,9 @@ const sizeClasses = {
   xl: { icon: "h-12 w-12", text: "text-3xl" },
 };
 
-export function Logo({ variant = "full", size = "md", className }: LogoProps) {
-  const { icon: iconSize, text: textSize } = sizeClasses[size];
-
-  const IconComponent = () => (
+// Extracted icon component to avoid creating components during render
+function LogoSvg({ iconSize }: { iconSize: string }) {
+  return (
     <svg
       viewBox="0 0 40 40"
       fill="none"
@@ -50,11 +49,15 @@ export function Logo({ variant = "full", size = "md", className }: LogoProps) {
       <line x1="16.5" y1="22" x2="12" y2="25" stroke="currentColor" strokeWidth="1.5" className="text-brand-accent" />
     </svg>
   );
+}
+
+export function Logo({ variant = "full", size = "md", className }: LogoProps) {
+  const { icon: iconSize, text: textSize } = sizeClasses[size];
 
   if (variant === "icon") {
     return (
       <div className={cn("flex items-center", className)}>
-        <IconComponent />
+        <LogoSvg iconSize={iconSize} />
       </div>
     );
   }
@@ -74,7 +77,7 @@ export function Logo({ variant = "full", size = "md", className }: LogoProps) {
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <IconComponent />
+      <LogoSvg iconSize={iconSize} />
       <div className="flex items-baseline">
         <span className={cn("font-semibold tracking-tight text-foreground", textSize)}>
           QuantumLayer

@@ -30,7 +30,6 @@ import {
   Shield,
   Link2,
   ArrowRight,
-  Loader2,
 } from "lucide-react";
 
 export default function SitesPage() {

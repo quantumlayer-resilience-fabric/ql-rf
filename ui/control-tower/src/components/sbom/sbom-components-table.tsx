@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Package as PackageIcon, AlertCircle, Search, Filter } from "lucide-react";
+import { Package as PackageIcon, AlertCircle, Search } from "lucide-react";
 import type { Package } from "@/lib/api-sbom";
 
 interface SBOMComponentsTableProps {

@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import {
   Table,
   TableBody,
@@ -30,7 +29,6 @@ import {
   Clock,
   Eye,
   Code,
-  Loader2,
   AlertTriangle,
 } from "lucide-react";
 

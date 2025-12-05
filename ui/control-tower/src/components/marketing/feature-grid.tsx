@@ -111,7 +111,7 @@ export function FeatureGrid() {
 
         {/* Main Features - 4 Pillars */}
         <div className="mt-16 grid gap-6 md:grid-cols-2 lg:grid-cols-4 stagger-children">
-          {mainFeatures.map((feature, index) => {
+          {mainFeatures.map((feature) => {
             const Icon = feature.icon;
             return (
               <div
@@ -154,7 +154,7 @@ export function FeatureGrid() {
 
         {/* Additional Features */}
         <div className="mt-16 grid gap-6 md:grid-cols-2 lg:grid-cols-4 stagger-children">
-          {additionalFeatures.map((feature, index) => {
+          {additionalFeatures.map((feature) => {
             const Icon = feature.icon;
             return (
               <div

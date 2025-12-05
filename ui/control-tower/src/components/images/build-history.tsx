@@ -91,7 +91,7 @@ export function BuildHistory({ builds, className }: BuildHistoryProps) {
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          {builds.map((build, index) => {
+          {builds.map((build) => {
             const config = buildStatusConfig[build.status] || buildStatusConfig.pending;
             const Icon = config.icon;
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,25 +25,37 @@ import {
 import { PageSkeleton, ErrorState, EmptyState } from "@/components/feedback";
 import { BudgetProgressCard } from "@/components/finops/budget-progress-card";
 import { useBudgets, useCreateBudget } from "@/hooks/use-finops";
-import { CreateBudgetRequest } from "@/lib/api-finops";
+// Budget period and scope types for form handling
+type BudgetPeriod = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
+type BudgetScope = "organization" | "cloud" | "service" | "site";
 import { Plus, Loader2 } from "lucide-react";
 
 export default function BudgetsPage() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [showInactive, setShowInactive] = useState(false);
+  const [showInactive] = useState(false);
 
   const { data: budgetsData, isLoading, error, refetch } = useBudgets(!showInactive);
   const createBudget = useCreateBudget();
 
   // Form state - explicit type to ensure scope includes all valid values
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    name: string;
+    description: string;
+    amount: number;
+    currency: string;
+    period: BudgetPeriod;
+    scope: BudgetScope;
+    scopeValue: string | undefined;
+    alertThreshold: number;
+    startDate: string;
+  }>({
     name: "",
     description: "",
     amount: 0,
     currency: "USD",
-    period: "monthly" as const,
-    scope: "organization" as "organization" | "cloud" | "service" | "site",
-    scopeValue: "" as string | undefined,
+    period: "monthly",
+    scope: "organization",
+    scopeValue: "",
     alertThreshold: 80,
     startDate: new Date().toISOString().split("T")[0],
   });
@@ -60,9 +72,9 @@ export default function BudgetsPage() {
         description: "",
         amount: 0,
         currency: "USD",
-        period: "monthly" as const,
-        scope: "organization" as "organization" | "cloud" | "service" | "site",
-        scopeValue: "" as string | undefined,
+        period: "monthly",
+        scope: "organization",
+        scopeValue: "",
         alertThreshold: 80,
         startDate: new Date().toISOString().split("T")[0],
       });
@@ -211,7 +223,7 @@ export default function BudgetsPage() {
                     <Label htmlFor="period">Period</Label>
                     <Select
                       value={formData.period}
-                      onValueChange={(value: any) =>
+                      onValueChange={(value: BudgetPeriod) =>
                         setFormData({ ...formData, period: value })
                       }
                     >
@@ -251,7 +263,7 @@ export default function BudgetsPage() {
                   <Label htmlFor="scope">Scope</Label>
                   <Select
                     value={formData.scope}
-                    onValueChange={(value: any) =>
+                    onValueChange={(value: BudgetScope) =>
                       setFormData({ ...formData, scope: value })
                     }
                   >

@@ -10,9 +10,6 @@ import {
   ChevronDown,
   ChevronRight,
   GitBranch,
-  GitMerge,
-  Shield,
-  AlertTriangle,
   Box,
   ArrowRight,
 } from "lucide-react";
@@ -33,11 +30,6 @@ const statusConfig: Record<ImageStatus, { label: string; variant: "success" | "w
   pending: { label: "Pending", variant: "info" },
 };
 
-const relationshipLabels: Record<string, { label: string; icon: React.ReactNode }> = {
-  derived_from: { label: "Derived", icon: <GitBranch className="h-3 w-3" /> },
-  patched_from: { label: "Patched", icon: <Shield className="h-3 w-3" /> },
-  rebuilt_from: { label: "Rebuilt", icon: <GitMerge className="h-3 w-3" /> },
-};
 
 function TreeNode({
   node,
@@ -187,11 +179,11 @@ export function LineageTreeView({ tree, onSelectImage, selectedImageId }: Lineag
 interface LineagePathProps {
   parents: Array<{ id: string; family: string; version: string; status: string }>;
   current: { id: string; family: string; version: string; status: string };
-  children: Array<{ id: string; family: string; version: string; status: string }>;
+  childImages: Array<{ id: string; family: string; version: string; status: string }>;
   onSelectImage?: (imageId: string) => void;
 }
 
-export function LineagePath({ parents, current, children, onSelectImage }: LineagePathProps) {
+export function LineagePath({ parents, current, childImages, onSelectImage }: LineagePathProps) {
   const renderNode = (
     image: { id: string; family: string; version: string; status: string },
     isCurrent: boolean = false
@@ -236,13 +228,13 @@ export function LineagePath({ parents, current, children, onSelectImage }: Linea
       {renderNode(current, true)}
 
       {/* Children */}
-      {children.length > 0 && (
+      {childImages.length > 0 && (
         <>
           <ArrowRight className="h-4 w-4 text-muted-foreground" />
           <div className="flex items-center gap-2">
-            {children.slice(0, 3).map((child) => renderNode(child))}
-            {children.length > 3 && (
-              <Badge variant="secondary">+{children.length - 3} more</Badge>
+            {childImages.slice(0, 3).map((child) => renderNode(child))}
+            {childImages.length > 3 && (
+              <Badge variant="secondary">+{childImages.length - 3} more</Badge>
             )}
           </div>
         </>

@@ -7,7 +7,6 @@ import {
   ImageBuild,
   ImageDeployment,
   ImageComponent,
-  ImageLineageRelationship,
   ImportScanRequest,
   ImportScanResponse,
   ImportSBOMRequest,

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,15 +15,43 @@ import (
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/middleware"
 )
 
+// SBOMServiceInterface defines the methods required from the SBOM service.
+type SBOMServiceInterface interface {
+	Get(ctx context.Context, id uuid.UUID) (*sbom.SBOM, error)
+	GetByImageID(ctx context.Context, imageID uuid.UUID) (*sbom.SBOM, error)
+	List(ctx context.Context, orgID uuid.UUID, page, pageSize int) (*sbom.SBOMListResponse, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	GetPackages(ctx context.Context, sbomID uuid.UUID) ([]sbom.Package, error)
+	GetVulnerabilities(ctx context.Context, sbomID uuid.UUID, filter *sbom.VulnerabilityFilter) ([]sbom.Vulnerability, error)
+	GetVulnerabilityStats(ctx context.Context, sbomID uuid.UUID) (map[string]interface{}, error)
+	ExportSPDX(ctx context.Context, sbomID string) (map[string]interface{}, error)
+	ExportCycloneDX(ctx context.Context, sbomID string) (map[string]interface{}, error)
+}
+
+// SBOMGeneratorInterface defines the methods required from the SBOM generator.
+type SBOMGeneratorInterface interface {
+	Generate(ctx context.Context, req sbom.GenerateRequest) (*sbom.GenerateResult, error)
+	EnrichWithVulnerabilities(ctx context.Context, sbomID uuid.UUID) error
+}
+
 // SBOMHandler handles SBOM-related HTTP requests.
 type SBOMHandler struct {
-	svc       *sbom.Service
-	generator *sbom.Generator
+	svc       SBOMServiceInterface
+	generator SBOMGeneratorInterface
 	log       *logger.Logger
 }
 
 // NewSBOMHandler creates a new SBOM handler.
 func NewSBOMHandler(svc *sbom.Service, generator *sbom.Generator, log *logger.Logger) *SBOMHandler {
+	return &SBOMHandler{
+		svc:       svc,
+		generator: generator,
+		log:       log.WithComponent("sbom-handler"),
+	}
+}
+
+// NewSBOMHandlerWithInterfaces creates a new SBOM handler with interface dependencies (for testing).
+func NewSBOMHandlerWithInterfaces(svc SBOMServiceInterface, generator SBOMGeneratorInterface, log *logger.Logger) *SBOMHandler {
 	return &SBOMHandler{
 		svc:       svc,
 		generator: generator,
