@@ -81,7 +81,7 @@ export default function RootLayout({
 }>) {
   return (
     <ConditionalClerkProvider>
-      <html lang="en" suppressHydrationWarning>
+      <html lang="en" className="dark" suppressHydrationWarning>
         <body
           className={`${outfit.variable} ${sourceSans.variable} ${jetbrainsMono.variable} font-sans antialiased`}
           style={{ fontFamily: 'var(--font-body), system-ui, sans-serif' }}

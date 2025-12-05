@@ -172,23 +172,28 @@ function SidebarContent({
       {/* Logo */}
       <div
         className={cn(
-          "flex h-16 items-center border-b border-sidebar-border transition-all duration-300",
-          collapsed ? "justify-center px-2" : "justify-between px-4"
+          "flex items-center border-b border-sidebar-border transition-all duration-300",
+          collapsed ? "justify-center px-2 h-16" : "justify-between px-4 h-20"
         )}
       >
         <Link
           href="/overview"
-          className="flex items-center gap-2.5 transition-opacity hover:opacity-80"
+          className="flex items-center gap-3 transition-opacity hover:opacity-80"
           onClick={onNavClick}
         >
-          <LogoIcon size="md" />
+          <LogoIcon size={collapsed ? "sm" : "md"} />
           {!collapsed && (
-            <span
-              className="font-semibold text-sidebar-foreground tracking-tight"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              Control Tower
-            </span>
+            <div className="flex flex-col">
+              <span
+                className="font-bold gradient-quantum-text tracking-tight text-lg"
+                style={{ fontFamily: "var(--font-display)" }}
+              >
+                QuantumLayer
+              </span>
+              <span className="text-[10px] font-medium text-muted-foreground tracking-widest uppercase">
+                Resilience Fabric
+              </span>
+            </div>
           )}
         </Link>
       </div>

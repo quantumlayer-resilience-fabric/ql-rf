@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -43,13 +44,18 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* QL-RF Brand Colors */
+  /* QuantumLayer Brand Colors */
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
   --color-brand-light: var(--brand-light);
   --color-brand-dark: var(--brand-dark);
   --color-brand-accent: var(--brand-accent);
   --color-brand-accent-light: var(--brand-accent-light);
+
+  /* Quantum Accent Colors */
+  --color-quantum-green: var(--quantum-green);
+  --color-quantum-purple: var(--quantum-purple);
+  --color-quantum-blue: var(--quantum-blue);
 
   /* AI Gradient Colors */
   --color-ai-start: var(--ai-start);
@@ -81,50 +87,59 @@
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* === Light Theme - Warm Enterprise Professional === */
-  --background: #fafaf9;
-  --foreground: #1c1917;
+  /* === Typography === */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+
+  /* === QuantumLayer Light Theme === */
+  --background: #fafafa;
+  --foreground: #0a0a0a;
   --card: #ffffff;
-  --card-foreground: #1c1917;
+  --card-foreground: #0a0a0a;
   --popover: #ffffff;
-  --popover-foreground: #1c1917;
-  --primary: #1a365d;
-  --primary-foreground: #ffffff;
-  --secondary: #f5f5f4;
-  --secondary-foreground: #1a365d;
-  --muted: #f5f5f4;
-  --muted-foreground: #78716c;
-  --accent: #fef3c7;
-  --accent-foreground: #1a365d;
-  --destructive: #dc2626;
-  --border: #e7e5e4;
-  --input: #e7e5e4;
-  --ring: #2563eb;
+  --popover-foreground: #0a0a0a;
+  --primary: #00ff88;
+  --primary-foreground: #0a0a0a;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #0a0a0a;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #8b5cf6;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #00ff88;
 
-  /* Brand Colors - Refined Deep Blue */
-  --brand: #1a365d;
+  /* QuantumLayer Brand Colors */
+  --brand: #0a0a0a;
   --brand-foreground: #ffffff;
-  --brand-light: #2d4a6f;
-  --brand-dark: #0f2847;
-  --brand-accent: #2563eb;
-  --brand-accent-light: #3b82f6;
-  --brand-accent-hover: #1d4ed8;
+  --brand-light: #1a1a1a;
+  --brand-dark: #000000;
+  --brand-accent: #00ff88;
+  --brand-accent-light: #33ff9f;
+  --brand-accent-hover: #00cc6d;
 
-  /* AI Colors - Refined Gradient */
-  --ai-start: #4f46e5;
-  --ai-mid: #6366f1;
-  --ai-end: #7c3aed;
+  /* Quantum Accent Colors */
+  --quantum-green: #00ff88;
+  --quantum-purple: #8b5cf6;
+  --quantum-blue: #3b82f6;
+
+  /* AI Colors - QuantumLayer Gradient */
+  --ai-start: #00ff88;
+  --ai-mid: #8b5cf6;
+  --ai-end: #3b82f6;
 
   /* RAG Status Colors - Enterprise-Grade WCAG AA */
-  --status-green: #059669;
-  --status-amber: #d97706;
-  --status-red: #dc2626;
-  --status-green-bg: rgba(5, 150, 105, 0.08);
-  --status-amber-bg: rgba(217, 119, 6, 0.08);
-  --status-red-bg: rgba(220, 38, 38, 0.08);
-  --status-green-border: rgba(5, 150, 105, 0.2);
-  --status-amber-border: rgba(217, 119, 6, 0.2);
-  --status-red-border: rgba(220, 38, 38, 0.2);
+  --status-green: #10b981;
+  --status-amber: #f59e0b;
+  --status-red: #ef4444;
+  --status-green-bg: rgba(16, 185, 129, 0.1);
+  --status-amber-bg: rgba(245, 158, 11, 0.1);
+  --status-red-bg: rgba(239, 68, 68, 0.1);
+  --status-green-border: rgba(16, 185, 129, 0.3);
+  --status-amber-border: rgba(245, 158, 11, 0.3);
+  --status-red-border: rgba(239, 68, 68, 0.3);
 
   /* Platform Colors */
   --platform-aws: #ff9900;
@@ -133,94 +148,110 @@
   --platform-vsphere: #6d9e37;
   --platform-k8s: #326ce5;
 
-  /* Charts - Professional, Distinguishable */
-  --chart-1: #2563eb;
-  --chart-2: #059669;
-  --chart-3: #7c3aed;
-  --chart-4: #ea580c;
-  --chart-5: #0891b2;
-  --chart-6: #be185d;
+  /* Charts - QuantumLayer Palette */
+  --chart-1: #00ff88;
+  --chart-2: #8b5cf6;
+  --chart-3: #3b82f6;
+  --chart-4: #f59e0b;
+  --chart-5: #ec4899;
+  --chart-6: #06b6d4;
 
   /* Sidebar */
-  --sidebar: #fafaf9;
-  --sidebar-foreground: #1c1917;
-  --sidebar-primary: #1a365d;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f5f5f4;
-  --sidebar-accent-foreground: #1a365d;
-  --sidebar-border: #e7e5e4;
-  --sidebar-ring: #2563eb;
+  --sidebar: #fafafa;
+  --sidebar-foreground: #0a0a0a;
+  --sidebar-primary: #00ff88;
+  --sidebar-primary-foreground: #0a0a0a;
+  --sidebar-accent: #f4f4f5;
+  --sidebar-accent-foreground: #0a0a0a;
+  --sidebar-border: #e4e4e7;
+  --sidebar-ring: #00ff88;
 
   /* === Enhanced Shadows === */
-  --shadow-xs: 0 1px 2px rgba(28, 25, 23, 0.04);
-  --shadow-sm: 0 1px 3px rgba(28, 25, 23, 0.06), 0 1px 2px rgba(28, 25, 23, 0.04);
-  --shadow-md: 0 4px 6px -1px rgba(28, 25, 23, 0.08), 0 2px 4px -2px rgba(28, 25, 23, 0.04);
-  --shadow-lg: 0 10px 15px -3px rgba(28, 25, 23, 0.08), 0 4px 6px -4px rgba(28, 25, 23, 0.04);
-  --shadow-xl: 0 20px 25px -5px rgba(28, 25, 23, 0.1), 0 8px 10px -6px rgba(28, 25, 23, 0.06);
+  --shadow-xs: 0 1px 2px rgba(10, 10, 10, 0.04);
+  --shadow-sm: 0 1px 3px rgba(10, 10, 10, 0.06), 0 1px 2px rgba(10, 10, 10, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(10, 10, 10, 0.08), 0 2px 4px -2px rgba(10, 10, 10, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(10, 10, 10, 0.08), 0 4px 6px -4px rgba(10, 10, 10, 0.04);
+  --shadow-xl: 0 20px 25px -5px rgba(10, 10, 10, 0.1), 0 8px 10px -6px rgba(10, 10, 10, 0.06);
   --shadow-card: var(--shadow-sm);
   --shadow-card-hover: var(--shadow-lg);
-  --shadow-glow-brand: 0 0 20px rgba(37, 99, 235, 0.15);
-  --shadow-glow-status-green: 0 0 12px rgba(5, 150, 105, 0.25);
-  --shadow-glow-status-red: 0 0 12px rgba(220, 38, 38, 0.25);
+  --shadow-glow-quantum: 0 0 20px rgba(0, 255, 136, 0.3);
+  --shadow-glow-purple: 0 0 20px rgba(139, 92, 246, 0.3);
+  --shadow-glow-status-green: 0 0 12px rgba(16, 185, 129, 0.25);
+  --shadow-glow-status-red: 0 0 12px rgba(239, 68, 68, 0.25);
+
+  /* QuantumLayer Gradients */
+  --gradient-quantum: linear-gradient(135deg, #00ff88 0%, #8b5cf6 100%);
+  --gradient-dark: linear-gradient(180deg, #0a0a0a 0%, #141414 100%);
 }
 
 .dark {
-  /* === Dark Theme - Command Center Aesthetic === */
-  --background: #0a0a0f;
-  --foreground: #f0f0f5;
-  --card: #12121a;
-  --card-foreground: #f0f0f5;
-  --popover: #12121a;
-  --popover-foreground: #f0f0f5;
-  --primary: #3b82f6;
-  --primary-foreground: #ffffff;
-  --secondary: #1a1a24;
-  --secondary-foreground: #f0f0f5;
-  --muted: #1a1a24;
-  --muted-foreground: #8888a0;
-  --accent: #1a1a24;
-  --accent-foreground: #f0f0f5;
-  --destructive: #ff4466;
-  --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.12);
-  --ring: #6366f1;
+  /* === QuantumLayer Dark Theme - Modal.com Inspired === */
+  --background: #0a0a0a;
+  --foreground: #ffffff;
+  --card: #141414;
+  --card-foreground: #ffffff;
+  --popover: #141414;
+  --popover-foreground: #ffffff;
+  --primary: #00ff88;
+  --primary-foreground: #0a0a0a;
+  --secondary: #1a1a1a;
+  --secondary-foreground: #ffffff;
+  --muted: #1a1a1a;
+  --muted-foreground: #a0a0a0;
+  --accent: #8b5cf6;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --border: #262626;
+  --input: #262626;
+  --ring: #00ff88;
 
-  /* Brand Colors - Dark */
-  --brand: #3b82f6;
-  --brand-foreground: #ffffff;
-  --brand-light: #60a5fa;
-  --brand-dark: #1e40af;
-  --brand-accent: #6366f1;
-  --brand-accent-light: #818cf8;
-  --brand-accent-hover: #4f46e5;
+  /* QuantumLayer Brand Colors - Dark */
+  --brand: #00ff88;
+  --brand-foreground: #0a0a0a;
+  --brand-light: #33ff9f;
+  --brand-dark: #00cc6d;
+  --brand-accent: #8b5cf6;
+  --brand-accent-light: #a78bfa;
+  --brand-accent-hover: #7c3aed;
 
-  /* Charts - Dark optimized */
-  --chart-1: #6366f1;
-  --chart-2: #10b981;
+  /* Quantum Accent Colors - Dark */
+  --quantum-green: #00ff88;
+  --quantum-purple: #8b5cf6;
+  --quantum-blue: #3b82f6;
+
+  /* AI Colors - Dark */
+  --ai-start: #00ff88;
+  --ai-mid: #8b5cf6;
+  --ai-end: #3b82f6;
+
+  /* Charts - QuantumLayer Dark */
+  --chart-1: #00ff88;
+  --chart-2: #8b5cf6;
   --chart-3: #3b82f6;
   --chart-4: #f59e0b;
   --chart-5: #ec4899;
   --chart-6: #06b6d4;
 
   /* Sidebar - Dark */
-  --sidebar: #12121a;
-  --sidebar-foreground: #f0f0f5;
-  --sidebar-primary: #6366f1;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #1a1a24;
-  --sidebar-accent-foreground: #f0f0f5;
-  --sidebar-border: rgba(255, 255, 255, 0.08);
-  --sidebar-ring: #6366f1;
+  --sidebar: #0a0a0a;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #00ff88;
+  --sidebar-primary-foreground: #0a0a0a;
+  --sidebar-accent: #1a1a1a;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #262626;
+  --sidebar-ring: #00ff88;
 
   /* Dark Shadows */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.2);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
-  --shadow-glow-brand: 0 0 30px rgba(99, 102, 241, 0.25);
-  --shadow-glow-status-green: 0 0 15px rgba(16, 185, 129, 0.35);
-  --shadow-glow-status-red: 0 0 15px rgba(239, 68, 68, 0.35);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+  --shadow-glow-quantum: 0 0 30px rgba(0, 255, 136, 0.4);
+  --shadow-glow-purple: 0 0 30px rgba(139, 92, 246, 0.4);
+  --shadow-glow-status-green: 0 0 15px rgba(16, 185, 129, 0.4);
+  --shadow-glow-status-red: 0 0 15px rgba(239, 68, 68, 0.4);
 }
 
 @layer base {
@@ -240,13 +271,24 @@
   }
 }
 
-/* === AI Gradient Utilities === */
+/* === QuantumLayer Gradient Utilities === */
+.gradient-quantum {
+  background: linear-gradient(135deg, var(--quantum-green) 0%, var(--quantum-purple) 100%);
+}
+
+.gradient-quantum-text {
+  background: linear-gradient(135deg, var(--quantum-green), var(--quantum-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
 .gradient-ai {
   background: linear-gradient(135deg, var(--ai-start), var(--ai-mid), var(--ai-end));
 }
 
 .gradient-ai-subtle {
-  background: linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(124, 58, 237, 0.08));
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.08), rgba(139, 92, 246, 0.08));
 }
 
 .gradient-ai-text {
@@ -258,15 +300,15 @@
 
 /* === Brand Gradient Utilities === */
 .gradient-brand {
-  background: linear-gradient(135deg, #1a365d, #2563eb);
+  background: linear-gradient(135deg, #00ff88, #8b5cf6);
 }
 
 .gradient-brand-subtle {
-  background: linear-gradient(135deg, rgba(26, 54, 93, 0.04), rgba(37, 99, 235, 0.06));
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.04), rgba(139, 92, 246, 0.06));
 }
 
 .gradient-brand-text {
-  background: linear-gradient(135deg, #1a365d, #2563eb);
+  background: linear-gradient(135deg, #00ff88, #8b5cf6);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -275,13 +317,13 @@
 /* === Background Patterns === */
 .bg-grid-pattern {
   background-image:
-    linear-gradient(to right, rgba(26, 54, 93, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(26, 54, 93, 0.03) 1px, transparent 1px);
-  background-size: 24px 24px;
+    linear-gradient(to right, rgba(0, 255, 136, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 255, 136, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
 }
 
 .bg-dots-pattern {
-  background-image: radial-gradient(rgba(26, 54, 93, 0.08) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(0, 255, 136, 0.08) 1px, transparent 1px);
   background-size: 16px 16px;
 }
 
@@ -289,10 +331,59 @@
   background-image:
     linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
 }
 
 .dark .bg-dots-pattern {
   background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+}
+
+/* === Glow Effects === */
+.glow-green {
+  box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+}
+
+.glow-purple {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(0, 255, 136, 0.6);
+  }
+}
+
+/* === Terminal Style === */
+.terminal {
+  font-family: var(--font-mono);
+  @apply text-sm border rounded-lg p-4;
+  background: rgba(0, 0, 0, 0.5);
+  border-color: var(--border);
+  color: var(--quantum-green);
+}
+
+/* === Gradient Border === */
+.gradient-border {
+  position: relative;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--quantum-green), var(--quantum-purple));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
 }
 
 /* === Status Badge Animations === */

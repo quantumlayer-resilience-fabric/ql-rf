@@ -1,6 +1,9 @@
 # QuantumLayer Resilience Fabric
 ## Frontend Design System & Architecture
 
+> **Part of the QuantumLayer family** - QL-RF inherits the signature QuantumLayer visual identity
+> featuring Quantum Green (`#00ff88`), Quantum Purple (`#8b5cf6`), and deep black backgrounds.
+
 ---
 
 ## 1. Design Philosophy
@@ -13,43 +16,71 @@ The Control Tower embraces a **Mission Control** aesthetic—dense, information-
 - **Data Density with Clarity**: Show more, explain less—trained operators need information, not hand-holding
 - **Ambient Awareness**: Background signals (color, motion) communicate status before reading
 - **Drill-Down Architecture**: Overview → Region → Site → Asset (progressive disclosure)
-- **Dark-First**: Reduces eye strain for 24/7 operations; colors pop for alerts
+- **Dark-First**: Reduces eye strain for 24/7 operations; Quantum Green pops for CTAs
 
-### 1.2 Design Tokens
+### 1.2 QuantumLayer Brand Identity
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    QUANTUMLAYER BRAND                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Primary Color:     Quantum Green  #00ff88  ████████████        │
+│  Secondary Color:   Quantum Purple #8b5cf6  ████████████        │
+│  Accent Color:      Quantum Blue   #3b82f6  ████████████        │
+│                                                                 │
+│  Background Dark:   Deep Black     #0a0a0a  ████████████        │
+│  Surface Dark:      Card Black     #141414  ████████████        │
+│  Border Dark:       Gray Border    #262626  ████████████        │
+│                                                                 │
+│  Gradient:          linear-gradient(135deg, #00ff88, #8b5cf6)  │
+│                                                                 │
+│  Font Mono:         JetBrains Mono                              │
+│  Font Sans:         Inter                                       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 1.3 Design Tokens
 
 ```css
 /* ========================================
    QUANTUMLAYER RESILIENCE FABRIC
-   Design Tokens v1.0
+   Design Tokens v2.0 - QuantumLayer Brand
    ======================================== */
 
 :root {
-  /* === COLORS: DARK THEME === */
-  
-  /* Backgrounds */
-  --rf-bg-void: #0a0a0f;          /* Deepest background */
-  --rf-bg-surface: #12121a;        /* Card backgrounds */
-  --rf-bg-elevated: #1a1a24;       /* Elevated elements */
-  --rf-bg-hover: #22222e;          /* Hover states */
-  
+  /* === QUANTUMLAYER BRAND COLORS === */
+
+  /* Primary Quantum Colors */
+  --quantum-green: #00ff88;        /* Primary CTA, Success */
+  --quantum-purple: #8b5cf6;       /* Secondary accent */
+  --quantum-blue: #3b82f6;         /* Info, Links */
+
+  /* Backgrounds (Dark Theme Default) */
+  --rf-bg-void: #0a0a0a;          /* Deepest background */
+  --rf-bg-surface: #141414;        /* Card backgrounds */
+  --rf-bg-elevated: #1a1a1a;       /* Elevated elements */
+  --rf-bg-hover: #262626;          /* Hover states */
+
   /* Text */
-  --rf-text-primary: #f0f0f5;      /* Primary text */
-  --rf-text-secondary: #8888a0;    /* Secondary/muted */
-  --rf-text-tertiary: #5555670;    /* Disabled/hints */
-  
+  --rf-text-primary: #ffffff;      /* Primary text */
+  --rf-text-secondary: #a0a0a0;    /* Secondary/muted */
+  --rf-text-tertiary: #6b6b6b;     /* Disabled/hints */
+
   /* Status Colors - RAG */
-  --rf-status-green: #00d4aa;      /* Compliant/Healthy */
-  --rf-status-green-bg: #00d4aa15; /* Green background */
-  --rf-status-amber: #ffaa00;      /* Warning/Drift */
-  --rf-status-amber-bg: #ffaa0015;
-  --rf-status-red: #ff4466;        /* Critical/Failed */
-  --rf-status-red-bg: #ff446615;
-  
-  /* Accent */
-  --rf-accent-primary: #6366f1;    /* Primary actions */
-  --rf-accent-secondary: #818cf8;  /* Secondary */
-  --rf-accent-glow: #6366f140;     /* Glow effects */
-  
+  --rf-status-green: #10b981;      /* Compliant/Healthy */
+  --rf-status-green-bg: rgba(16, 185, 129, 0.1);
+  --rf-status-amber: #f59e0b;      /* Warning/Drift */
+  --rf-status-amber-bg: rgba(245, 158, 11, 0.1);
+  --rf-status-red: #ef4444;        /* Critical/Failed */
+  --rf-status-red-bg: rgba(239, 68, 68, 0.1);
+
+  /* Accent (uses Quantum colors) */
+  --rf-accent-primary: var(--quantum-green);
+  --rf-accent-secondary: var(--quantum-purple);
+  --rf-accent-glow: rgba(0, 255, 136, 0.4);
+
   /* Platform Colors */
   --rf-aws: #ff9900;
   --rf-azure: #0078d4;
@@ -57,19 +88,20 @@ The Control Tower embraces a **Mission Control** aesthetic—dense, information-
   --rf-vsphere: #6d9e37;
   --rf-k8s: #326ce5;
   --rf-baremetal: #8b8b8b;
-  
+
   /* Borders */
-  --rf-border-subtle: #ffffff08;
-  --rf-border-default: #ffffff12;
-  --rf-border-strong: #ffffff20;
-  
+  --rf-border-subtle: #1a1a1a;
+  --rf-border-default: #262626;
+  --rf-border-strong: #404040;
+  --rf-border-quantum: var(--quantum-green);
+
   /* === TYPOGRAPHY === */
-  
+
   /* Font Families */
-  --rf-font-display: 'JetBrains Mono', 'SF Mono', monospace;
-  --rf-font-body: 'IBM Plex Sans', -apple-system, sans-serif;
-  --rf-font-data: 'JetBrains Mono', monospace;
-  
+  --rf-font-display: 'Inter', -apple-system, sans-serif;
+  --rf-font-body: 'Inter', -apple-system, sans-serif;
+  --rf-font-mono: 'JetBrains Mono', 'Courier New', monospace;
+
   /* Font Sizes */
   --rf-text-xs: 0.6875rem;   /* 11px - micro labels */
   --rf-text-sm: 0.75rem;     /* 12px - secondary */
@@ -79,13 +111,13 @@ The Control Tower embraces a **Mission Control** aesthetic—dense, information-
   --rf-text-2xl: 1.5rem;     /* 24px - page titles */
   --rf-text-3xl: 2rem;       /* 32px - hero numbers */
   --rf-text-4xl: 3rem;       /* 48px - big metrics */
-  
+
   /* Font Weights */
   --rf-weight-normal: 400;
   --rf-weight-medium: 500;
   --rf-weight-semibold: 600;
   --rf-weight-bold: 700;
-  
+
   /* === SPACING === */
   --rf-space-1: 0.25rem;     /* 4px */
   --rf-space-2: 0.5rem;      /* 8px */
@@ -94,18 +126,23 @@ The Control Tower embraces a **Mission Control** aesthetic—dense, information-
   --rf-space-5: 1.5rem;      /* 24px */
   --rf-space-6: 2rem;        /* 32px */
   --rf-space-8: 3rem;        /* 48px */
-  
+
   /* === EFFECTS === */
   --rf-radius-sm: 4px;
   --rf-radius-md: 8px;
   --rf-radius-lg: 12px;
   --rf-radius-xl: 16px;
-  
+
   --rf-shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
   --rf-shadow-md: 0 4px 12px rgba(0,0,0,0.5);
   --rf-shadow-lg: 0 8px 32px rgba(0,0,0,0.6);
-  --rf-shadow-glow: 0 0 20px var(--rf-accent-glow);
-  
+  --rf-shadow-glow-quantum: 0 0 20px rgba(0, 255, 136, 0.3);
+  --rf-shadow-glow-purple: 0 0 20px rgba(139, 92, 246, 0.3);
+
+  /* === GRADIENTS === */
+  --rf-gradient-quantum: linear-gradient(135deg, #00ff88 0%, #8b5cf6 100%);
+  --rf-gradient-dark: linear-gradient(180deg, #0a0a0a 0%, #141414 100%);
+
   /* === ANIMATION === */
   --rf-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --rf-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);

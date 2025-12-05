@@ -157,6 +157,54 @@ jobs:
         run: npm run build
 
   # =============================================================================
+  # Frontend E2E Tests
+  # =============================================================================
+  frontend-e2e:
+    name: Frontend E2E Tests
+    runs-on: ubuntu-latest
+    needs: [frontend-lint]
+    defaults:
+      run:
+        working-directory: ui/control-tower
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ui/control-tower/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: npm run test:e2e:chromium
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8080/api/v1
+          NEXT_PUBLIC_ORCHESTRATOR_URL: http://localhost:8083
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: ui/control-tower/playwright-report/
+          retention-days: 7
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-results
+          path: ui/control-tower/test-results/
+          retention-days: 7
+
+  # =============================================================================
   # Docker Images
   # =============================================================================
   docker-build:
@@ -250,12 +298,14 @@ jobs:
   ci-complete:
     name: CI Complete
     runs-on: ubuntu-latest
-    needs: [go-build, frontend-build, security-scan]
+    needs: [go-build, frontend-build, frontend-e2e, security-scan]
     if: always()
     steps:
       - name: Check status
         run: |
-          if [ "${{ needs.go-build.result }}" != "success" ] || [ "${{ needs.frontend-build.result }}" != "success" ]; then
+          if [ "${{ needs.go-build.result }}" != "success" ] || \
+             [ "${{ needs.frontend-build.result }}" != "success" ] || \
+             [ "${{ needs.frontend-e2e.result }}" != "success" ]; then
             echo "CI failed"
             exit 1
           fi
