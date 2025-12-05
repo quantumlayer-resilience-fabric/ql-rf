@@ -890,8 +890,8 @@ export class ApiError extends Error {
   }
 }
 
-// Fetch wrapper with error handling and auth
-async function apiFetch<T>(
+// Fetch wrapper with error handling and auth (exported for use by domain-specific API modules)
+export async function apiFetch<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {

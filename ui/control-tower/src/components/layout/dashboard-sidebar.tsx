@@ -25,6 +25,9 @@ import {
   ChevronRight,
   Menu,
   AlertTriangle,
+  Package,
+  DollarSign,
+  ClipboardCheck,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -40,10 +43,13 @@ const mainNavItems: NavItem[] = [
   { label: "Overview", href: "/overview", icon: LayoutDashboard },
   { label: "Risk", href: "/risk", icon: AlertTriangle },
   { label: "Images", href: "/images", icon: Image },
+  { label: "SBOM", href: "/sbom", icon: Package },
   { label: "Drift", href: "/drift", icon: TrendingDown, badge: "3", badgeVariant: "warning" },
-  { label: "Sites", href: "/sites", icon: MapPin },
   { label: "Compliance", href: "/compliance", icon: Shield },
+  { label: "InSpec", href: "/inspec", icon: ClipboardCheck },
   { label: "Resilience", href: "/resilience", icon: RefreshCw },
+  { label: "Costs", href: "/costs", icon: DollarSign },
+  { label: "Sites", href: "/sites", icon: MapPin },
   { label: "AI Copilot", href: "/ai", icon: Sparkles },
 ];
 
