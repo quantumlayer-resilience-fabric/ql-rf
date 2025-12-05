@@ -5,10 +5,10 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 2.0 |
+| Version | 2.5 |
 | Date | December 2025 |
 | Author | Subrahmanya Satish Gonella |
-| Status | Production — Phase 4 Complete |
+| Status | Production — Phase 5 Complete |
 
 ---
 
@@ -403,14 +403,29 @@ platform_coords:
 - [x] **OpenTelemetry**: Distributed tracing infrastructure
 - [x] **Secrets Management**: HashiCorp Vault integration
 
-### Phase 5: Advanced Features 🚧 In Progress
-- [ ] Full SBOM generation and management
-- [ ] FinOps cost optimization features
-- [ ] Container registry scanning
-- [ ] CloudWatch/Datadog production integration
-- [ ] E2E test suite expansion
-- [ ] Compliance assessment automation (InSpec integration)
-- [ ] Evidence collection automation
+### Phase 5: Advanced Features ✅ Complete
+- [x] **Full SBOM Generation** (`pkg/sbom/`): SPDX 2.3 and CycloneDX 1.5 format support
+  - Container image scanning via Syft integration
+  - Vulnerability matching with OSV/NVD databases
+  - License analysis and compliance checking
+  - 7 REST API endpoints for SBOM management
+- [x] **FinOps Cost Optimization** (`pkg/finops/`): Multi-cloud cost management
+  - AWS Cost Explorer, Azure Cost Management, GCP Billing API collectors
+  - Budget management with configurable alerts and thresholds
+  - Cost allocation by tags, services, and resources
+  - Optimization recommendations (right-sizing, reserved instances)
+  - 7 REST API endpoints for cost management
+- [x] **InSpec Compliance Automation** (`pkg/inspec/`): Temporal workflow-based execution
+  - CIS AWS, CIS Linux, SOC2 profile mappings
+  - Automated evidence collection and storage
+  - Integration with compliance framework assessments
+  - 10 REST API endpoints for InSpec management
+- [x] **E2E Test Suite** (`ui/control-tower/e2e/`): 230+ Playwright tests
+  - Full coverage for Overview, Images, Drift, Compliance, AI, Resilience, Settings
+  - Page fixtures and test utilities
+  - Accessibility testing included
+  - Screenshots on failure for debugging
+- [x] **Database Migrations**: 000013 (InSpec), 000014 (SBOM), 000015 (FinOps)
 
 ### Phase 6: Ecosystem & Marketplace (Future)
 - [ ] Public contract registry + capsule sharing

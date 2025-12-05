@@ -15,7 +15,10 @@ Complete API reference for QuantumLayer Resilience Fabric.
 4. [Organization Endpoints](#organization-endpoints)
 5. [Compliance Endpoints](#compliance-endpoints)
 6. [AI Orchestrator Endpoints](#ai-orchestrator-endpoints)
-7. [Error Responses](#error-responses)
+7. [SBOM Endpoints](#sbom-endpoints)
+8. [FinOps Endpoints](#finops-endpoints)
+9. [InSpec Endpoints](#inspec-endpoints)
+10. [Error Responses](#error-responses)
 
 ---
 
@@ -744,6 +747,424 @@ GET /api/v1/ai/agents
 
 ```
 GET /api/v1/ai/tools
+```
+
+---
+
+## SBOM Endpoints
+
+**Base URL:** `http://localhost:8080/api/v1`
+
+### Get Image SBOM
+
+```
+GET /api/v1/sbom/images/{id}
+```
+
+**Response:**
+```json
+{
+  "image_id": "uuid",
+  "format": "spdx",
+  "spdx_version": "SPDX-2.3",
+  "created_at": "2025-01-01T00:00:00Z",
+  "components": [
+    {
+      "name": "openssl",
+      "version": "3.0.2",
+      "purl": "pkg:deb/debian/openssl@3.0.2",
+      "licenses": ["Apache-2.0"],
+      "supplier": "Debian"
+    }
+  ],
+  "relationships": [],
+  "vulnerabilities_count": 5
+}
+```
+
+### Generate SBOM
+
+```
+POST /api/v1/sbom/images/{id}/generate
+```
+
+**Request:**
+```json
+{
+  "format": "spdx",
+  "include_vulnerabilities": true
+}
+```
+
+### List Components
+
+```
+GET /api/v1/sbom/components
+```
+
+**Query Parameters:**
+- `image_id` - Filter by image
+- `license` - Filter by license
+- `vulnerable` - Filter vulnerable components
+
+### Query Vulnerabilities
+
+```
+GET /api/v1/sbom/vulnerabilities
+```
+
+**Query Parameters:**
+- `severity` - Filter by severity (critical, high, medium, low)
+- `cve_id` - Search by CVE ID
+- `component` - Filter by component name
+
+### Import SBOM
+
+```
+POST /api/v1/sbom/import
+```
+
+**Request:**
+```json
+{
+  "image_id": "uuid",
+  "format": "cyclonedx",
+  "content": "{...sbom json...}"
+}
+```
+
+### Export SBOM
+
+```
+GET /api/v1/sbom/export/{format}
+```
+
+**Path Parameters:**
+- `format` - Export format: `spdx` or `cyclonedx`
+
+**Query Parameters:**
+- `image_id` - Image to export (required)
+
+### License Summary
+
+```
+GET /api/v1/sbom/licenses
+```
+
+**Response:**
+```json
+{
+  "total_components": 150,
+  "licenses": [
+    {"license": "MIT", "count": 45},
+    {"license": "Apache-2.0", "count": 38},
+    {"license": "GPL-3.0", "count": 12}
+  ],
+  "copyleft_count": 15,
+  "permissive_count": 135
+}
+```
+
+---
+
+## FinOps Endpoints
+
+**Base URL:** `http://localhost:8080/api/v1`
+
+### Get Cost Data
+
+```
+GET /api/v1/finops/costs
+```
+
+**Query Parameters:**
+- `start_date` - Start date (YYYY-MM-DD)
+- `end_date` - End date (YYYY-MM-DD)
+- `cloud` - Filter by cloud (aws, azure, gcp)
+- `granularity` - daily, weekly, monthly
+
+**Response:**
+```json
+{
+  "total_cost": 15420.50,
+  "currency": "USD",
+  "period": {
+    "start": "2025-01-01",
+    "end": "2025-01-31"
+  },
+  "by_cloud": {
+    "aws": 8500.00,
+    "azure": 4200.50,
+    "gcp": 2720.00
+  },
+  "daily_costs": [...]
+}
+```
+
+### Cost by Service
+
+```
+GET /api/v1/finops/costs/by-service
+```
+
+**Response:**
+```json
+{
+  "services": [
+    {"service": "EC2", "cost": 4500.00, "cloud": "aws"},
+    {"service": "RDS", "cost": 2100.00, "cloud": "aws"},
+    {"service": "Virtual Machines", "cost": 2800.00, "cloud": "azure"}
+  ]
+}
+```
+
+### Cost by Tag
+
+```
+GET /api/v1/finops/costs/by-tag
+```
+
+**Query Parameters:**
+- `tag_key` - Tag key to group by (e.g., "environment", "team")
+
+### List Budgets
+
+```
+GET /api/v1/finops/budgets
+```
+
+### Create Budget
+
+```
+POST /api/v1/finops/budgets
+```
+
+**Request:**
+```json
+{
+  "name": "Production Infrastructure",
+  "amount": 50000.00,
+  "period": "monthly",
+  "alert_thresholds": [50, 80, 100],
+  "filters": {
+    "tags": {"environment": "production"}
+  }
+}
+```
+
+### Optimization Recommendations
+
+```
+GET /api/v1/finops/recommendations
+```
+
+**Response:**
+```json
+{
+  "recommendations": [
+    {
+      "type": "right_sizing",
+      "resource": "i-0123456789",
+      "current_cost": 500.00,
+      "projected_cost": 250.00,
+      "savings": 250.00,
+      "recommendation": "Downsize from m5.xlarge to m5.large"
+    },
+    {
+      "type": "reserved_instance",
+      "resource": "RDS",
+      "current_cost": 2100.00,
+      "projected_cost": 1400.00,
+      "savings": 700.00,
+      "recommendation": "Purchase 1-year reserved instance"
+    }
+  ],
+  "total_potential_savings": 950.00
+}
+```
+
+### Cost Forecast
+
+```
+GET /api/v1/finops/forecast
+```
+
+**Query Parameters:**
+- `months` - Forecast period (1-12)
+
+---
+
+## InSpec Endpoints
+
+**Base URL:** `http://localhost:8080/api/v1`
+
+### List Profiles
+
+```
+GET /api/v1/inspec/profiles
+```
+
+**Response:**
+```json
+[
+  {
+    "id": "cis-aws-foundations",
+    "name": "CIS AWS Foundations Benchmark",
+    "version": "1.5.0",
+    "controls_count": 58,
+    "supported_platforms": ["aws"]
+  },
+  {
+    "id": "cis-linux",
+    "name": "CIS Linux Benchmark",
+    "version": "2.0.0",
+    "controls_count": 263,
+    "supported_platforms": ["ubuntu", "rhel", "centos"]
+  }
+]
+```
+
+### Get Profile Details
+
+```
+GET /api/v1/inspec/profiles/{id}
+```
+
+### Trigger Scan
+
+```
+POST /api/v1/inspec/scans
+```
+
+**Request:**
+```json
+{
+  "profile_id": "cis-aws-foundations",
+  "targets": [
+    {"type": "aws_account", "id": "123456789012"}
+  ],
+  "controls": ["1.1", "1.2", "1.3"],
+  "collect_evidence": true
+}
+```
+
+**Response:**
+```json
+{
+  "scan_id": "uuid",
+  "status": "pending",
+  "workflow_id": "temporal-workflow-id"
+}
+```
+
+### List Scans
+
+```
+GET /api/v1/inspec/scans
+```
+
+**Query Parameters:**
+- `profile_id` - Filter by profile
+- `status` - Filter by status (pending, running, completed, failed)
+- `limit` - Max results
+
+### Get Scan Details
+
+```
+GET /api/v1/inspec/scans/{id}
+```
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "profile_id": "cis-aws-foundations",
+  "status": "completed",
+  "started_at": "2025-01-01T10:00:00Z",
+  "completed_at": "2025-01-01T10:15:00Z",
+  "summary": {
+    "total": 58,
+    "passed": 52,
+    "failed": 4,
+    "skipped": 2
+  }
+}
+```
+
+### Get Scan Results
+
+```
+GET /api/v1/inspec/scans/{id}/results
+```
+
+**Response:**
+```json
+{
+  "results": [
+    {
+      "control_id": "1.1",
+      "title": "Avoid the use of root account",
+      "status": "passed",
+      "impact": 1.0,
+      "message": "Root account has MFA enabled"
+    },
+    {
+      "control_id": "1.4",
+      "title": "Ensure access keys are rotated",
+      "status": "failed",
+      "impact": 0.7,
+      "message": "3 access keys older than 90 days"
+    }
+  ]
+}
+```
+
+### Get Scan Evidence
+
+```
+GET /api/v1/inspec/scans/{id}/evidence
+```
+
+**Response:**
+```json
+{
+  "evidence": [
+    {
+      "control_id": "1.1",
+      "type": "api_response",
+      "collected_at": "2025-01-01T10:05:00Z",
+      "data": {...}
+    }
+  ]
+}
+```
+
+### Create Scan Schedule
+
+```
+POST /api/v1/inspec/schedules
+```
+
+**Request:**
+```json
+{
+  "profile_id": "cis-aws-foundations",
+  "cron": "0 2 * * *",
+  "targets": [...],
+  "enabled": true
+}
+```
+
+### List Schedules
+
+```
+GET /api/v1/inspec/schedules
+```
+
+### Delete Schedule
+
+```
+DELETE /api/v1/inspec/schedules/{id}
 ```
 
 ---

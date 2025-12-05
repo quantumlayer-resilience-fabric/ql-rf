@@ -2,7 +2,7 @@
 
 > AI-Powered Infrastructure Resilience & Compliance Platform
 
-**Last Updated:** 2025-12-04
+**Last Updated:** 2025-12-05
 
 ---
 
@@ -15,16 +15,17 @@ QL-RF (QuantumLayer Resilience Fabric) is an LLM-first infrastructure operations
 | Metric | Count |
 |--------|-------|
 | Go Services | 4 |
-| Go Files | 185 |
-| Go LOC | ~73,000 |
-| Test Files | 50 |
-| Test LOC | ~19,200 |
+| Go Files | 220+ |
+| Go LOC | ~87,000 |
+| Test Files | 60+ |
+| Test LOC | ~21,000 |
 | UI Components | 60 |
 | Dashboard Pages | 15 |
 | AI Agents | 10 |
 | Tools | 29+ |
 | OPA Policies | 6 |
-| Migrations | 12 |
+| Migrations | 15 |
+| E2E Tests | 230+ |
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -760,6 +761,130 @@ secret, err := secretsClient.GetSecret(ctx, "database/postgres")
 err = secretsClient.PutSecret(ctx, "api/anthropic", map[string]string{
     "api_key": "sk-ant-...",
 })
+```
+
+### 8. SBOM Package (`pkg/sbom/`)
+
+Full Software Bill of Materials generation and management.
+
+**Supported Formats:**
+- SPDX 2.3 (JSON)
+- CycloneDX 1.5 (JSON)
+
+**Key Features:**
+- Container image scanning via Syft integration
+- Vulnerability matching with OSV/NVD databases
+- License analysis and SPDX identifier mapping
+- Component dependency graphing
+- Automated SBOM generation on image promotion
+
+**Components:**
+```go
+pkg/sbom/
+├── sbom.go           // Service interface and implementation
+├── generator.go      // SBOM generation from container images
+├── parser.go         // Parse existing SBOMs (SPDX/CycloneDX)
+├── formats.go        // Format conversion utilities
+├── vulnerabilities.go // CVE matching and scoring
+└── types.go          // Data structures
+```
+
+**API Endpoints:**
+```
+GET  /api/v1/sbom/images/{id}           # Get SBOM for image
+POST /api/v1/sbom/images/{id}/generate  # Generate SBOM
+GET  /api/v1/sbom/components            # List all components
+GET  /api/v1/sbom/vulnerabilities       # Query vulnerabilities
+POST /api/v1/sbom/import                # Import external SBOM
+GET  /api/v1/sbom/export/{format}       # Export (spdx/cyclonedx)
+GET  /api/v1/sbom/licenses              # License summary
+```
+
+### 9. FinOps Package (`pkg/finops/`)
+
+Multi-cloud cost optimization and budget management.
+
+**Supported Clouds:**
+- AWS (Cost Explorer API)
+- Azure (Cost Management API)
+- GCP (Cloud Billing API)
+
+**Key Features:**
+- Real-time cost collection and aggregation
+- Budget management with alerts
+- Cost allocation by tags, services, resources
+- Optimization recommendations (right-sizing, reserved instances)
+- Usage trend analysis and forecasting
+
+**Components:**
+```go
+pkg/finops/
+├── finops.go              // Service interface
+├── types.go               // Cost data structures
+├── collectors/
+│   ├── aws.go            // AWS Cost Explorer collector
+│   ├── azure.go          // Azure Cost Management collector
+│   └── gcp.go            // GCP Billing API collector
+```
+
+**API Endpoints:**
+```
+GET  /api/v1/finops/costs                 # Get cost data
+GET  /api/v1/finops/costs/by-service      # Breakdown by service
+GET  /api/v1/finops/costs/by-tag          # Breakdown by tag
+GET  /api/v1/finops/budgets               # List budgets
+POST /api/v1/finops/budgets               # Create budget
+GET  /api/v1/finops/recommendations       # Optimization recommendations
+GET  /api/v1/finops/forecast              # Cost forecast
+```
+
+### 10. InSpec Package (`pkg/inspec/`)
+
+Automated compliance scanning with Chef InSpec integration.
+
+**Supported Profiles:**
+- CIS AWS Foundations Benchmark
+- CIS Linux Benchmark
+- SOC 2 Type II Controls
+- Custom organizational profiles
+
+**Key Features:**
+- Temporal workflow-based execution for durability
+- Profile-to-control mapping for compliance frameworks
+- Automated evidence collection and storage
+- Scheduled scan orchestration
+- Result aggregation and trending
+
+**Components:**
+```go
+pkg/inspec/
+├── inspec.go              // Service interface
+├── types.go               // Scan data structures
+├── profiles/
+│   ├── cis_aws.go        // CIS AWS profile mapping
+│   ├── cis_linux.go      // CIS Linux profile mapping
+│   └── soc2.go           // SOC2 control mapping
+```
+
+**Temporal Workflows:**
+```go
+services/orchestrator/internal/temporal/
+├── workflows/inspec_workflow.go     // Scan orchestration
+└── activities/inspec_activities.go  // Scan execution
+```
+
+**API Endpoints:**
+```
+GET  /api/v1/inspec/profiles              # List profiles
+GET  /api/v1/inspec/profiles/{id}         # Get profile details
+POST /api/v1/inspec/scans                 # Trigger scan
+GET  /api/v1/inspec/scans                 # List scans
+GET  /api/v1/inspec/scans/{id}            # Get scan details
+GET  /api/v1/inspec/scans/{id}/results    # Get scan results
+GET  /api/v1/inspec/scans/{id}/evidence   # Get collected evidence
+POST /api/v1/inspec/schedules             # Create scan schedule
+GET  /api/v1/inspec/schedules             # List schedules
+DELETE /api/v1/inspec/schedules/{id}      # Delete schedule
 ```
 
 ---
