@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated:** 2025-12-05
+**Last Updated:** 2025-12-06
 
 ## Project Overview
 
@@ -26,16 +26,16 @@ QuantumLayer Resilience Fabric (QL-RF) is an **LLM-first infrastructure resilien
 
 | Metric | Count |
 |--------|-------|
-| Go Services | 5 |
-| Go Files | 230+ |
-| Go LOC | ~98,000 |
-| Test Files | 70+ |
+| Go Services | 6 |
+| Go Source Files | 136 |
+| Go LOC | ~109,000 |
+| Test Files | 54 |
 | Migrations | 17 |
-| UI Components | 80+ |
-| Dashboard Pages | 24 |
-| AI Agents | 11 |
-| Tools | 35+ |
-| OPA Policies | 6 |
+| UI Components | 73 |
+| Dashboard Pages | 34 |
+| AI Agents | 12 |
+| AI Tools | 44 |
+| OPA Policies | 5 |
 
 ## Quick Start
 
@@ -190,8 +190,8 @@ make docker-push
 │  │  API Service │ │ AI Orchestrator│ │   Drift     │ │  Connectors   │  │
 │  │  (Port 8080) │ │  (Port 8083)   │ │   Engine    │ │   Service     │  │
 │  │              │ │                │ │ (Port 8082) │ │  (Port 8081)  │  │
-│  │  23 endpoints│ │ 10 agents      │ │             │ │  5 platforms  │  │
-│  │  Chi router  │ │ 29+ tools      │ │ Kafka-driven│ │               │  │
+│  │  30+ endpoints│ │ 12 agents      │ │             │ │  5 platforms  │  │
+│  │  Chi router  │ │ 44 tools       │ │ Kafka-driven│ │               │  │
 │  └──────────────┘ └────────────────┘ └─────────────┘ └───────────────┘  │
 │                           │                                              │
 │                           ▼                                              │
@@ -252,9 +252,9 @@ ql-rf/
 │   ├── orchestrator/          # AI Orchestrator (Port 8083)
 │   │   ├── cmd/orchestrator/  # Entry point
 │   │   └── internal/
-│   │       ├── agents/        # 10 specialist agents (18 files)
+│   │       ├── agents/        # 12 specialist agents
 │   │       ├── llm/           # Multi-provider LLM (5 files)
-│   │       ├── tools/         # 29+ tools (4 files)
+│   │       ├── tools/         # 44 tools
 │   │       ├── executor/      # Platform executors (9 files)
 │   │       ├── temporal/      # Workflow engine (6 files)
 │   │       ├── validation/    # JSON Schema + OPA
@@ -272,21 +272,27 @@ ql-rf/
 │   │       ├── k8s/           # client-go
 │   │       └── sync/          # Kafka-driven sync
 │   │
-│   └── drift/                 # Drift Engine (Port 8082)
-│       └── internal/engine/   # Drift detection logic
+│   ├── drift/                 # Drift Engine (Port 8082)
+│   │   └── internal/engine/   # Drift detection logic
+│   │
+│   ├── inventory/             # Inventory Service
+│   │   └── internal/          # Asset inventory management
+│   │
+│   └── cve-aggregator/        # CVE Aggregator (Port 8084)
+│       └── internal/          # CVE feed polling and caching
 │
 ├── ui/control-tower/          # Frontend (Port 3000)
-│   ├── src/app/               # Next.js App Router (15 pages)
+│   ├── src/app/               # Next.js App Router (34 pages)
 │   │   ├── (auth)/            # Login, Signup
-│   │   ├── (dashboard)/       # Overview, Drift, Images, etc.
+│   │   ├── (dashboard)/       # Overview, Drift, Images, Certificates, etc.
 │   │   └── (marketing)/       # Landing, Features, Pricing
-│   ├── src/components/        # 60 React components
+│   ├── src/components/        # 73 React components
 │   ├── src/lib/               # API client, types, utilities
 │   └── src/providers/         # Auth, Theme, Query providers
 │
-├── migrations/                # PostgreSQL migrations (7 files)
+├── migrations/                # PostgreSQL migrations (17 files)
 ├── contracts/                 # OpenAPI & JSON Schema specs
-├── policy/                    # OPA/Rego policies (6 files)
+├── policy/                    # OPA/Rego policies (5 files)
 ├── api/openapi/               # Generated OpenAPI spec
 └── docs/                      # Documentation (16 files + ADRs)
 ```
@@ -332,7 +338,7 @@ POST /api/v1/alerts/{id}/acknowledge   # Acknowledge alert
 
 LLM-first operations engine that converts natural language to infrastructure tasks.
 
-**Agents (11 total):**
+**Agents (12 total):**
 | Agent | Purpose |
 |-------|---------|
 | `drift` | Drift detection and analysis |
@@ -345,9 +351,10 @@ LLM-first operations engine that converts natural language to infrastructure tas
 | `sop` | Standard operating procedures |
 | `adapter` | Platform-specific adaptations |
 | `incident` | Incident response |
+| `certificate` | Certificate lifecycle and rotation |
 | `vulnerability` | CVE analysis, blast radius, patch campaigns |
 
-**Tools (35+ total):** Query assets, create images, trigger patches, run compliance checks, execute DR drills, calculate blast radius, etc.
+**Tools (44 total):** Query assets, create images, trigger patches, run compliance checks, execute DR drills, calculate blast radius, certificate rotation, etc.
 
 **Endpoints:**
 ```
@@ -531,11 +538,15 @@ npm run lint     # ESLint
 **Pages:**
 - `/overview` - Dashboard with metrics
 - `/images` - Golden image management with lineage viewer
+- `/sbom` - Software Bill of Materials
+- `/certificates` - Certificate lifecycle management
 - `/drift` - Drift analysis and remediation
 - `/compliance` - Compliance frameworks and controls
+- `/inspec` - InSpec profile management and scans
 - `/resilience` - DR pairs and failover testing
 - `/risk` - Risk scoring and predictions
 - `/sites` - Site management
+- `/costs` - Cost analysis and budgets
 - `/ai` - AI Copilot chat interface
 - `/ai/tasks` - Task history
 - `/ai/agents` - Agent registry
@@ -590,7 +601,7 @@ slog.Info("operation completed",
 
 ## Testing
 
-**Test Files:** 49 total (~18,800 LOC)
+**Test Files:** 54 total
 
 **Test Locations:**
 ```
@@ -622,7 +633,7 @@ See `docs/` for comprehensive documentation:
 | `AGENT_BEHAVIORS.md` | AI agent specifications |
 | `AI_SOPS.md` | AI governance procedures |
 | `FRONTEND_DESIGN_SYSTEM.md` | UI/UX guidelines |
-| `adr/` | Architecture Decision Records (11 ADRs) |
+| `adr/` | Architecture Decision Records (15 ADRs) |
 | `features/` | Feature-specific documentation |
 
 ## Architecture Decision Records (ADRs)
