@@ -45,6 +45,7 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@clerk/testing": "^1.13.21",
     "@playwright/test": "^1.57.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
