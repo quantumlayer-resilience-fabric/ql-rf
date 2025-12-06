@@ -119,7 +119,7 @@ export function SiteCard({
                   : "text-status-red"
               )}
             >
-              {coveragePercentage}%
+              {coveragePercentage.toFixed(1)}%
             </div>
             <p className="text-xs text-muted-foreground">Coverage</p>
           </div>
