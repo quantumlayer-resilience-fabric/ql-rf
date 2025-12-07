@@ -153,6 +153,11 @@ func New(cfg Config) http.Handler {
 	// Certificate management handler
 	certificateHandler := handlers.NewCertificateHandler(cfg.DB.Pool, cfg.Logger)
 
+	// Connector management handler
+	connectorRepo := repository.NewConnectorRepository(cfg.DB.Pool)
+	connectorSvc := service.NewConnectorService(connectorRepo, cfg.Logger)
+	connectorHandler := handlers.NewConnectorHandler(connectorSvc, cfg.Logger)
+
 	// Health endpoints (no auth required)
 	r.Get("/healthz", healthHandler.Liveness)
 	r.Get("/readyz", healthHandler.Readiness)
@@ -432,6 +437,18 @@ func New(cfg Config) http.Handler {
 			r.Get("/alerts", certificateHandler.ListAlerts)
 			r.With(middleware.RequirePermission(models.PermAcknowledgeAlerts)).
 				Post("/alerts/{id}/acknowledge", certificateHandler.AcknowledgeAlert)
+		})
+
+		// Connectors (Cloud Platform Connectors)
+		r.Route("/connectors", func(r chi.Router) {
+			r.Get("/", connectorHandler.List)
+			r.Post("/", connectorHandler.Create)
+			r.Get("/{id}", connectorHandler.Get)
+			r.Delete("/{id}", connectorHandler.Delete)
+			r.Post("/{id}/test", connectorHandler.TestConnection)
+			r.Post("/{id}/sync", connectorHandler.TriggerSync)
+			r.Post("/{id}/enable", connectorHandler.Enable)
+			r.Post("/{id}/disable", connectorHandler.Disable)
 		})
 	})
 

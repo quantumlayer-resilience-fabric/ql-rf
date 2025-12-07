@@ -29,33 +29,65 @@ import {
 type OnboardingStep = "welcome" | "plan" | "org-setup" | "connect" | "scanning" | "results" | "next-steps";
 type Platform = "aws" | "azure" | "gcp";
 
-const platformInfo: Record<Platform, { name: string; description: string; fields: { label: string; placeholder: string; type: string; key: string }[] }> = {
+interface PlatformField {
+  label: string;
+  placeholder: string;
+  type: string;
+  key: string;
+  required?: boolean;
+}
+
+interface PlatformConfig {
+  name: string;
+  description: string;
+  fields: PlatformField[];
+  toConnectorConfig: (credentials: Record<string, string>) => Record<string, unknown>;
+}
+
+const platformInfo: Record<Platform, PlatformConfig> = {
   aws: {
     name: "Amazon Web Services",
     description: "Connect using IAM role or access keys",
     fields: [
-      { label: "AWS Account ID", placeholder: "123456789012", type: "text", key: "accountId" },
+      { label: "Region", placeholder: "us-east-1", type: "text", key: "region", required: true },
       { label: "Access Key ID", placeholder: "AKIAIOSFODNN7EXAMPLE", type: "text", key: "accessKeyId" },
       { label: "Secret Access Key", placeholder: "Enter your secret key", type: "password", key: "secretAccessKey" },
+      { label: "Assume Role ARN (optional)", placeholder: "arn:aws:iam::123456789012:role/RoleName", type: "text", key: "assumeRoleArn" },
     ],
+    toConnectorConfig: (creds) => ({
+      region: creds.region,
+      access_key_id: creds.accessKeyId || undefined,
+      secret_access_key: creds.secretAccessKey || undefined,
+      assume_role_arn: creds.assumeRoleArn || undefined,
+    }),
   },
   azure: {
     name: "Microsoft Azure",
     description: "Connect using service principal",
     fields: [
-      { label: "Tenant ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", type: "text", key: "tenantId" },
-      { label: "Client ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", type: "text", key: "clientId" },
-      { label: "Client Secret", placeholder: "Enter your client secret", type: "password", key: "clientSecret" },
+      { label: "Subscription ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", type: "text", key: "subscriptionId", required: true },
+      { label: "Tenant ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", type: "text", key: "tenantId", required: true },
+      { label: "Client ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", type: "text", key: "clientId", required: true },
+      { label: "Client Secret", placeholder: "Enter your client secret", type: "password", key: "clientSecret", required: true },
     ],
+    toConnectorConfig: (creds) => ({
+      subscription_id: creds.subscriptionId,
+      tenant_id: creds.tenantId,
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
+    }),
   },
   gcp: {
     name: "Google Cloud Platform",
     description: "Connect using service account",
     fields: [
-      { label: "Project ID", placeholder: "my-project-123", type: "text", key: "projectId" },
-      { label: "Service Account Email", placeholder: "sa@project.iam.gserviceaccount.com", type: "text", key: "serviceAccountEmail" },
-      { label: "Private Key (JSON)", placeholder: "Paste JSON key or upload file", type: "textarea", key: "privateKey" },
+      { label: "Project ID", placeholder: "my-project-123", type: "text", key: "projectId", required: true },
+      { label: "Credentials JSON", placeholder: "Paste service account JSON key", type: "textarea", key: "credentialsJson" },
     ],
+    toConnectorConfig: (creds) => ({
+      project_id: creds.projectId,
+      credentials_file: creds.credentialsJson || undefined,
+    }),
   },
 };
 
@@ -73,6 +105,9 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [createdOrg, setCreatedOrg] = useState<{ id: string; name: string; slug: string } | null>(null);
+  const [credentials, setCredentials] = useState<Record<string, string>>({});
+  const [connectorId, setConnectorId] = useState<string | null>(null);
+  const [connectionTested, setConnectionTested] = useState(false);
 
   // Load plans on mount
   useEffect(() => {
@@ -173,6 +208,18 @@ export default function OnboardingPage() {
     }
   };
 
+  const validateCredentials = (): boolean => {
+    if (!selectedPlatform) return false;
+    const requiredFields = platformInfo[selectedPlatform].fields.filter(f => f.required);
+    for (const field of requiredFields) {
+      if (!credentials[field.key]?.trim()) {
+        setError(`${field.label} is required`);
+        return false;
+      }
+    }
+    return true;
+  };
+
   const handleConnect = async () => {
     if (!selectedPlatform) return;
 
@@ -210,10 +257,64 @@ export default function OnboardingPage() {
         }
       }, 400);
     } else {
-      // For real cloud connections (future implementation)
-      setScanPhase("Real cloud integration coming soon...");
+      // Real cloud connection using connectors API
+      await connectRealCloud();
+    }
+  };
+
+  const connectRealCloud = async () => {
+    if (!selectedPlatform) return;
+
+    try {
+      setScanPhase("Creating connector...");
+      setScanProgress(10);
+
+      // Step 1: Create connector with credentials
+      const config = platformInfo[selectedPlatform].toConnectorConfig(credentials);
+      const connectorName = `${selectedPlatform}-${orgName || "primary"}`.toLowerCase().replace(/\s+/g, "-");
+
+      const connector = await api.connectors.create({
+        name: connectorName,
+        platform: selectedPlatform,
+        config,
+      });
+      setConnectorId(connector.id);
+      setScanProgress(30);
+
+      // Step 2: Test connection
+      setScanPhase("Testing connection...");
+      const testResult = await api.connectors.test(connector.id);
+      setScanProgress(50);
+
+      if (!testResult.success) {
+        setError(`Connection test failed: ${testResult.message}`);
+        setStep("connect");
+        return;
+      }
+      setConnectionTested(true);
+
+      // Step 3: Trigger sync to discover assets
+      setScanPhase("Discovering assets...");
+      setScanProgress(60);
+
+      const syncResult = await api.connectors.sync(connector.id);
+      setScanProgress(80);
+
+      // Step 4: Show results
+      setScanPhase("Finalizing...");
       setScanProgress(100);
-      setTimeout(() => setStep("results"), 1000);
+
+      setScanResults({
+        sites: syncResult.sites_created || 0,
+        assets: syncResult.assets_found || 0,
+        images: syncResult.images_found || 0,
+      });
+
+      setTimeout(() => setStep("results"), 500);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to connect to cloud platform";
+      setError(errorMessage);
+      setStep("connect");
     }
   };
 
@@ -575,16 +676,23 @@ export default function OnboardingPage() {
                     <>
                       {platformInfo[selectedPlatform].fields.map((field) => (
                         <div key={field.key} className="space-y-2">
-                          <Label>{field.label}</Label>
+                          <Label>
+                            {field.label}
+                            {field.required && <span className="text-destructive ml-1">*</span>}
+                          </Label>
                           {field.type === "textarea" ? (
                             <textarea
-                              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
                               placeholder={field.placeholder}
+                              value={credentials[field.key] || ""}
+                              onChange={(e) => setCredentials(prev => ({ ...prev, [field.key]: e.target.value }))}
                             />
                           ) : (
                             <Input
                               type={field.type}
                               placeholder={field.placeholder}
+                              value={credentials[field.key] || ""}
+                              onChange={(e) => setCredentials(prev => ({ ...prev, [field.key]: e.target.value }))}
                             />
                           )}
                         </div>
@@ -608,12 +716,34 @@ export default function OnboardingPage() {
                   )}
 
                   <div className="flex gap-3 pt-4">
-                    <Button variant="outline" onClick={() => setSelectedPlatform(null)}>
+                    <Button variant="outline" onClick={() => {
+                      setSelectedPlatform(null);
+                      setCredentials({});
+                      setError(null);
+                    }}>
                       Back
                     </Button>
-                    <Button className="flex-1" onClick={handleConnect}>
-                      {useDemoData ? "Start with Demo Data" : "Connect & Scan"}
-                      <ChevronRight className="ml-2 h-4 w-4" />
+                    <Button
+                      className="flex-1"
+                      onClick={() => {
+                        if (!useDemoData && !validateCredentials()) {
+                          return;
+                        }
+                        handleConnect();
+                      }}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Connecting...
+                        </>
+                      ) : (
+                        <>
+                          {useDemoData ? "Start with Demo Data" : "Connect & Scan"}
+                          <ChevronRight className="ml-2 h-4 w-4" />
+                        </>
+                      )}
                     </Button>
                   </div>
                 </CardContent>

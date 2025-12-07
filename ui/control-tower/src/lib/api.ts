@@ -1995,6 +1995,107 @@ export const api = {
         method: "POST",
       }),
   },
+
+  // =============================================================================
+  // Connectors API (Cloud Platform Connectors)
+  // =============================================================================
+  connectors: {
+    // List all connectors for the organization
+    list: () =>
+      apiFetch<{
+        connectors: Array<{
+          id: string;
+          name: string;
+          platform: "aws" | "azure" | "gcp" | "vsphere" | "k8s";
+          enabled: boolean;
+          config: Record<string, unknown>;
+          last_sync_at?: string;
+          last_sync_status?: string;
+          last_sync_error?: string;
+          created_at: string;
+          updated_at: string;
+        }>;
+        total: number;
+      }>("/connectors"),
+
+    // Create a new connector
+    create: (data: {
+      name: string;
+      platform: "aws" | "azure" | "gcp" | "vsphere" | "k8s";
+      config: Record<string, unknown>;
+    }) =>
+      apiFetch<{
+        id: string;
+        name: string;
+        platform: string;
+        enabled: boolean;
+        config: Record<string, unknown>;
+        created_at: string;
+        updated_at: string;
+      }>("/connectors", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    // Get a connector by ID
+    get: (id: string) =>
+      apiFetch<{
+        id: string;
+        name: string;
+        platform: string;
+        enabled: boolean;
+        config: Record<string, unknown>;
+        last_sync_at?: string;
+        last_sync_status?: string;
+        last_sync_error?: string;
+        created_at: string;
+        updated_at: string;
+      }>(`/connectors/${id}`),
+
+    // Delete a connector
+    delete: (id: string) =>
+      apiFetch<void>(`/connectors/${id}`, {
+        method: "DELETE",
+      }),
+
+    // Test connector connection
+    test: (id: string) =>
+      apiFetch<{
+        connector_id: string;
+        success: boolean;
+        message: string;
+        details?: string;
+      }>(`/connectors/${id}/test`, {
+        method: "POST",
+      }),
+
+    // Trigger sync for a connector
+    sync: (id: string) =>
+      apiFetch<{
+        connector_id: string;
+        status: string;
+        assets_found: number;
+        images_found: number;
+        sites_created: number;
+        assets_created: number;
+        assets_updated: number;
+        error?: string;
+      }>(`/connectors/${id}/sync`, {
+        method: "POST",
+      }),
+
+    // Enable a connector
+    enable: (id: string) =>
+      apiFetch<{ status: string }>(`/connectors/${id}/enable`, {
+        method: "POST",
+      }),
+
+    // Disable a connector
+    disable: (id: string) =>
+      apiFetch<{ status: string }>(`/connectors/${id}/disable`, {
+        method: "POST",
+      }),
+  },
 };
 
 export default api;

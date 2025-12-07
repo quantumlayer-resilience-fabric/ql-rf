@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated:** 2025-12-06
+**Last Updated:** 2025-12-07
 
 ## Project Overview
 
@@ -329,6 +329,16 @@ POST /api/v1/resilience/drill          # Trigger DR drill
 # Alerts
 GET  /api/v1/alerts                    # List alerts
 POST /api/v1/alerts/{id}/acknowledge   # Acknowledge alert
+
+# Connectors (Cloud Platform Integration)
+GET    /api/v1/connectors              # List connectors for org
+POST   /api/v1/connectors              # Create connector
+GET    /api/v1/connectors/{id}         # Get connector details
+DELETE /api/v1/connectors/{id}         # Delete connector
+POST   /api/v1/connectors/{id}/test    # Test connection
+POST   /api/v1/connectors/{id}/sync    # Trigger asset discovery
+POST   /api/v1/connectors/{id}/enable  # Enable connector
+POST   /api/v1/connectors/{id}/disable # Disable connector
 ```
 
 **Authentication:** Clerk JWT with dev mode fallback
