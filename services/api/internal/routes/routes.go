@@ -155,7 +155,7 @@ func New(cfg Config) http.Handler {
 
 	// Connector management handler
 	connectorRepo := repository.NewConnectorRepository(cfg.DB.Pool)
-	connectorSvc := service.NewConnectorService(connectorRepo, cfg.Logger)
+	connectorSvc := service.NewConnectorService(connectorRepo, cfg.DB.Pool, cfg.Logger)
 	connectorHandler := handlers.NewConnectorHandler(connectorSvc, cfg.Logger)
 
 	// Health endpoints (no auth required)

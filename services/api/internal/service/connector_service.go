@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
+	"github.com/quantumlayerhq/ql-rf/services/connectors/pkg/connectors"
 )
 
 // ConnectorRepository defines the interface for connector data access.
@@ -49,15 +51,22 @@ type ConnectorModel struct {
 
 // ConnectorService provides business logic for connector operations.
 type ConnectorService struct {
-	repo ConnectorRepository
-	log  *logger.Logger
+	repo        ConnectorRepository
+	pool        *pgxpool.Pool
+	syncService *connectors.SyncService
+	log         *logger.Logger
 }
 
 // NewConnectorService creates a new ConnectorService.
-func NewConnectorService(repo ConnectorRepository, log *logger.Logger) *ConnectorService {
+func NewConnectorService(repo ConnectorRepository, pool *pgxpool.Pool, log *logger.Logger) *ConnectorService {
+	// Create sync service for asset storage (without Kafka for now)
+	syncSvc := connectors.NewSyncService(pool, log)
+
 	return &ConnectorService{
-		repo: repo,
-		log:  log.WithComponent("connector-service"),
+		repo:        repo,
+		pool:        pool,
+		syncService: syncSvc,
+		log:         log.WithComponent("connector-service"),
 	}
 }
 
@@ -264,23 +273,70 @@ func (s *ConnectorService) TriggerSync(ctx context.Context, id, orgID uuid.UUID)
 		s.log.Error("failed to update sync status", "error", err)
 	}
 
-	// In a real implementation, this would:
-	// 1. Create the appropriate cloud connector (aws.New, azure.New, etc.)
-	// 2. Call Connect() to establish connection
-	// 3. Call DiscoverAssets() to discover assets
-	// 4. Store discovered assets in the database
-	// 5. Update sync status
+	// Parse config
+	var config map[string]interface{}
+	if err := json.Unmarshal(conn.Config, &config); err != nil {
+		s.repo.UpdateSyncStatus(ctx, id, orgID, "failed", "invalid config format")
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
 
-	// For now, return a placeholder result
-	// The actual sync would be done by the connectors service
+	// Create the appropriate cloud connector
+	cloudConn, err := s.createCloudConnector(conn.Platform, config)
+	if err != nil {
+		s.repo.UpdateSyncStatus(ctx, id, orgID, "failed", err.Error())
+		return nil, fmt.Errorf("failed to create cloud connector: %w", err)
+	}
+
+	// Connect to the cloud platform
+	if err := cloudConn.Connect(ctx); err != nil {
+		s.repo.UpdateSyncStatus(ctx, id, orgID, "failed", err.Error())
+		return nil, fmt.Errorf("failed to connect to %s: %w", conn.Platform, err)
+	}
+	defer cloudConn.Close()
+
+	// Discover assets
+	assets, err := cloudConn.DiscoverAssets(ctx, orgID)
+	if err != nil {
+		s.repo.UpdateSyncStatus(ctx, id, orgID, "failed", err.Error())
+		return nil, fmt.Errorf("failed to discover assets: %w", err)
+	}
+
+	s.log.Info("discovered assets from cloud platform",
+		"connector_id", id,
+		"platform", conn.Platform,
+		"asset_count", len(assets),
+	)
+
+	// Discover images
+	var imagesFound int
+	images, err := cloudConn.DiscoverImages(ctx)
+	if err != nil {
+		s.log.Warn("failed to discover images", "error", err)
+	} else {
+		imagesFound = len(images)
+	}
+
+	// Sync assets to database using sync service
+	var syncResult *connectors.SyncResult
+	if s.syncService != nil && len(assets) > 0 {
+		syncResult, err = connectors.SyncAssets(ctx, s.syncService, orgID, conn.Platform, assets)
+		if err != nil {
+			s.log.Error("failed to sync assets to database", "error", err)
+		}
+	}
+
+	// Build result
 	result := &SyncResult{
-		ConnectorID:   id,
-		Status:        "completed",
-		AssetsFound:   0,
-		ImagesFound:   0,
-		SitesCreated:  0,
-		AssetsCreated: 0,
-		AssetsUpdated: 0,
+		ConnectorID: id,
+		Status:      "completed",
+		AssetsFound: len(assets),
+		ImagesFound: imagesFound,
+	}
+
+	if syncResult != nil {
+		result.AssetsCreated = syncResult.AssetsCreated
+		result.AssetsUpdated = syncResult.AssetsUpdated
+		result.SitesCreated = syncResult.SitesCreated
 	}
 
 	// Update sync status
@@ -292,9 +348,111 @@ func (s *ConnectorService) TriggerSync(ctx context.Context, id, orgID uuid.UUID)
 		"connector_id", id,
 		"platform", conn.Platform,
 		"status", result.Status,
+		"assets_found", result.AssetsFound,
+		"assets_created", result.AssetsCreated,
+		"assets_updated", result.AssetsUpdated,
 	)
 
 	return result, nil
+}
+
+// createCloudConnector creates the appropriate cloud connector based on platform.
+func (s *ConnectorService) createCloudConnector(platform string, config map[string]interface{}) (connectors.Connector, error) {
+	switch platform {
+	case "aws":
+		return s.createAWSConnector(config)
+	case "azure":
+		return s.createAzureConnector(config)
+	case "gcp":
+		return s.createGCPConnector(config)
+	default:
+		return nil, fmt.Errorf("unsupported platform: %s", platform)
+	}
+}
+
+// createAWSConnector creates an AWS connector from config.
+func (s *ConnectorService) createAWSConnector(config map[string]interface{}) (connectors.Connector, error) {
+	region, _ := config["region"].(string)
+	if region == "" {
+		return nil, fmt.Errorf("aws: region is required")
+	}
+
+	cfg := connectors.AWSConfig{
+		Region: region,
+	}
+
+	// Optional fields
+	if assumeRoleARN, ok := config["assume_role_arn"].(string); ok {
+		cfg.AssumeRoleARN = assumeRoleARN
+	}
+	if externalID, ok := config["external_id"].(string); ok {
+		cfg.ExternalID = externalID
+	}
+	if regions, ok := config["regions"].([]interface{}); ok {
+		for _, r := range regions {
+			if rs, ok := r.(string); ok {
+				cfg.Regions = append(cfg.Regions, rs)
+			}
+		}
+	}
+
+	return connectors.NewAWSConnector(cfg, s.log), nil
+}
+
+// createAzureConnector creates an Azure connector from config.
+func (s *ConnectorService) createAzureConnector(config map[string]interface{}) (connectors.Connector, error) {
+	tenantID, _ := config["tenant_id"].(string)
+	clientID, _ := config["client_id"].(string)
+	clientSecret, _ := config["client_secret"].(string)
+	subscriptionID, _ := config["subscription_id"].(string)
+
+	if tenantID == "" || clientID == "" || clientSecret == "" || subscriptionID == "" {
+		return nil, fmt.Errorf("azure: tenant_id, client_id, client_secret, and subscription_id are required")
+	}
+
+	cfg := connectors.AzureConfig{
+		TenantID:       tenantID,
+		ClientID:       clientID,
+		ClientSecret:   clientSecret,
+		SubscriptionID: subscriptionID,
+	}
+
+	// Optional resource groups
+	if rgs, ok := config["resource_groups"].([]interface{}); ok {
+		for _, rg := range rgs {
+			if rgs, ok := rg.(string); ok {
+				cfg.ResourceGroups = append(cfg.ResourceGroups, rgs)
+			}
+		}
+	}
+
+	return connectors.NewAzureConnector(cfg, s.log), nil
+}
+
+// createGCPConnector creates a GCP connector from config.
+func (s *ConnectorService) createGCPConnector(config map[string]interface{}) (connectors.Connector, error) {
+	projectID, _ := config["project_id"].(string)
+	if projectID == "" {
+		return nil, fmt.Errorf("gcp: project_id is required")
+	}
+
+	cfg := connectors.GCPConfig{
+		ProjectID: projectID,
+	}
+
+	// Optional fields
+	if credentialsFile, ok := config["credentials_file"].(string); ok {
+		cfg.CredentialsFile = credentialsFile
+	}
+	if zones, ok := config["zones"].([]interface{}); ok {
+		for _, z := range zones {
+			if zs, ok := z.(string); ok {
+				cfg.Zones = append(cfg.Zones, zs)
+			}
+		}
+	}
+
+	return connectors.NewGCPConnector(cfg, s.log), nil
 }
 
 // Enable enables a connector.
