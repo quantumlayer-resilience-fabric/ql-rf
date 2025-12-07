@@ -2,7 +2,7 @@
 
 > AI-Powered Infrastructure Resilience & Compliance Platform
 
-**Last Updated:** 2025-12-05
+**Last Updated:** 2025-12-07
 
 ---
 
@@ -113,6 +113,17 @@ GET  /api/v1/certificates/rotations           # List rotation operations
 GET  /api/v1/certificates/rotations/{id}      # Rotation details
 GET  /api/v1/certificates/alerts              # Expiry alerts
 POST /api/v1/certificates/alerts/{id}/acknowledge  # Acknowledge alert
+
+# Organization Onboarding Endpoints
+POST /api/v1/organizations                    # Create new organization
+GET  /api/v1/organizations/current            # Get current user's organization
+GET  /api/v1/organizations/check              # Check if user has organization
+POST /api/v1/organizations/{id}/seed-demo     # Seed demo data (AWS/Azure/GCP)
+GET  /api/v1/organizations/quota              # Get organization quota limits
+GET  /api/v1/organizations/quota/status       # Get quota usage status
+GET  /api/v1/organizations/usage              # Get current usage metrics
+GET  /api/v1/organizations/subscription       # Get subscription details
+GET  /api/v1/organizations/plans              # Get available subscription plans
 ```
 
 ### 2. AI Orchestrator (`services/orchestrator/`)
@@ -610,6 +621,73 @@ decrement_usage(org_id, resource_type, decrement)
 check_api_rate_limit(org_id) -> boolean
 set_tenant_context(org_id, user_id)
 ```
+
+**Organization Onboarding Flow:**
+
+The platform supports a complete onboarding experience for new users:
+
+```
+┌─────────────┐    ┌──────────────┐    ┌────────────────┐
+│   Sign Up   │───>│   Welcome    │───>│ Select Plan    │
+│   (Clerk)   │    │   Step 1     │    │ Free/Pro/Enter │
+└─────────────┘    └──────────────┘    └────────────────┘
+                                               │
+                   ┌───────────────────────────┘
+                   ▼
+          ┌────────────────┐    ┌────────────────────┐
+          │  Org Name +    │───>│   Demo or Real?    │
+          │  Platform      │    │   Toggle Switch    │
+          └────────────────┘    └────────────────────┘
+                                        │
+                   ┌────────────────────┴────────────────────┐
+                   ▼                                         ▼
+          ┌────────────────┐                       ┌────────────────┐
+          │   Demo Mode    │                       │   Real Mode    │
+          │  (Seed Data)   │                       │ (Connectors)   │
+          └────────────────┘                       └────────────────┘
+                   │                                         │
+                   └───────────────────┬─────────────────────┘
+                                       ▼
+                              ┌────────────────┐
+                              │   Dashboard    │
+                              │   /overview    │
+                              └────────────────┘
+```
+
+**Service Methods:**
+```go
+// Create organization with quota and subscription
+svc.CreateOrganization(ctx, CreateOrganizationParams{
+    Name:   "My Company",
+    Slug:   "my-company",
+    PlanID: "professional", // free, starter, professional, enterprise
+})
+
+// Link authenticated user to organization
+svc.LinkUserToOrganization(ctx, userID, orgID, "org_owner")
+
+// Seed demo data for selected platform
+svc.SeedDemoData(ctx, orgID, SeedDemoDataParams{
+    Platform: "aws", // aws, azure, gcp
+})
+
+// Query organization state
+svc.GetUserOrganization(ctx, userID)
+svc.GetQuota(ctx, orgID)
+svc.GetUsage(ctx, orgID)
+svc.GetQuotaStatus(ctx, orgID)
+svc.GetSubscription(ctx, orgID)
+```
+
+**Demo Data Seeding:**
+
+The `SeedDemoData` method creates realistic sample data for each cloud platform:
+
+| Platform | Sites | Images | Assets | Regions |
+|----------|-------|--------|--------|---------|
+| AWS | 3 | 5 | 8 | us-east-1, us-west-2, eu-west-1 |
+| Azure | 3 | 4 | 6 | eastus, westeurope, southeastasia |
+| GCP | 3 | 4 | 6 | us-central1, europe-west1, asia-east1 |
 
 ### 3. Compliance Package (`pkg/compliance/`)
 
@@ -1290,6 +1368,15 @@ kubectl scale deployment/ql-rf-api --replicas=5 -n ql-rf
 | GET | `/api/v1/risk/summary` | Organization risk summary |
 | GET | `/api/v1/risk/top` | Top risk assets |
 | GET | `/api/v1/resilience/dr-pairs` | DR pairs |
+| POST | `/api/v1/organizations` | Create new organization |
+| GET | `/api/v1/organizations/current` | Get current organization |
+| GET | `/api/v1/organizations/check` | Check if user has org |
+| POST | `/api/v1/organizations/{id}/seed-demo` | Seed demo data |
+| GET | `/api/v1/organizations/quota` | Get quota limits |
+| GET | `/api/v1/organizations/quota/status` | Get quota status |
+| GET | `/api/v1/organizations/usage` | Get usage metrics |
+| GET | `/api/v1/organizations/subscription` | Get subscription |
+| GET | `/api/v1/organizations/plans` | Get available plans |
 
 ### AI Orchestrator (Port 8083)
 
@@ -1331,6 +1418,8 @@ make test-e2e          # Full E2E tests
 | `pkg/auth` | `clerk_test.go` | JWT verification, JWKS fetching, key caching |
 | `pkg/database` | `postgres_test.go` | Config validation, connection handling |
 | `pkg/models` | `risk_test.go` | Risk calculations, model validation |
+| `pkg/multitenancy` | `tenant_test.go` | Org creation, user linking, demo data seeding |
+| `services/api/internal/handlers` | `organization_test.go` | Org handler endpoints |
 | `services/drift/internal/engine` | `drift_test.go` | Severity calculation, status thresholds |
 | `services/orchestrator/internal/executor` | `executor_test.go` | Phase execution, cancellation |
 | `services/orchestrator/internal/validation` | `schema_test.go` | JSON Schema validation |
@@ -1339,6 +1428,7 @@ make test-e2e          # Full E2E tests
 - `tests/integration/orchestrator_test.go` - Orchestrator API
 - `tests/integration/api_test.go` - Main API
 - `tests/integration/connectors_test.go` - Cloud connectors
+- `tests/integration/organization_onboarding_test.go` - Organization onboarding flow
 
 ---
 

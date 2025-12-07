@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -10,14 +12,29 @@ import (
 	"github.com/quantumlayerhq/ql-rf/services/api/internal/middleware"
 )
 
+// MultitenancyServiceInterface defines the methods required from the multitenancy service.
+type MultitenancyServiceInterface interface {
+	GetQuota(ctx context.Context, orgID uuid.UUID) (*multitenancy.OrganizationQuota, error)
+	GetUsage(ctx context.Context, orgID uuid.UUID) (*multitenancy.OrganizationUsage, error)
+	GetQuotaStatus(ctx context.Context, orgID uuid.UUID) ([]multitenancy.QuotaStatus, error)
+	GetSubscription(ctx context.Context, orgID uuid.UUID) (*multitenancy.Subscription, error)
+	GetPlan(ctx context.Context, name string) (*multitenancy.SubscriptionPlan, error)
+	ListPlans(ctx context.Context) ([]multitenancy.SubscriptionPlan, error)
+	CreateOrganization(ctx context.Context, params multitenancy.CreateOrganizationParams) (*multitenancy.CreateOrganizationResult, error)
+	GetOrganization(ctx context.Context, orgID uuid.UUID) (*multitenancy.Organization, error)
+	GetUserOrganization(ctx context.Context, userID string) (*multitenancy.Organization, error)
+	LinkUserToOrganization(ctx context.Context, userID string, orgID uuid.UUID, role string) error
+	SeedDemoData(ctx context.Context, orgID uuid.UUID, params multitenancy.SeedDemoDataParams) (*multitenancy.SeedDemoDataResult, error)
+}
+
 // OrganizationHandler handles organization and multi-tenancy requests.
 type OrganizationHandler struct {
-	svc *multitenancy.Service
+	svc MultitenancyServiceInterface
 	log *logger.Logger
 }
 
 // NewOrganizationHandler creates a new OrganizationHandler.
-func NewOrganizationHandler(svc *multitenancy.Service, log *logger.Logger) *OrganizationHandler {
+func NewOrganizationHandler(svc MultitenancyServiceInterface, log *logger.Logger) *OrganizationHandler {
 	return &OrganizationHandler{
 		svc: svc,
 		log: log.WithComponent("organization-handler"),
@@ -241,4 +258,125 @@ func (h *OrganizationHandler) ListPlans(w http.ResponseWriter, r *http.Request) 
 // Helper function to create float64 pointer
 func floatPtr(f float64) *float64 {
 	return &f
+}
+
+// CreateOrganizationRequest represents the request body for creating an organization.
+type CreateOrganizationRequest struct {
+	Name   string `json:"name"`
+	Slug   string `json:"slug,omitempty"`
+	PlanID string `json:"plan_id,omitempty"` // defaults to "free"
+}
+
+// CreateOrganization creates a new organization with quota and subscription.
+func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req CreateOrganizationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if req.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+
+	// Create the organization
+	result, err := h.svc.CreateOrganization(ctx, multitenancy.CreateOrganizationParams{
+		Name:   req.Name,
+		Slug:   req.Slug,
+		PlanID: req.PlanID,
+	})
+	if err != nil {
+		h.log.Error("failed to create organization", "error", err)
+		http.Error(w, "failed to create organization", http.StatusInternalServerError)
+		return
+	}
+
+	// Link the current user to the organization as owner
+	user := middleware.GetUser(ctx)
+	if user != nil && user.ExternalID != "" {
+		if err := h.svc.LinkUserToOrganization(ctx, user.ExternalID, result.Organization.ID, "org_owner"); err != nil {
+			h.log.Error("failed to link user to organization", "error", err, "user_id", user.ExternalID, "org_id", result.Organization.ID)
+			// Don't fail the request, org was created successfully
+		}
+	}
+
+	writeJSON(w, http.StatusCreated, result)
+}
+
+// GetCurrentOrganization returns the current organization context.
+func (h *OrganizationHandler) GetCurrentOrganization(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	org := middleware.GetOrg(ctx)
+	if org == nil {
+		http.Error(w, "organization not found", http.StatusUnauthorized)
+		return
+	}
+
+	// Get the full organization details
+	fullOrg, err := h.svc.GetOrganization(ctx, org.ID)
+	if err != nil {
+		h.log.Error("failed to get organization", "error", err, "org_id", org.ID)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, fullOrg)
+}
+
+// CheckUserOrganization checks if the current user has an organization.
+func (h *OrganizationHandler) CheckUserOrganization(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := middleware.GetUser(ctx)
+	if user == nil {
+		http.Error(w, "user not found", http.StatusUnauthorized)
+		return
+	}
+
+	org, err := h.svc.GetUserOrganization(ctx, user.ExternalID)
+	if err != nil {
+		h.log.Error("failed to get user organization", "error", err, "user_id", user.ExternalID)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"has_organization": org != nil,
+		"organization":     org,
+	})
+}
+
+// SeedDemoDataRequest represents the request body for seeding demo data.
+type SeedDemoDataRequest struct {
+	Platform string `json:"platform"` // aws, azure, gcp
+}
+
+// SeedDemoData seeds demo data for the organization.
+func (h *OrganizationHandler) SeedDemoData(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	org := middleware.GetOrg(ctx)
+	if org == nil {
+		http.Error(w, "organization not found", http.StatusUnauthorized)
+		return
+	}
+
+	var req SeedDemoDataRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Default to AWS if no body provided
+		req.Platform = "aws"
+	}
+
+	result, err := h.svc.SeedDemoData(ctx, org.ID, multitenancy.SeedDemoDataParams{
+		Platform: req.Platform,
+	})
+	if err != nil {
+		h.log.Error("failed to seed demo data", "error", err, "org_id", org.ID)
+		http.Error(w, "failed to seed demo data", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }

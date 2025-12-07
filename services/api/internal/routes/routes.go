@@ -355,18 +355,19 @@ func New(cfg Config) http.Handler {
 
 		// Organization / Multi-tenancy
 		r.Route("/organization", func(r chi.Router) {
+			r.Get("/", organizationHandler.GetCurrentOrganization)
 			r.Get("/quota", organizationHandler.GetQuota)
 			r.Get("/usage", organizationHandler.GetUsage)
 			r.Get("/quota-status", organizationHandler.GetQuotaStatus)
 			r.Get("/subscription", organizationHandler.GetSubscription)
 			r.Get("/plans", organizationHandler.ListPlans)
+			r.Get("/check", organizationHandler.CheckUserOrganization)
+			r.Post("/seed-demo", organizationHandler.SeedDemoData)
 		})
 
-		// Organizations (admin only)
+		// Organizations (create and manage)
 		r.Route("/organizations", func(r chi.Router) {
-			r.Use(middleware.RequireRole("admin"))
-			r.Get("/", handlers.NotImplemented)
-			r.Post("/", handlers.NotImplemented)
+			r.Post("/", organizationHandler.CreateOrganization)
 		})
 
 		// SBOM (Software Bill of Materials)

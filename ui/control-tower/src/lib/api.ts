@@ -344,10 +344,20 @@ export interface SubscriptionPlan {
   displayName: string;
   description: string;
   planType: "free" | "starter" | "professional" | "enterprise";
-  monthlyPriceUsd: number;
-  annualPriceUsd: number;
+  defaultMaxAssets: number;
+  defaultMaxImages: number;
+  defaultMaxSites: number;
+  defaultMaxUsers: number;
+  defaultMaxAiTasksPerDay: number;
+  defaultMaxAiTokensPerMonth: number;
+  defaultMaxStorageBytes: number;
+  monthlyPriceUsd?: number;
+  annualPriceUsd?: number;
   drIncluded: boolean;
   complianceIncluded: boolean;
+  advancedAnalyticsIncluded: boolean;
+  customIntegrationsIncluded: boolean;
+  isActive: boolean;
 }
 
 export interface Subscription {
@@ -1456,6 +1466,46 @@ export const api = {
   // Organization / Multi-tenancy API
   // =============================================================================
   organization: {
+    // Get current organization
+    get: () =>
+      apiFetch<{
+        id: string;
+        name: string;
+        slug: string;
+        created_at: string;
+        updated_at: string;
+      }>("/organization"),
+
+    // Check if user has an organization
+    check: () =>
+      apiFetch<{
+        has_organization: boolean;
+        organization: {
+          id: string;
+          name: string;
+          slug: string;
+          created_at: string;
+          updated_at: string;
+        } | null;
+      }>("/organization/check"),
+
+    // Create organization
+    create: (data: { name: string; slug?: string; plan_id?: string }) =>
+      apiFetch<{
+        organization: {
+          id: string;
+          name: string;
+          slug: string;
+          created_at: string;
+          updated_at: string;
+        };
+        quota: OrganizationQuota;
+        subscription: Subscription;
+      }>("/organizations", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
     // Quota
     getQuota: () =>
       apiFetch<OrganizationQuota>("/organization/quota"),
@@ -1475,6 +1525,17 @@ export const api = {
     // Plans
     listPlans: () =>
       apiFetch<{ plans: SubscriptionPlan[] }>("/organization/plans"),
+
+    // Seed demo data
+    seedDemo: (platform: "aws" | "azure" | "gcp") =>
+      apiFetch<{
+        sites_created: number;
+        assets_created: number;
+        images_created: number;
+      }>("/organization/seed-demo", {
+        method: "POST",
+        body: JSON.stringify({ platform }),
+      }),
   },
 
   // =============================================================================

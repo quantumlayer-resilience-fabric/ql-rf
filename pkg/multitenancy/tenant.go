@@ -111,10 +111,10 @@ type Subscription struct {
 	TrialEndsAt            *time.Time `json:"trial_ends_at,omitempty" db:"trial_ends_at"`
 	CurrentPeriodStart     time.Time  `json:"current_period_start" db:"current_period_start"`
 	CurrentPeriodEnd       time.Time  `json:"current_period_end" db:"current_period_end"`
-	ExternalSubscriptionID string     `json:"external_subscription_id,omitempty" db:"external_subscription_id"`
-	ExternalCustomerID     string     `json:"external_customer_id,omitempty" db:"external_customer_id"`
+	ExternalSubscriptionID *string    `json:"external_subscription_id,omitempty" db:"external_subscription_id"`
+	ExternalCustomerID     *string    `json:"external_customer_id,omitempty" db:"external_customer_id"`
 	CancelledAt            *time.Time `json:"cancelled_at,omitempty" db:"cancelled_at"`
-	CancelReason           string     `json:"cancel_reason,omitempty" db:"cancel_reason"`
+	CancelReason           *string    `json:"cancel_reason,omitempty" db:"cancel_reason"`
 	CreatedAt              time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at" db:"updated_at"`
 }
@@ -546,4 +546,518 @@ func (s *Service) IsFeatureEnabled(ctx context.Context, orgID uuid.UUID, feature
 	default:
 		return false, fmt.Errorf("unknown feature: %s", feature)
 	}
+}
+
+// Organization represents a tenant organization.
+type Organization struct {
+	ID        uuid.UUID `json:"id" db:"id"`
+	Name      string    `json:"name" db:"name"`
+	Slug      string    `json:"slug" db:"slug"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// CreateOrganizationParams contains parameters for creating an organization.
+type CreateOrganizationParams struct {
+	Name   string `json:"name"`
+	Slug   string `json:"slug,omitempty"`
+	PlanID string `json:"plan_id,omitempty"` // defaults to "free"
+}
+
+// CreateOrganizationResult contains the result of creating an organization.
+type CreateOrganizationResult struct {
+	Organization *Organization        `json:"organization"`
+	Quota        *OrganizationQuota   `json:"quota"`
+	Subscription *Subscription        `json:"subscription"`
+}
+
+// CreateOrganization creates a new organization with quota and subscription.
+func (s *Service) CreateOrganization(ctx context.Context, params CreateOrganizationParams) (*CreateOrganizationResult, error) {
+	// Generate slug from name if not provided
+	slug := params.Slug
+	if slug == "" {
+		slug = generateSlug(params.Name)
+	}
+
+	// Start a transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Create the organization
+	var org Organization
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO organizations (name, slug)
+		VALUES ($1, $2)
+		RETURNING id, name, slug, created_at, updated_at
+	`, params.Name, slug).Scan(&org.ID, &org.Name, &org.Slug, &org.CreatedAt, &org.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create organization: %w", err)
+	}
+
+	// Get the plan (default to free)
+	planName := params.PlanID
+	if planName == "" {
+		planName = "free"
+	}
+	plan, err := s.GetPlan(ctx, planName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get plan: %w", err)
+	}
+
+	// Use default values if plan not found in database
+	var planID uuid.UUID
+	var quota OrganizationQuota
+	if plan != nil {
+		planID = plan.ID
+		quota = OrganizationQuota{
+			OrgID:                 org.ID,
+			MaxAssets:             plan.DefaultMaxAssets,
+			MaxImages:             plan.DefaultMaxImages,
+			MaxSites:              plan.DefaultMaxSites,
+			MaxUsers:              plan.DefaultMaxUsers,
+			MaxTeams:              10,
+			MaxAITasksPerDay:      plan.DefaultMaxAITasks,
+			MaxAITokensPerMonth:   plan.DefaultMaxAITokens,
+			MaxConcurrentTasks:    5,
+			MaxStorageBytes:       plan.DefaultMaxStorage,
+			MaxArtifactSizeBytes:  1073741824, // 1GB
+			APIRateLimitPerMinute: plan.DefaultAPIRateLimit,
+			APIRateLimitPerDay:    plan.DefaultAPIRateLimit * 60 * 24,
+			DREnabled:             plan.DRIncluded,
+			ComplianceEnabled:     plan.ComplianceIncluded,
+			AdvancedAnalytics:     plan.AdvancedAnalytics,
+			CustomIntegrations:    plan.CustomIntegrations,
+		}
+	} else {
+		// Default free plan values
+		planID = uuid.New()
+		quota = OrganizationQuota{
+			OrgID:                 org.ID,
+			MaxAssets:             100,
+			MaxImages:             10,
+			MaxSites:              5,
+			MaxUsers:              5,
+			MaxTeams:              2,
+			MaxAITasksPerDay:      10,
+			MaxAITokensPerMonth:   100000,
+			MaxConcurrentTasks:    2,
+			MaxStorageBytes:       10737418240, // 10GB
+			MaxArtifactSizeBytes:  104857600,   // 100MB
+			APIRateLimitPerMinute: 60,
+			APIRateLimitPerDay:    1000,
+			DREnabled:             false,
+			ComplianceEnabled:     false,
+			AdvancedAnalytics:     false,
+			CustomIntegrations:    false,
+		}
+	}
+
+	// Create organization quota
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO organization_quotas (
+			org_id, max_assets, max_images, max_sites, max_users, max_teams,
+			max_ai_tasks_per_day, max_ai_tokens_per_month, max_concurrent_tasks,
+			max_storage_bytes, max_artifact_size_bytes, api_rate_limit_per_minute,
+			api_rate_limit_per_day, dr_enabled, compliance_enabled,
+			advanced_analytics_enabled, custom_integrations_enabled
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+	`, quota.OrgID, quota.MaxAssets, quota.MaxImages, quota.MaxSites, quota.MaxUsers, quota.MaxTeams,
+		quota.MaxAITasksPerDay, quota.MaxAITokensPerMonth, quota.MaxConcurrentTasks,
+		quota.MaxStorageBytes, quota.MaxArtifactSizeBytes, quota.APIRateLimitPerMinute,
+		quota.APIRateLimitPerDay, quota.DREnabled, quota.ComplianceEnabled,
+		quota.AdvancedAnalytics, quota.CustomIntegrations)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create organization quota: %w", err)
+	}
+
+	// Create organization usage (initialized to zero)
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO organization_usage (org_id)
+		VALUES ($1)
+	`, org.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create organization usage: %w", err)
+	}
+
+	// Create subscription
+	now := time.Now()
+	trialEnd := now.AddDate(0, 0, 14) // 14-day trial
+	periodEnd := now.AddDate(0, 1, 0) // 1 month from now
+
+	var subscription Subscription
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO organization_subscriptions (
+			org_id, plan_id, status, trial_ends_at, current_period_start, current_period_end
+		) VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, org_id, plan_id, status, trial_ends_at, current_period_start,
+		          current_period_end, external_subscription_id, external_customer_id,
+		          cancelled_at, cancel_reason, created_at, updated_at
+	`, org.ID, planID, "trial", trialEnd, now, periodEnd).Scan(
+		&subscription.ID, &subscription.OrgID, &subscription.PlanID, &subscription.Status,
+		&subscription.TrialEndsAt, &subscription.CurrentPeriodStart, &subscription.CurrentPeriodEnd,
+		&subscription.ExternalSubscriptionID, &subscription.ExternalCustomerID,
+		&subscription.CancelledAt, &subscription.CancelReason, &subscription.CreatedAt, &subscription.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create subscription: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return &CreateOrganizationResult{
+		Organization: &org,
+		Quota:        &quota,
+		Subscription: &subscription,
+	}, nil
+}
+
+// GetOrganization retrieves an organization by ID.
+func (s *Service) GetOrganization(ctx context.Context, orgID uuid.UUID) (*Organization, error) {
+	var org Organization
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, name, slug, created_at, updated_at
+		FROM organizations WHERE id = $1
+	`, orgID).Scan(&org.ID, &org.Name, &org.Slug, &org.CreatedAt, &org.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get organization: %w", err)
+	}
+	return &org, nil
+}
+
+// GetOrganizationBySlug retrieves an organization by slug.
+func (s *Service) GetOrganizationBySlug(ctx context.Context, slug string) (*Organization, error) {
+	var org Organization
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, name, slug, created_at, updated_at
+		FROM organizations WHERE slug = $1
+	`, slug).Scan(&org.ID, &org.Name, &org.Slug, &org.CreatedAt, &org.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get organization: %w", err)
+	}
+	return &org, nil
+}
+
+// LinkUserToOrganization links a user to an organization with a role.
+func (s *Service) LinkUserToOrganization(ctx context.Context, userID string, orgID uuid.UUID, role string) error {
+	// Create placeholder email and name from user ID
+	placeholderEmail := userID + "@placeholder.local"
+	placeholderName := userID
+
+	// First, ensure the user exists in the users table
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO users (external_id, org_id, email, name, role)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (external_id) DO UPDATE SET
+			org_id = EXCLUDED.org_id,
+			role = EXCLUDED.role,
+			updated_at = NOW()
+	`, userID, orgID, placeholderEmail, placeholderName, role)
+	if err != nil {
+		return fmt.Errorf("failed to link user to organization: %w", err)
+	}
+	return nil
+}
+
+// GetUserOrganization retrieves the organization for a user.
+func (s *Service) GetUserOrganization(ctx context.Context, userID string) (*Organization, error) {
+	var org Organization
+	err := s.db.QueryRowContext(ctx, `
+		SELECT o.id, o.name, o.slug, o.created_at, o.updated_at
+		FROM organizations o
+		JOIN users u ON u.org_id = o.id
+		WHERE u.external_id = $1
+	`, userID).Scan(&org.ID, &org.Name, &org.Slug, &org.CreatedAt, &org.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user organization: %w", err)
+	}
+	return &org, nil
+}
+
+// SeedDemoDataParams contains parameters for seeding demo data.
+type SeedDemoDataParams struct {
+	Platform string `json:"platform"` // aws, azure, gcp
+}
+
+// SeedDemoDataResult contains the result of seeding demo data.
+type SeedDemoDataResult struct {
+	SitesCreated  int `json:"sites_created"`
+	AssetsCreated int `json:"assets_created"`
+	ImagesCreated int `json:"images_created"`
+}
+
+// SeedDemoData seeds demo data for an organization.
+func (s *Service) SeedDemoData(ctx context.Context, orgID uuid.UUID, params SeedDemoDataParams) (*SeedDemoDataResult, error) {
+	platform := params.Platform
+	if platform == "" {
+		platform = "aws"
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	result := &SeedDemoDataResult{}
+
+	// Create demo sites
+	sites := getDemoSites(platform)
+	for _, site := range sites {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO sites (org_id, name, platform, region, environment, metadata)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT DO NOTHING
+		`, orgID, site.name, site.platform, site.region, "production", site.metadata)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create site %s: %w", site.name, err)
+		}
+		result.SitesCreated++
+	}
+
+	// Get site IDs for linking assets
+	rows, err := tx.QueryContext(ctx, `SELECT id, name FROM sites WHERE org_id = $1`, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sites: %w", err)
+	}
+	siteMap := make(map[string]uuid.UUID)
+	for rows.Next() {
+		var id uuid.UUID
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan site: %w", err)
+		}
+		siteMap[name] = id
+	}
+	rows.Close()
+
+	// Create demo images first (assets reference images)
+	// Images table uses: family, version, os_name, os_version, status
+	// Unique constraint is on (org_id, family, version)
+	images := getDemoImages(platform)
+	imageMap := make(map[string]uuid.UUID)
+	for _, img := range images {
+		var imageID uuid.UUID
+		err := tx.QueryRowContext(ctx, `
+			INSERT INTO images (org_id, family, version, os_name, os_version, status)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (org_id, family, version) DO NOTHING
+			RETURNING id
+		`, orgID, img.family, img.version, img.osName, img.osVersion, img.status).Scan(&imageID)
+		if err != nil {
+			// Image might already exist, try to get its ID
+			_ = tx.QueryRowContext(ctx, `SELECT id FROM images WHERE org_id = $1 AND family = $2 AND version = $3`, orgID, img.family, img.version).Scan(&imageID)
+		}
+		if imageID != uuid.Nil {
+			imageMap[img.name] = imageID
+			result.ImagesCreated++
+		}
+	}
+
+	// Create demo assets
+	assets := getDemoAssets(platform)
+	for _, asset := range assets {
+		siteID, ok := siteMap[asset.siteName]
+		if !ok {
+			continue
+		}
+		// Assets table uses: instance_id (required), name (optional), state (not status),
+		// image_ref (not image_id), and tags for metadata
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO assets (org_id, site_id, instance_id, name, platform, state, image_ref, region, tags)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			ON CONFLICT (org_id, platform, instance_id) DO NOTHING
+		`, orgID, siteID, asset.instanceID, asset.name, asset.platform, asset.state, asset.imageRef, asset.region, asset.tags)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create asset %s: %w", asset.name, err)
+		}
+		result.AssetsCreated++
+	}
+
+	// Update organization usage
+	_, err = tx.ExecContext(ctx, `
+		UPDATE organization_usage
+		SET site_count = $1, asset_count = $2, image_count = $3, updated_at = NOW()
+		WHERE org_id = $4
+	`, result.SitesCreated, result.AssetsCreated, result.ImagesCreated, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update usage: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return result, nil
+}
+
+type demoSite struct {
+	name     string
+	platform string
+	region   string
+	metadata string
+}
+
+type demoImage struct {
+	name      string // Internal reference name (for mapping assets to images)
+	family    string // Image family (required for DB)
+	version   string // Version (required for DB)
+	osName    string // OS name (e.g., "Ubuntu", "Amazon Linux")
+	osVersion string // OS version (e.g., "22.04", "2023")
+	status    string // production, staging, draft
+}
+
+type demoAsset struct {
+	instanceID string // Required: unique instance identifier
+	name       string // Optional: display name
+	siteName   string // For linking to site
+	imageRef   string // Image reference (AMI ID, etc.)
+	platform   string
+	state      string // running, stopped, etc.
+	region     string
+	tags       string // JSON tags
+}
+
+func getDemoSites(platform string) []demoSite {
+	switch platform {
+	case "aws":
+		return []demoSite{
+			{name: "AWS US-East-1", platform: "aws", region: "us-east-1", metadata: `{"account_id": "123456789012"}`},
+			{name: "AWS US-West-2", platform: "aws", region: "us-west-2", metadata: `{"account_id": "123456789012"}`},
+			{name: "AWS EU-West-1", platform: "aws", region: "eu-west-1", metadata: `{"account_id": "123456789012"}`},
+		}
+	case "azure":
+		return []demoSite{
+			{name: "Azure East US", platform: "azure", region: "eastus", metadata: `{"subscription_id": "sub-12345"}`},
+			{name: "Azure West Europe", platform: "azure", region: "westeurope", metadata: `{"subscription_id": "sub-12345"}`},
+			{name: "Azure Southeast Asia", platform: "azure", region: "southeastasia", metadata: `{"subscription_id": "sub-12345"}`},
+		}
+	case "gcp":
+		return []demoSite{
+			{name: "GCP US-Central1", platform: "gcp", region: "us-central1", metadata: `{"project_id": "my-project-123"}`},
+			{name: "GCP Europe-West1", platform: "gcp", region: "europe-west1", metadata: `{"project_id": "my-project-123"}`},
+			{name: "GCP Asia-East1", platform: "gcp", region: "asia-east1", metadata: `{"project_id": "my-project-123"}`},
+		}
+	default:
+		return getDemoSites("aws")
+	}
+}
+
+func getDemoImages(platform string) []demoImage {
+	switch platform {
+	case "aws":
+		return []demoImage{
+			{name: "ami-prod-web-2024.12", family: "prod-web", version: "2024.12.01", osName: "Amazon Linux", osVersion: "2023", status: "production"},
+			{name: "ami-prod-api-2024.12", family: "prod-api", version: "2024.12.01", osName: "Amazon Linux", osVersion: "2023", status: "production"},
+			{name: "ami-prod-db-2024.11", family: "prod-db", version: "2024.11.15", osName: "Amazon Linux", osVersion: "2023", status: "deprecated"},
+			{name: "ami-dev-base-2024.12", family: "dev-base", version: "2024.12.05", osName: "Ubuntu", osVersion: "22.04", status: "production"},
+			{name: "ami-staging-web-2024.12", family: "staging-web", version: "2024.12.03", osName: "Amazon Linux", osVersion: "2023", status: "staging"},
+		}
+	case "azure":
+		return []demoImage{
+			{name: "img-prod-web-2024.12", family: "prod-web", version: "2024.12.01", osName: "Ubuntu", osVersion: "22.04", status: "production"},
+			{name: "img-prod-api-2024.12", family: "prod-api", version: "2024.12.01", osName: "Ubuntu", osVersion: "22.04", status: "production"},
+			{name: "img-prod-db-2024.11", family: "prod-db", version: "2024.11.15", osName: "Windows Server", osVersion: "2022", status: "deprecated"},
+			{name: "img-dev-base-2024.12", family: "dev-base", version: "2024.12.05", osName: "Ubuntu", osVersion: "22.04", status: "production"},
+		}
+	case "gcp":
+		return []demoImage{
+			{name: "gce-prod-web-2024.12", family: "prod-web", version: "2024.12.01", osName: "Debian", osVersion: "12", status: "production"},
+			{name: "gce-prod-api-2024.12", family: "prod-api", version: "2024.12.01", osName: "Debian", osVersion: "12", status: "production"},
+			{name: "gce-prod-db-2024.11", family: "prod-db", version: "2024.11.15", osName: "Debian", osVersion: "11", status: "deprecated"},
+			{name: "gce-dev-base-2024.12", family: "dev-base", version: "2024.12.05", osName: "Ubuntu", osVersion: "22.04", status: "production"},
+		}
+	default:
+		return getDemoImages("aws")
+	}
+}
+
+func getDemoAssets(platform string) []demoAsset {
+	switch platform {
+	case "aws":
+		return []demoAsset{
+			// US-East-1
+			{instanceID: "i-demo0001", name: "web-prod-01", siteName: "AWS US-East-1", imageRef: "ami-prod-web-2024.12", platform: "aws", state: "running", region: "us-east-1", tags: `{"instance_type": "t3.medium", "environment": "production"}`},
+			{instanceID: "i-demo0002", name: "web-prod-02", siteName: "AWS US-East-1", imageRef: "ami-prod-web-2024.12", platform: "aws", state: "running", region: "us-east-1", tags: `{"instance_type": "t3.medium", "environment": "production"}`},
+			{instanceID: "i-demo0003", name: "api-prod-01", siteName: "AWS US-East-1", imageRef: "ami-prod-api-2024.12", platform: "aws", state: "running", region: "us-east-1", tags: `{"instance_type": "t3.large", "environment": "production"}`},
+			{instanceID: "i-demo0004", name: "api-prod-02", siteName: "AWS US-East-1", imageRef: "ami-prod-api-2024.12", platform: "aws", state: "running", region: "us-east-1", tags: `{"instance_type": "t3.large", "environment": "production"}`},
+			{instanceID: "i-demo0005", name: "db-prod-01", siteName: "AWS US-East-1", imageRef: "ami-prod-db-2024.11", platform: "aws", state: "running", region: "us-east-1", tags: `{"instance_type": "r5.xlarge", "environment": "production"}`},
+			// US-West-2
+			{instanceID: "i-demo0006", name: "web-dr-01", siteName: "AWS US-West-2", imageRef: "ami-prod-web-2024.12", platform: "aws", state: "running", region: "us-west-2", tags: `{"instance_type": "t3.medium", "environment": "dr"}`},
+			{instanceID: "i-demo0007", name: "api-dr-01", siteName: "AWS US-West-2", imageRef: "ami-prod-api-2024.12", platform: "aws", state: "running", region: "us-west-2", tags: `{"instance_type": "t3.large", "environment": "dr"}`},
+			{instanceID: "i-demo0008", name: "db-dr-01", siteName: "AWS US-West-2", imageRef: "ami-prod-db-2024.11", platform: "aws", state: "stopped", region: "us-west-2", tags: `{"instance_type": "r5.xlarge", "environment": "dr"}`},
+			// EU-West-1
+			{instanceID: "i-demo0009", name: "dev-base-01", siteName: "AWS EU-West-1", imageRef: "ami-dev-base-2024.12", platform: "aws", state: "running", region: "eu-west-1", tags: `{"instance_type": "t3.small", "environment": "development"}`},
+			{instanceID: "i-demo0010", name: "staging-web-01", siteName: "AWS EU-West-1", imageRef: "ami-staging-web-2024.12", platform: "aws", state: "running", region: "eu-west-1", tags: `{"instance_type": "t3.medium", "environment": "staging"}`},
+		}
+	case "azure":
+		return []demoAsset{
+			// East US
+			{instanceID: "vm-demo0001", name: "vm-web-prod-01", siteName: "Azure East US", imageRef: "img-prod-web-2024.12", platform: "azure", state: "running", region: "eastus", tags: `{"vm_size": "Standard_D2s_v3", "environment": "production"}`},
+			{instanceID: "vm-demo0002", name: "vm-web-prod-02", siteName: "Azure East US", imageRef: "img-prod-web-2024.12", platform: "azure", state: "running", region: "eastus", tags: `{"vm_size": "Standard_D2s_v3", "environment": "production"}`},
+			{instanceID: "vm-demo0003", name: "vm-api-prod-01", siteName: "Azure East US", imageRef: "img-prod-api-2024.12", platform: "azure", state: "running", region: "eastus", tags: `{"vm_size": "Standard_D4s_v3", "environment": "production"}`},
+			{instanceID: "vm-demo0004", name: "vm-db-prod-01", siteName: "Azure East US", imageRef: "img-prod-db-2024.11", platform: "azure", state: "running", region: "eastus", tags: `{"vm_size": "Standard_E4s_v3", "environment": "production"}`},
+			// West Europe
+			{instanceID: "vm-demo0005", name: "vm-web-dr-01", siteName: "Azure West Europe", imageRef: "img-prod-web-2024.12", platform: "azure", state: "running", region: "westeurope", tags: `{"vm_size": "Standard_D2s_v3", "environment": "dr"}`},
+			{instanceID: "vm-demo0006", name: "vm-api-dr-01", siteName: "Azure West Europe", imageRef: "img-prod-api-2024.12", platform: "azure", state: "stopped", region: "westeurope", tags: `{"vm_size": "Standard_D4s_v3", "environment": "dr"}`},
+			// Southeast Asia
+			{instanceID: "vm-demo0007", name: "vm-dev-01", siteName: "Azure Southeast Asia", imageRef: "img-dev-base-2024.12", platform: "azure", state: "running", region: "southeastasia", tags: `{"vm_size": "Standard_D2s_v3", "environment": "development"}`},
+		}
+	case "gcp":
+		return []demoAsset{
+			// US-Central1
+			{instanceID: "gce-demo0001", name: "gce-web-prod-01", siteName: "GCP US-Central1", imageRef: "gce-prod-web-2024.12", platform: "gcp", state: "running", region: "us-central1", tags: `{"machine_type": "n2-standard-2", "environment": "production"}`},
+			{instanceID: "gce-demo0002", name: "gce-web-prod-02", siteName: "GCP US-Central1", imageRef: "gce-prod-web-2024.12", platform: "gcp", state: "running", region: "us-central1", tags: `{"machine_type": "n2-standard-2", "environment": "production"}`},
+			{instanceID: "gce-demo0003", name: "gce-api-prod-01", siteName: "GCP US-Central1", imageRef: "gce-prod-api-2024.12", platform: "gcp", state: "running", region: "us-central1", tags: `{"machine_type": "n2-standard-4", "environment": "production"}`},
+			{instanceID: "gce-demo0004", name: "gce-db-prod-01", siteName: "GCP US-Central1", imageRef: "gce-prod-db-2024.11", platform: "gcp", state: "running", region: "us-central1", tags: `{"machine_type": "n2-highmem-4", "environment": "production"}`},
+			// Europe-West1
+			{instanceID: "gce-demo0005", name: "gce-web-dr-01", siteName: "GCP Europe-West1", imageRef: "gce-prod-web-2024.12", platform: "gcp", state: "stopped", region: "europe-west1", tags: `{"machine_type": "n2-standard-2", "environment": "dr"}`},
+			// Asia-East1
+			{instanceID: "gce-demo0006", name: "gce-dev-01", siteName: "GCP Asia-East1", imageRef: "gce-dev-base-2024.12", platform: "gcp", state: "running", region: "asia-east1", tags: `{"machine_type": "n2-standard-2", "environment": "development"}`},
+		}
+	default:
+		return getDemoAssets("aws")
+	}
+}
+
+// generateSlug generates a URL-friendly slug from a name.
+func generateSlug(name string) string {
+	slug := ""
+	for _, r := range name {
+		if r >= 'a' && r <= 'z' {
+			slug += string(r)
+		} else if r >= 'A' && r <= 'Z' {
+			slug += string(r + 32) // Convert to lowercase
+		} else if r >= '0' && r <= '9' {
+			slug += string(r)
+		} else if r == ' ' || r == '-' || r == '_' {
+			if len(slug) > 0 && slug[len(slug)-1] != '-' {
+				slug += "-"
+			}
+		}
+	}
+	// Trim trailing dashes
+	for len(slug) > 0 && slug[len(slug)-1] == '-' {
+		slug = slug[:len(slug)-1]
+	}
+	// Add a short unique suffix to avoid collisions
+	suffix := uuid.New().String()[:8]
+	if len(slug) > 0 {
+		return slug + "-" + suffix
+	}
+	return suffix
 }

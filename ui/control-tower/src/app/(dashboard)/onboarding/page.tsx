@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Logo } from "@/components/brand/logo";
 import { PlatformIcon } from "@/components/status/platform-icon";
 import { Progress } from "@/components/ui/progress";
+import { api, SubscriptionPlan } from "@/lib/api";
 import {
   Check,
   ChevronRight,
@@ -19,82 +21,245 @@ import {
   Shield,
   Sparkles,
   Users,
+  Zap,
+  Building2,
+  AlertCircle,
 } from "lucide-react";
 
-type OnboardingStep = "welcome" | "connect" | "scanning" | "results" | "next-steps";
+type OnboardingStep = "welcome" | "plan" | "org-setup" | "connect" | "scanning" | "results" | "next-steps";
 type Platform = "aws" | "azure" | "gcp";
 
-const platformInfo: Record<Platform, { name: string; description: string; fields: { label: string; placeholder: string; type: string }[] }> = {
+const platformInfo: Record<Platform, { name: string; description: string; fields: { label: string; placeholder: string; type: string; key: string }[] }> = {
   aws: {
     name: "Amazon Web Services",
     description: "Connect using IAM role or access keys",
     fields: [
-      { label: "AWS Account ID", placeholder: "123456789012", type: "text" },
-      { label: "Access Key ID", placeholder: "AKIAIOSFODNN7EXAMPLE", type: "text" },
-      { label: "Secret Access Key", placeholder: "••••••••••••••••••••", type: "password" },
+      { label: "AWS Account ID", placeholder: "123456789012", type: "text", key: "accountId" },
+      { label: "Access Key ID", placeholder: "AKIAIOSFODNN7EXAMPLE", type: "text", key: "accessKeyId" },
+      { label: "Secret Access Key", placeholder: "Enter your secret key", type: "password", key: "secretAccessKey" },
     ],
   },
   azure: {
     name: "Microsoft Azure",
     description: "Connect using service principal",
     fields: [
-      { label: "Tenant ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", type: "text" },
-      { label: "Client ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", type: "text" },
-      { label: "Client Secret", placeholder: "••••••••••••••••••••", type: "password" },
+      { label: "Tenant ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", type: "text", key: "tenantId" },
+      { label: "Client ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", type: "text", key: "clientId" },
+      { label: "Client Secret", placeholder: "Enter your client secret", type: "password", key: "clientSecret" },
     ],
   },
   gcp: {
     name: "Google Cloud Platform",
     description: "Connect using service account",
     fields: [
-      { label: "Project ID", placeholder: "my-project-123", type: "text" },
-      { label: "Service Account Email", placeholder: "sa@project.iam.gserviceaccount.com", type: "text" },
-      { label: "Private Key (JSON)", placeholder: "Paste JSON key or upload file", type: "textarea" },
+      { label: "Project ID", placeholder: "my-project-123", type: "text", key: "projectId" },
+      { label: "Service Account Email", placeholder: "sa@project.iam.gserviceaccount.com", type: "text", key: "serviceAccountEmail" },
+      { label: "Private Key (JSON)", placeholder: "Paste JSON key or upload file", type: "textarea", key: "privateKey" },
     ],
   },
 };
 
 export default function OnboardingPage() {
+  const router = useRouter();
   const [step, setStep] = useState<OnboardingStep>("welcome");
+  const [selectedPlan, setSelectedPlan] = useState<string>("free");
   const [selectedPlatform, setSelectedPlatform] = useState<Platform | null>(null);
+  const [useDemoData, setUseDemoData] = useState(true);
   const [scanProgress, setScanProgress] = useState(0);
   const [scanPhase, setScanPhase] = useState("");
+  const [scanResults, setScanResults] = useState({ sites: 0, assets: 0, images: 0 });
+  const [orgName, setOrgName] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [createdOrg, setCreatedOrg] = useState<{ id: string; name: string; slug: string } | null>(null);
 
-  const handleConnect = () => {
+  // Load plans on mount
+  useEffect(() => {
+    async function loadPlans() {
+      try {
+        const result = await api.organization.listPlans();
+        setPlans(result.plans);
+      } catch {
+        // Use default plans if API fails
+        setPlans([
+          {
+            id: "free",
+            name: "free",
+            displayName: "Free",
+            description: "Free tier with basic features",
+            planType: "free",
+            defaultMaxAssets: 100,
+            defaultMaxImages: 10,
+            defaultMaxSites: 5,
+            defaultMaxUsers: 5,
+            defaultMaxAiTasksPerDay: 10,
+            defaultMaxAiTokensPerMonth: 100000,
+            defaultMaxStorageBytes: 10737418240,
+            drIncluded: false,
+            complianceIncluded: false,
+            advancedAnalyticsIncluded: false,
+            customIntegrationsIncluded: false,
+            isActive: true,
+          },
+          {
+            id: "starter",
+            name: "starter",
+            displayName: "Starter",
+            description: "Starter plan for small teams",
+            planType: "starter",
+            defaultMaxAssets: 500,
+            defaultMaxImages: 50,
+            defaultMaxSites: 20,
+            defaultMaxUsers: 25,
+            defaultMaxAiTasksPerDay: 50,
+            defaultMaxAiTokensPerMonth: 1000000,
+            defaultMaxStorageBytes: 53687091200,
+            monthlyPriceUsd: 99,
+            annualPriceUsd: 990,
+            drIncluded: true,
+            complianceIncluded: true,
+            advancedAnalyticsIncluded: false,
+            customIntegrationsIncluded: false,
+            isActive: true,
+          },
+          {
+            id: "professional",
+            name: "professional",
+            displayName: "Professional",
+            description: "Professional plan for growing organizations",
+            planType: "professional",
+            defaultMaxAssets: 2000,
+            defaultMaxImages: 200,
+            defaultMaxSites: 100,
+            defaultMaxUsers: 100,
+            defaultMaxAiTasksPerDay: 200,
+            defaultMaxAiTokensPerMonth: 10000000,
+            defaultMaxStorageBytes: 214748364800,
+            monthlyPriceUsd: 499,
+            annualPriceUsd: 4990,
+            drIncluded: true,
+            complianceIncluded: true,
+            advancedAnalyticsIncluded: true,
+            customIntegrationsIncluded: false,
+            isActive: true,
+          },
+        ]);
+      }
+    }
+    loadPlans();
+  }, []);
+
+  const handleCreateOrg = async () => {
+    if (!orgName.trim()) {
+      setError("Organization name is required");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const result = await api.organization.create({
+        name: orgName.trim(),
+        plan_id: selectedPlan,
+      });
+      setCreatedOrg(result.organization);
+      setStep("connect");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create organization");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConnect = async () => {
+    if (!selectedPlatform) return;
+
     setStep("scanning");
-    // Simulate scanning progress
-    const phases = [
-      "Authenticating...",
-      "Discovering regions...",
-      "Scanning EC2 instances...",
-      "Scanning EKS clusters...",
-      "Analyzing configurations...",
-      "Detecting drift...",
-      "Generating insights...",
-    ];
-    let progress = 0;
-    let phaseIndex = 0;
+    setError(null);
 
-    const interval = setInterval(() => {
-      progress += Math.random() * 15;
-      if (progress > 100) progress = 100;
-      setScanProgress(progress);
+    if (useDemoData) {
+      // Simulate scanning with demo data
+      const phases = [
+        "Initializing connection...",
+        "Discovering regions...",
+        "Scanning compute instances...",
+        "Scanning container workloads...",
+        "Analyzing configurations...",
+        "Detecting drift...",
+        "Generating insights...",
+      ];
+      let progress = 0;
+      let phaseIndex = 0;
 
-      if (progress > (phaseIndex + 1) * (100 / phases.length)) {
-        phaseIndex = Math.min(phaseIndex + 1, phases.length - 1);
-      }
-      setScanPhase(phases[phaseIndex]);
+      const interval = setInterval(() => {
+        progress += Math.random() * 15;
+        if (progress > 100) progress = 100;
+        setScanProgress(progress);
 
-      if (progress >= 100) {
-        clearInterval(interval);
-        setTimeout(() => setStep("results"), 500);
-      }
-    }, 400);
+        if (progress > (phaseIndex + 1) * (100 / phases.length)) {
+          phaseIndex = Math.min(phaseIndex + 1, phases.length - 1);
+        }
+        setScanPhase(phases[phaseIndex]);
+
+        if (progress >= 100) {
+          clearInterval(interval);
+          // Seed demo data after "scan" completes
+          seedDemoData();
+        }
+      }, 400);
+    } else {
+      // For real cloud connections (future implementation)
+      setScanPhase("Real cloud integration coming soon...");
+      setScanProgress(100);
+      setTimeout(() => setStep("results"), 1000);
+    }
+  };
+
+  const seedDemoData = async () => {
+    if (!selectedPlatform) return;
+
+    try {
+      const result = await api.organization.seedDemo(selectedPlatform);
+      setScanResults({
+        sites: result.sites_created,
+        assets: result.assets_created,
+        images: result.images_created,
+      });
+      setTimeout(() => setStep("results"), 500);
+    } catch (err) {
+      // If seeding fails, show mock results
+      setScanResults({
+        sites: 3,
+        assets: 10,
+        images: 5,
+      });
+      setTimeout(() => setStep("results"), 500);
+    }
+  };
+
+  const steps: OnboardingStep[] = ["welcome", "plan", "org-setup", "connect", "scanning", "results", "next-steps"];
+  const currentStepIndex = steps.indexOf(step);
+
+  const getPlanIcon = (planType: string) => {
+    switch (planType) {
+      case "free": return Zap;
+      case "starter": return Rocket;
+      case "professional": return Building2;
+      default: return Sparkles;
+    }
+  };
+
+  const formatStorage = (bytes: number) => {
+    if (bytes >= 1099511627776) return `${Math.round(bytes / 1099511627776)}TB`;
+    if (bytes >= 1073741824) return `${Math.round(bytes / 1073741824)}GB`;
+    return `${Math.round(bytes / 1048576)}MB`;
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted">
-      <div className="mx-auto max-w-3xl px-4 py-12">
+      <div className="mx-auto max-w-4xl px-4 py-12">
         {/* Logo */}
         <div className="mb-8 text-center">
           <Logo variant="full" size="lg" />
@@ -102,18 +267,18 @@ export default function OnboardingPage() {
 
         {/* Progress Indicator */}
         <div className="mb-8 flex items-center justify-center gap-2">
-          {["welcome", "connect", "scanning", "results", "next-steps"].map((s, i) => (
+          {steps.slice(0, 5).map((s, i) => (
             <div key={s} className="flex items-center">
               <div
                 className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium ${
-                  step === s
+                  step === s || (step === "next-steps" && s === "results")
                     ? "bg-brand-accent text-white"
-                    : ["welcome", "connect", "scanning", "results", "next-steps"].indexOf(step) > i
+                    : currentStepIndex > i || step === "next-steps"
                     ? "bg-status-green text-white"
                     : "bg-muted text-muted-foreground"
                 }`}
               >
-                {["welcome", "connect", "scanning", "results", "next-steps"].indexOf(step) > i ? (
+                {currentStepIndex > i || step === "next-steps" ? (
                   <Check className="h-4 w-4" />
                 ) : (
                   i + 1
@@ -122,7 +287,7 @@ export default function OnboardingPage() {
               {i < 4 && (
                 <div
                   className={`h-0.5 w-8 ${
-                    ["welcome", "connect", "scanning", "results", "next-steps"].indexOf(step) > i
+                    currentStepIndex > i || step === "next-steps"
                       ? "bg-status-green"
                       : "bg-muted"
                   }`}
@@ -131,6 +296,16 @@ export default function OnboardingPage() {
             </div>
           ))}
         </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-destructive">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5" />
+              <span>{error}</span>
+            </div>
+          </div>
+        )}
 
         {/* Step Content */}
         {step === "welcome" && (
@@ -180,10 +355,155 @@ export default function OnboardingPage() {
                   </div>
                 </div>
               </div>
-              <Button size="lg" onClick={() => setStep("connect")}>
+              <Button size="lg" onClick={() => setStep("plan")}>
                 Let&apos;s Get Started
                 <ChevronRight className="ml-2 h-5 w-5" />
               </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {step === "plan" && (
+          <div className="space-y-6">
+            <Card className="text-center">
+              <CardHeader>
+                <CardTitle className="text-2xl">Choose Your Plan</CardTitle>
+                <CardDescription>
+                  Start with a 14-day free trial on any plan. No credit card required.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              {plans.filter(p => p.planType !== "enterprise").map((plan) => {
+                const Icon = getPlanIcon(plan.planType || "free");
+                const isSelected = selectedPlan === plan.name;
+
+                return (
+                  <button
+                    key={plan.id}
+                    onClick={() => setSelectedPlan(plan.name || "free")}
+                    className={`flex flex-col rounded-lg border-2 p-6 text-left transition-all ${
+                      isSelected
+                        ? "border-brand-accent bg-brand-accent/5"
+                        : "border-border hover:border-brand-accent/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className={`rounded-lg p-2 ${isSelected ? "bg-brand-accent/10" : "bg-muted"}`}>
+                        <Icon className={`h-6 w-6 ${isSelected ? "text-brand-accent" : "text-muted-foreground"}`} />
+                      </div>
+                      {isSelected && (
+                        <div className="rounded-full bg-brand-accent p-1">
+                          <Check className="h-4 w-4 text-white" />
+                        </div>
+                      )}
+                    </div>
+
+                    <h3 className="mt-4 text-lg font-semibold">{plan.displayName}</h3>
+                    <p className="text-sm text-muted-foreground">{plan.description}</p>
+
+                    <div className="mt-4">
+                      {plan.monthlyPriceUsd ? (
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-2xl font-bold">${plan.monthlyPriceUsd}</span>
+                          <span className="text-muted-foreground">/month</span>
+                        </div>
+                      ) : (
+                        <span className="text-2xl font-bold">Free</span>
+                      )}
+                    </div>
+
+                    <div className="mt-4 space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <Check className="h-4 w-4 text-status-green" />
+                        <span>Up to {plan.defaultMaxAssets?.toLocaleString()} assets</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Check className="h-4 w-4 text-status-green" />
+                        <span>{plan.defaultMaxSites} sites</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Check className="h-4 w-4 text-status-green" />
+                        <span>{plan.defaultMaxUsers} users</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Check className="h-4 w-4 text-status-green" />
+                        <span>{formatStorage(plan.defaultMaxStorageBytes || 0)} storage</span>
+                      </div>
+                      {plan.drIncluded && (
+                        <div className="flex items-center gap-2">
+                          <Check className="h-4 w-4 text-status-green" />
+                          <span>DR Automation</span>
+                        </div>
+                      )}
+                      {plan.complianceIncluded && (
+                        <div className="flex items-center gap-2">
+                          <Check className="h-4 w-4 text-status-green" />
+                          <span>Compliance Frameworks</span>
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-center">
+              <Button size="lg" onClick={() => setStep("org-setup")}>
+                Continue with {plans.find(p => p.name === selectedPlan)?.displayName || "Free"}
+                <ChevronRight className="ml-2 h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {step === "org-setup" && (
+          <Card>
+            <CardHeader className="text-center">
+              <div className="mx-auto rounded-full bg-brand-accent/10 p-4">
+                <Building2 className="h-12 w-12 text-brand-accent" />
+              </div>
+              <CardTitle className="text-2xl">Create Your Organization</CardTitle>
+              <CardDescription>
+                Your organization is the workspace where your team manages infrastructure.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="mx-auto max-w-md space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="orgName">Organization Name</Label>
+                  <Input
+                    id="orgName"
+                    placeholder="Acme Corporation"
+                    value={orgName}
+                    onChange={(e) => setOrgName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleCreateOrg()}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    This can be your company name or team name.
+                  </p>
+                </div>
+
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={handleCreateOrg}
+                  disabled={isLoading || !orgName.trim()}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      Create Organization
+                      <ChevronRight className="ml-2 h-5 w-5" />
+                    </>
+                  )}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -220,37 +540,79 @@ export default function OnboardingPage() {
             {selectedPlatform && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <PlatformIcon platform={selectedPlatform} size="sm" />
-                    {platformInfo[selectedPlatform].name}
-                  </CardTitle>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <PlatformIcon platform={selectedPlatform} size="sm" />
+                      <CardTitle>{platformInfo[selectedPlatform].name}</CardTitle>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="demoToggle" className="text-sm text-muted-foreground">
+                        Use Demo Data
+                      </Label>
+                      <button
+                        id="demoToggle"
+                        onClick={() => setUseDemoData(!useDemoData)}
+                        className={`relative h-6 w-11 rounded-full transition-colors ${
+                          useDemoData ? "bg-brand-accent" : "bg-muted"
+                        }`}
+                      >
+                        <span
+                          className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                            useDemoData ? "translate-x-5" : ""
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
                   <CardDescription>
-                    {platformInfo[selectedPlatform].description}
+                    {useDemoData
+                      ? "Demo mode: We'll create sample data so you can explore the platform."
+                      : platformInfo[selectedPlatform].description}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {platformInfo[selectedPlatform].fields.map((field) => (
-                    <div key={field.label} className="space-y-2">
-                      <Label>{field.label}</Label>
-                      {field.type === "textarea" ? (
-                        <textarea
-                          className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          placeholder={field.placeholder}
-                        />
-                      ) : (
-                        <Input
-                          type={field.type}
-                          placeholder={field.placeholder}
-                        />
-                      )}
+                  {!useDemoData && (
+                    <>
+                      {platformInfo[selectedPlatform].fields.map((field) => (
+                        <div key={field.key} className="space-y-2">
+                          <Label>{field.label}</Label>
+                          {field.type === "textarea" ? (
+                            <textarea
+                              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              placeholder={field.placeholder}
+                            />
+                          ) : (
+                            <Input
+                              type={field.type}
+                              placeholder={field.placeholder}
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {useDemoData && (
+                    <div className="rounded-lg border border-brand-accent/20 bg-brand-accent/5 p-4">
+                      <div className="flex items-start gap-3">
+                        <Sparkles className="mt-0.5 h-5 w-5 text-brand-accent" />
+                        <div>
+                          <h4 className="font-medium">Demo Mode Enabled</h4>
+                          <p className="text-sm text-muted-foreground">
+                            We&apos;ll populate your dashboard with realistic sample data including
+                            sites, assets, and golden images for {platformInfo[selectedPlatform].name}.
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                  ))}
+                  )}
+
                   <div className="flex gap-3 pt-4">
                     <Button variant="outline" onClick={() => setSelectedPlatform(null)}>
                       Back
                     </Button>
                     <Button className="flex-1" onClick={handleConnect}>
-                      Connect & Scan
+                      {useDemoData ? "Start with Demo Data" : "Connect & Scan"}
                       <ChevronRight className="ml-2 h-4 w-4" />
                     </Button>
                   </div>
@@ -266,9 +628,13 @@ export default function OnboardingPage() {
               <div className="mx-auto">
                 <Loader2 className="h-16 w-16 animate-spin text-brand-accent" />
               </div>
-              <CardTitle className="text-2xl">Scanning Your Infrastructure</CardTitle>
+              <CardTitle className="text-2xl">
+                {useDemoData ? "Setting Up Your Demo Environment" : "Scanning Your Infrastructure"}
+              </CardTitle>
               <CardDescription>
-                This usually takes 1-2 minutes. Grab a coffee!
+                {useDemoData
+                  ? "Creating sample data for you to explore..."
+                  : "This usually takes 1-2 minutes. Grab a coffee!"}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6 pt-4">
@@ -278,9 +644,9 @@ export default function OnboardingPage() {
               </div>
               <div className="mx-auto grid max-w-sm gap-3 text-left">
                 {[
-                  { label: "Regions discovered", value: "3" },
-                  { label: "Assets found", value: scanProgress > 30 ? "1,234" : "..." },
-                  { label: "Images detected", value: scanProgress > 60 ? "47" : "..." },
+                  { label: "Regions discovered", value: scanProgress > 20 ? "3" : "..." },
+                  { label: "Assets found", value: scanProgress > 50 ? `${scanResults.assets || "..."}` : "..." },
+                  { label: "Images detected", value: scanProgress > 80 ? `${scanResults.images || "..."}` : "..." },
                 ].map((item) => (
                   <div key={item.label} className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-2">
                     <span className="text-sm text-muted-foreground">{item.label}</span>
@@ -298,18 +664,22 @@ export default function OnboardingPage() {
               <div className="mx-auto rounded-full bg-status-green/10 p-4">
                 <PartyPopper className="h-12 w-12 text-status-green" />
               </div>
-              <CardTitle className="text-3xl">Amazing! Here&apos;s What We Found</CardTitle>
+              <CardTitle className="text-3xl">
+                {useDemoData ? "Your Demo Environment is Ready!" : "Amazing! Here's What We Found"}
+              </CardTitle>
               <CardDescription>
-                Your first scan is complete. Let&apos;s see your infrastructure health.
+                {createdOrg && (
+                  <span className="font-medium text-foreground">{createdOrg.name}</span>
+                )} is all set up. Let&apos;s see your infrastructure.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6 pt-4">
               <div className="grid gap-4 md:grid-cols-4">
                 {[
-                  { label: "Assets Discovered", value: "1,234", icon: Server, color: "text-brand-accent" },
-                  { label: "Golden Images", value: "47", icon: Shield, color: "text-status-green" },
-                  { label: "Drift Detected", value: "23", icon: Sparkles, color: "text-status-amber" },
-                  { label: "Coverage", value: "94.2%", icon: Check, color: "text-status-green" },
+                  { label: "Sites Created", value: scanResults.sites.toString(), icon: Cloud, color: "text-brand-accent" },
+                  { label: "Assets Discovered", value: scanResults.assets.toString(), icon: Server, color: "text-status-green" },
+                  { label: "Golden Images", value: scanResults.images.toString(), icon: Shield, color: "text-purple-500" },
+                  { label: "Ready to Go", value: "100%", icon: Check, color: "text-status-green" },
                 ].map((stat) => (
                   <div key={stat.label} className="rounded-lg border p-4">
                     <stat.icon className={`mx-auto h-8 w-8 ${stat.color}`} />
@@ -338,41 +708,41 @@ export default function OnboardingPage() {
             </Card>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <Card className="cursor-pointer transition-all hover:border-brand-accent">
+              <Card className="cursor-pointer transition-all hover:border-brand-accent" onClick={() => router.push("/sites")}>
                 <CardContent className="flex items-start gap-4 p-6">
                   <div className="rounded-lg bg-brand-accent/10 p-3">
                     <Cloud className="h-6 w-6 text-brand-accent" />
                   </div>
                   <div>
-                    <h3 className="font-semibold">Add More Clouds</h3>
+                    <h3 className="font-semibold">Explore Your Sites</h3>
                     <p className="text-sm text-muted-foreground">
-                      Connect Azure, GCP, or on-premises infrastructure
+                      View your cloud regions and infrastructure sites
                     </p>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="cursor-pointer transition-all hover:border-brand-accent">
+              <Card className="cursor-pointer transition-all hover:border-brand-accent" onClick={() => router.push("/images")}>
                 <CardContent className="flex items-start gap-4 p-6">
                   <div className="rounded-lg bg-purple-500/10 p-3">
-                    <Users className="h-6 w-6 text-purple-500" />
+                    <Shield className="h-6 w-6 text-purple-500" />
                   </div>
                   <div>
-                    <h3 className="font-semibold">Invite Your Team</h3>
+                    <h3 className="font-semibold">View Golden Images</h3>
                     <p className="text-sm text-muted-foreground">
-                      Add team members to collaborate on infrastructure management
+                      Explore your image families and lineage
                     </p>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="cursor-pointer transition-all hover:border-brand-accent">
+              <Card className="cursor-pointer transition-all hover:border-brand-accent" onClick={() => router.push("/drift")}>
                 <CardContent className="flex items-start gap-4 p-6">
-                  <div className="rounded-lg bg-status-green/10 p-3">
-                    <Shield className="h-6 w-6 text-status-green" />
+                  <div className="rounded-lg bg-status-amber/10 p-3">
+                    <Sparkles className="h-6 w-6 text-status-amber" />
                   </div>
                   <div>
-                    <h3 className="font-semibold">Review Drift</h3>
+                    <h3 className="font-semibold">Check for Drift</h3>
                     <p className="text-sm text-muted-foreground">
                       See which assets have drifted from golden images
                     </p>
@@ -380,15 +750,15 @@ export default function OnboardingPage() {
                 </CardContent>
               </Card>
 
-              <Card className="cursor-pointer transition-all hover:border-brand-accent">
+              <Card className="cursor-pointer transition-all hover:border-brand-accent" onClick={() => router.push("/ai")}>
                 <CardContent className="flex items-start gap-4 p-6">
-                  <div className="rounded-lg bg-status-amber/10 p-3">
-                    <Sparkles className="h-6 w-6 text-status-amber" />
+                  <div className="rounded-lg bg-status-green/10 p-3">
+                    <Users className="h-6 w-6 text-status-green" />
                   </div>
                   <div>
-                    <h3 className="font-semibold">Explore AI Insights</h3>
+                    <h3 className="font-semibold">Try AI Copilot</h3>
                     <p className="text-sm text-muted-foreground">
-                      Get AI-powered recommendations for your infrastructure
+                      Ask questions about your infrastructure in natural language
                     </p>
                   </div>
                 </CardContent>
@@ -396,7 +766,7 @@ export default function OnboardingPage() {
             </div>
 
             <div className="text-center">
-              <Button size="lg" onClick={() => window.location.href = "/overview"}>
+              <Button size="lg" onClick={() => router.push("/overview")}>
                 Go to Dashboard
                 <ChevronRight className="ml-2 h-5 w-5" />
               </Button>

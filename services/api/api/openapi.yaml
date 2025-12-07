@@ -388,6 +388,103 @@ paths:
                     items:
                       $ref: '#/components/schemas/SubscriptionPlan'
 
+  /organizations:
+    post:
+      summary: Create organization
+      description: Create a new organization with quota and subscription
+      tags: [Organization]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrganizationRequest'
+      responses:
+        '201':
+          description: Organization created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrganizationResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /organization:
+    get:
+      summary: Get current organization
+      description: Get the current organization context for the authenticated user
+      tags: [Organization]
+      responses:
+        '200':
+          description: Organization details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /organization/check:
+    get:
+      summary: Check user organization
+      description: Check if the current user has an organization
+      tags: [Organization]
+      responses:
+        '200':
+          description: Organization check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  has_organization:
+                    type: boolean
+                  organization:
+                    $ref: '#/components/schemas/Organization'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /organization/seed-demo:
+    post:
+      summary: Seed demo data
+      description: Seed demo data (sites, assets, images) for the organization
+      tags: [Organization]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SeedDemoDataRequest'
+      responses:
+        '200':
+          description: Demo data seeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedDemoDataResult'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   # ============================================================================
   # Enhanced Compliance Endpoints
   # ============================================================================
@@ -1404,6 +1501,20 @@ components:
         plan_type:
           type: string
           enum: [free, starter, professional, enterprise]
+        default_max_assets:
+          type: integer
+        default_max_images:
+          type: integer
+        default_max_sites:
+          type: integer
+        default_max_users:
+          type: integer
+        default_max_ai_tasks:
+          type: integer
+        default_max_ai_tokens:
+          type: integer
+        default_max_storage:
+          type: integer
         monthly_price_usd:
           type: number
         annual_price_usd:
@@ -1412,6 +1523,77 @@ components:
           type: boolean
         compliance_included:
           type: boolean
+        advanced_analytics:
+          type: boolean
+        custom_integrations:
+          type: boolean
+        is_active:
+          type: boolean
+
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        status:
+          type: string
+          enum: [active, suspended, deleted]
+        settings:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateOrganizationRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+        slug:
+          type: string
+        plan_id:
+          type: string
+          description: Plan name (free, starter, professional, enterprise). Defaults to free.
+
+    CreateOrganizationResult:
+      type: object
+      properties:
+        organization:
+          $ref: '#/components/schemas/Organization'
+        quota:
+          $ref: '#/components/schemas/OrganizationQuota'
+        subscription:
+          $ref: '#/components/schemas/Subscription'
+
+    SeedDemoDataRequest:
+      type: object
+      properties:
+        platform:
+          type: string
+          enum: [aws, azure, gcp]
+          default: aws
+          description: Cloud platform to seed demo data for
+
+    SeedDemoDataResult:
+      type: object
+      properties:
+        sites_created:
+          type: integer
+        assets_created:
+          type: integer
+        images_created:
+          type: integer
 
     Subscription:
       type: object
