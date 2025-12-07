@@ -87,8 +87,14 @@ func (c *Connector) Connect(ctx context.Context) error {
 
 	// Try to load kubeconfig
 	if c.cfg.Kubeconfig != "" {
-		// Use specified kubeconfig file
-		restConfig, err = c.loadKubeconfig(c.cfg.Kubeconfig, c.cfg.Context)
+		// Check if kubeconfig is raw YAML content (starts with common YAML markers)
+		if isRawKubeconfig(c.cfg.Kubeconfig) {
+			// Parse raw YAML content directly
+			restConfig, err = c.loadKubeconfigFromContent(c.cfg.Kubeconfig, c.cfg.Context)
+		} else {
+			// Treat as file path
+			restConfig, err = c.loadKubeconfig(c.cfg.Kubeconfig, c.cfg.Context)
+		}
 	} else {
 		// Try in-cluster config first
 		restConfig, err = rest.InClusterConfig()
@@ -125,7 +131,7 @@ func (c *Connector) Connect(ctx context.Context) error {
 	return nil
 }
 
-// loadKubeconfig loads a kubeconfig file.
+// loadKubeconfig loads a kubeconfig file from a path.
 func (c *Connector) loadKubeconfig(path string, context string) (*rest.Config, error) {
 	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: path}
 	configOverrides := &clientcmd.ConfigOverrides{}
@@ -136,6 +142,59 @@ func (c *Connector) loadKubeconfig(path string, context string) (*rest.Config, e
 
 	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
 	return kubeConfig.ClientConfig()
+}
+
+// loadKubeconfigFromContent loads kubeconfig from raw YAML content.
+func (c *Connector) loadKubeconfigFromContent(content string, context string) (*rest.Config, error) {
+	// Parse the raw kubeconfig YAML content
+	clientConfig, err := clientcmd.NewClientConfigFromBytes([]byte(content))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse kubeconfig content: %w", err)
+	}
+
+	// If a specific context is requested, we need to build a config with that context
+	if context != "" {
+		// Load the raw config to check available contexts
+		rawConfig, err := clientConfig.RawConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get raw config: %w", err)
+		}
+
+		// Check if the context exists
+		if _, ok := rawConfig.Contexts[context]; !ok {
+			return nil, fmt.Errorf("context %q not found in kubeconfig", context)
+		}
+
+		// Create a new client config with the specified context
+		configOverrides := &clientcmd.ConfigOverrides{
+			CurrentContext: context,
+		}
+		clientConfig = clientcmd.NewNonInteractiveClientConfig(rawConfig, context, configOverrides, nil)
+	}
+
+	return clientConfig.ClientConfig()
+}
+
+// isRawKubeconfig checks if the string is raw YAML kubeconfig content rather than a file path.
+func isRawKubeconfig(s string) bool {
+	trimmed := strings.TrimSpace(s)
+	// Check for common kubeconfig YAML markers
+	// A kubeconfig file always starts with "apiVersion:" or has multiline YAML structure
+	if strings.HasPrefix(trimmed, "apiVersion:") {
+		return true
+	}
+	// Also check if it contains multiple lines with YAML-like content
+	// File paths typically don't contain newlines or colons followed by spaces
+	if strings.Contains(trimmed, "\n") && strings.Contains(trimmed, ": ") {
+		return true
+	}
+	// Check for base64-encoded certificate data (common in kubeconfig)
+	if strings.Contains(trimmed, "certificate-authority-data:") ||
+		strings.Contains(trimmed, "client-certificate-data:") ||
+		strings.Contains(trimmed, "client-key-data:") {
+		return true
+	}
+	return false
 }
 
 // determineClusterName attempts to determine the cluster name.

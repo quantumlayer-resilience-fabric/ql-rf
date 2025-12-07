@@ -27,11 +27,12 @@ type ConnectorRepository interface {
 
 // CreateConnectorRepoParams contains parameters for creating a connector in repository.
 type CreateConnectorRepoParams struct {
-	OrgID    uuid.UUID
-	Name     string
-	Platform string
-	Enabled  bool
-	Config   json.RawMessage
+	OrgID        uuid.UUID
+	Name         string
+	Platform     string
+	Enabled      bool
+	Config       json.RawMessage
+	SyncSchedule string
 }
 
 // ConnectorModel represents a connector from the repository.
@@ -72,10 +73,11 @@ func NewConnectorService(repo ConnectorRepository, pool *pgxpool.Pool, log *logg
 
 // CreateConnectorParams contains parameters for creating a connector.
 type CreateConnectorParams struct {
-	OrgID    uuid.UUID
-	Name     string
-	Platform string
-	Config   map[string]interface{}
+	OrgID        uuid.UUID
+	Name         string
+	Platform     string
+	Config       map[string]interface{}
+	SyncSchedule string // Duration like "1h", "30m", "6h"
 }
 
 // Connector represents a connector response.
@@ -146,13 +148,20 @@ func (s *ConnectorService) Create(ctx context.Context, params CreateConnectorPar
 		return nil, fmt.Errorf("failed to serialize config: %w", err)
 	}
 
+	// Default sync schedule if not provided
+	syncSchedule := params.SyncSchedule
+	if syncSchedule == "" {
+		syncSchedule = "1h"
+	}
+
 	// Create connector
 	conn, err := s.repo.Create(ctx, CreateConnectorRepoParams{
-		OrgID:    params.OrgID,
-		Name:     params.Name,
-		Platform: params.Platform,
-		Enabled:  true,
-		Config:   configJSON,
+		OrgID:        params.OrgID,
+		Name:         params.Name,
+		Platform:     params.Platform,
+		Enabled:      true,
+		Config:       configJSON,
+		SyncSchedule: syncSchedule,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connector: %w", err)
@@ -365,6 +374,10 @@ func (s *ConnectorService) createCloudConnector(platform string, config map[stri
 		return s.createAzureConnector(config)
 	case "gcp":
 		return s.createGCPConnector(config)
+	case "vsphere":
+		return s.createVSphereConnector(config)
+	case "k8s":
+		return s.createK8sConnector(config)
 	default:
 		return nil, fmt.Errorf("unsupported platform: %s", platform)
 	}
@@ -453,6 +466,118 @@ func (s *ConnectorService) createGCPConnector(config map[string]interface{}) (co
 	}
 
 	return connectors.NewGCPConnector(cfg, s.log), nil
+}
+
+// createVSphereConnector creates a vSphere connector from config.
+func (s *ConnectorService) createVSphereConnector(config map[string]interface{}) (connectors.Connector, error) {
+	host, _ := config["host"].(string)
+	username, _ := config["username"].(string)
+	password, _ := config["password"].(string)
+
+	if host == "" || username == "" || password == "" {
+		return nil, fmt.Errorf("vsphere: host, username, and password are required")
+	}
+
+	// Build URL from host (e.g., vcenter.example.com -> https://vcenter.example.com/sdk)
+	url := host
+	if !containsScheme(url) {
+		url = "https://" + url
+	}
+	if !containsPath(url, "/sdk") {
+		url = url + "/sdk"
+	}
+
+	cfg := connectors.VSphereConfig{
+		URL:      url,
+		User:     username,
+		Password: password,
+		Insecure: true, // Default to insecure for self-signed certs (common in vSphere)
+	}
+
+	// Optional fields
+	if insecure, ok := config["insecure"].(bool); ok {
+		cfg.Insecure = insecure
+	}
+	if datacenters, ok := config["datacenters"].([]interface{}); ok {
+		for _, dc := range datacenters {
+			if dcs, ok := dc.(string); ok {
+				cfg.Datacenters = append(cfg.Datacenters, dcs)
+			}
+		}
+	}
+	if clusters, ok := config["clusters"].([]interface{}); ok {
+		for _, c := range clusters {
+			if cs, ok := c.(string); ok {
+				cfg.Clusters = append(cfg.Clusters, cs)
+			}
+		}
+	}
+
+	return connectors.NewVSphereConnector(cfg, s.log), nil
+}
+
+// createK8sConnector creates a Kubernetes connector from config.
+func (s *ConnectorService) createK8sConnector(config map[string]interface{}) (connectors.Connector, error) {
+	cfg := connectors.K8sConfig{
+		DiscoverNodes:       true, // Default to discovering nodes
+		DiscoverDeployments: true, // Default to discovering deployments
+	}
+
+	// Kubeconfig path (optional, defaults to in-cluster)
+	if kubeconfig, ok := config["kubeconfig"].(string); ok {
+		cfg.Kubeconfig = kubeconfig
+	}
+
+	// Context name (optional)
+	if context, ok := config["context"].(string); ok {
+		cfg.Context = context
+	}
+
+	// Cluster name for tagging
+	if clusterName, ok := config["cluster_name"].(string); ok {
+		cfg.ClusterName = clusterName
+	}
+
+	// Namespace filters
+	if namespaces, ok := config["namespaces"].([]interface{}); ok {
+		for _, ns := range namespaces {
+			if nss, ok := ns.(string); ok {
+				cfg.Namespaces = append(cfg.Namespaces, nss)
+			}
+		}
+	}
+	if excludeNamespaces, ok := config["exclude_namespaces"].([]interface{}); ok {
+		for _, ns := range excludeNamespaces {
+			if nss, ok := ns.(string); ok {
+				cfg.ExcludeNamespaces = append(cfg.ExcludeNamespaces, nss)
+			}
+		}
+	}
+
+	// Discovery options
+	if discoverNodes, ok := config["discover_nodes"].(bool); ok {
+		cfg.DiscoverNodes = discoverNodes
+	}
+	if discoverDeployments, ok := config["discover_deployments"].(bool); ok {
+		cfg.DiscoverDeployments = discoverDeployments
+	}
+
+	// Label selector
+	if labelSelector, ok := config["label_selector"].(string); ok {
+		cfg.LabelSelector = labelSelector
+	}
+
+	return connectors.NewK8sConnector(cfg, s.log), nil
+}
+
+// containsScheme checks if a URL contains a scheme (http:// or https://)
+func containsScheme(url string) bool {
+	return len(url) > 7 && (url[:7] == "http://" || url[:8] == "https://")
+}
+
+// containsPath checks if a URL contains a specific path
+func containsPath(url, path string) bool {
+	return len(url) >= len(path) && url[len(url)-len(path):] == path
 }
 
 // Enable enables a connector.
@@ -555,6 +680,7 @@ func (s *ConnectorService) toConnector(c *ConnectorModel) *Connector {
 			"password":         true,
 			"credentials_file": true,
 			"external_id":      true,
+			"kubeconfig":       true, // K8s kubeconfig may contain certs/tokens
 		}
 		for k, v := range config {
 			if !sensitiveFields[k] {

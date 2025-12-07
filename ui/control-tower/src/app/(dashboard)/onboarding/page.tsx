@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 
 type OnboardingStep = "welcome" | "plan" | "org-setup" | "connect" | "scanning" | "results" | "next-steps";
-type Platform = "aws" | "azure" | "gcp";
+type Platform = "aws" | "azure" | "gcp" | "k8s" | "vsphere";
 
 interface PlatformField {
   label: string;
@@ -87,6 +87,37 @@ const platformInfo: Record<Platform, PlatformConfig> = {
     toConnectorConfig: (creds) => ({
       project_id: creds.projectId,
       credentials_file: creds.credentialsJson || undefined,
+    }),
+  },
+  k8s: {
+    name: "Kubernetes",
+    description: "Connect to a Kubernetes cluster",
+    fields: [
+      { label: "Cluster Name", placeholder: "production-cluster", type: "text", key: "clusterName", required: true },
+      { label: "Kubeconfig Context", placeholder: "my-context (optional)", type: "text", key: "context" },
+      { label: "Kubeconfig (optional)", placeholder: "Paste kubeconfig YAML or leave empty for in-cluster", type: "textarea", key: "kubeconfig" },
+    ],
+    toConnectorConfig: (creds) => ({
+      cluster_name: creds.clusterName,
+      context: creds.context || undefined,
+      kubeconfig: creds.kubeconfig || undefined,
+    }),
+  },
+  vsphere: {
+    name: "VMware vSphere",
+    description: "Connect to vCenter Server",
+    fields: [
+      { label: "vCenter URL", placeholder: "https://vcenter.example.com/sdk", type: "text", key: "vcenterUrl", required: true },
+      { label: "Username", placeholder: "administrator@vsphere.local", type: "text", key: "username", required: true },
+      { label: "Password", placeholder: "Enter your password", type: "password", key: "password", required: true },
+      { label: "Datacenter (optional)", placeholder: "Datacenter1", type: "text", key: "datacenter" },
+    ],
+    toConnectorConfig: (creds) => ({
+      vcenter_url: creds.vcenterUrl,
+      username: creds.username,
+      password: creds.password,
+      datacenter: creds.datacenter || undefined,
+      insecure: true, // For dev environments; should be configurable in production
     }),
   },
 };
@@ -427,9 +458,9 @@ export default function OnboardingPage() {
                     <Cloud className="h-5 w-5 text-status-green" />
                   </div>
                   <div>
-                    <h4 className="font-medium">Connect Your Cloud</h4>
+                    <h4 className="font-medium">Connect Your Infrastructure</h4>
                     <p className="text-sm text-muted-foreground">
-                      AWS, Azure, GCP, or on-premises
+                      AWS, Azure, GCP, Kubernetes, or vSphere
                     </p>
                   </div>
                 </div>
@@ -613,14 +644,14 @@ export default function OnboardingPage() {
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Connect Your First Cloud</CardTitle>
+                <CardTitle>Connect Your Infrastructure</CardTitle>
                 <CardDescription>
-                  Choose a cloud provider to connect. You can add more later.
+                  Choose a platform to connect. You can add more later.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-4 md:grid-cols-3">
-                  {(["aws", "azure", "gcp"] as Platform[]).map((platform) => (
+                <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
+                  {(["aws", "azure", "gcp", "k8s", "vsphere"] as Platform[]).map((platform) => (
                     <button
                       key={platform}
                       onClick={() => setSelectedPlatform(platform)}
@@ -631,7 +662,7 @@ export default function OnboardingPage() {
                       }`}
                     >
                       <PlatformIcon platform={platform} size="lg" />
-                      <span className="font-medium">{platformInfo[platform].name}</span>
+                      <span className="font-medium text-center text-sm">{platformInfo[platform].name}</span>
                     </button>
                   ))}
                 </div>

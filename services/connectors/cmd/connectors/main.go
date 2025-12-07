@@ -21,9 +21,10 @@ import (
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/connector"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/gcp"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/k8s"
-	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/vsphere"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/repository"
+	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/scheduler"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/sync"
+	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/vsphere"
 )
 
 // Build information (set via ldflags).
@@ -82,29 +83,36 @@ func run() error {
 	repo := repository.New(db.Pool)
 	syncSvc := sync.New(repo, producer, cfg.Kafka.Topics.AssetDiscovered, log)
 
-	// Initialize connectors
-	connectors := initializeConnectors(cfg, log)
-	log.Info("initialized connectors", "count", len(connectors))
+	// Initialize config-based connectors (for backwards compatibility)
+	configConnectors := initializeConnectors(cfg, log)
+	log.Info("initialized config-based connectors", "count", len(configConnectors))
 
-	// Create and start scheduler
-	scheduler := cron.New(cron.WithSeconds())
+	// Create config-based scheduler (cron for config-defined connectors)
+	configScheduler := cron.New(cron.WithSeconds())
+	if len(configConnectors) > 0 {
+		interval := cfg.Connectors.SyncInterval
+		cronSpec := fmt.Sprintf("@every %s", interval)
 
-	// Schedule asset discovery based on config interval
-	interval := cfg.Connectors.SyncInterval
-	cronSpec := fmt.Sprintf("@every %s", interval)
+		_, err = configScheduler.AddFunc(cronSpec, func() {
+			runDiscovery(ctx, configConnectors, syncSvc, cfg, log)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to schedule config-based discovery: %w", err)
+		}
 
-	_, err = scheduler.AddFunc(cronSpec, func() {
-		runDiscovery(ctx, connectors, syncSvc, cfg, log)
-	})
-	if err != nil {
-		return fmt.Errorf("failed to schedule discovery: %w", err)
+		configScheduler.Start()
+		log.Info("config-based scheduler started", "interval", interval)
+
+		// Run initial discovery for config-based connectors
+		go runDiscovery(ctx, configConnectors, syncSvc, cfg, log)
 	}
 
-	scheduler.Start()
-	log.Info("scheduler started", "interval", interval)
-
-	// Run initial discovery
-	go runDiscovery(ctx, connectors, syncSvc, cfg, log)
+	// Create and start database-driven scheduler (for UI-created connectors)
+	dbSchedulerCfg := scheduler.DefaultConfig()
+	dbSchedulerCfg.PollInterval = 30 * time.Second // Check every 30 seconds
+	dbScheduler := scheduler.New(db.Pool, syncSvc, log, dbSchedulerCfg)
+	dbScheduler.Start()
+	log.Info("database-driven scheduler started", "poll_interval", dbSchedulerCfg.PollInterval.String())
 
 	// Wait for shutdown signal
 	shutdown := make(chan os.Signal, 1)
@@ -113,11 +121,12 @@ func run() error {
 	<-shutdown
 	log.Info("shutdown signal received")
 
-	// Stop scheduler
-	scheduler.Stop()
+	// Stop both schedulers
+	configScheduler.Stop()
+	dbScheduler.Stop()
 
-	// Close all connectors
-	for _, c := range connectors {
+	// Close all config-based connectors
+	for _, c := range configConnectors {
 		if err := c.Close(); err != nil {
 			log.Error("failed to close connector",
 				"connector", c.Name(),

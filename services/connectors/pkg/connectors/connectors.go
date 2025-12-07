@@ -16,6 +16,8 @@ import (
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/azure"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/connector"
 	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/gcp"
+	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/k8s"
+	"github.com/quantumlayerhq/ql-rf/services/connectors/internal/vsphere"
 )
 
 // Connector represents a cloud platform connector interface.
@@ -32,6 +34,12 @@ type AzureConfig = azure.Config
 
 // GCPConfig holds GCP connector configuration.
 type GCPConfig = gcp.Config
+
+// VSphereConfig holds vSphere connector configuration.
+type VSphereConfig = vsphere.Config
+
+// K8sConfig holds Kubernetes connector configuration.
+type K8sConfig = k8s.Config
 
 // SyncResult contains results of an asset sync operation.
 type SyncResult struct {
@@ -60,6 +68,16 @@ func NewAzureConnector(cfg AzureConfig, log *logger.Logger) Connector {
 // NewGCPConnector creates a new GCP connector.
 func NewGCPConnector(cfg GCPConfig, log *logger.Logger) Connector {
 	return gcp.New(cfg, log)
+}
+
+// NewVSphereConnector creates a new vSphere connector.
+func NewVSphereConnector(cfg VSphereConfig, log *logger.Logger) Connector {
+	return vsphere.New(cfg, log)
+}
+
+// NewK8sConnector creates a new Kubernetes connector.
+func NewK8sConnector(cfg K8sConfig, log *logger.Logger) Connector {
+	return k8s.New(cfg, log)
 }
 
 // NewSyncService creates a new sync service.

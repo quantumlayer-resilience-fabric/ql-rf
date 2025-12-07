@@ -31,6 +31,7 @@ import {
   KeyRound,
   ShieldAlert,
   Rocket,
+  Cable,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -60,6 +61,7 @@ const mainNavItems: NavItem[] = [
 ];
 
 const bottomNavItems: NavItem[] = [
+  { label: "Connectors", href: "/connectors", icon: Cable },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 

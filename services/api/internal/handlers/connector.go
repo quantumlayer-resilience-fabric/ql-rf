@@ -28,9 +28,10 @@ func NewConnectorHandler(svc *service.ConnectorService, log *logger.Logger) *Con
 
 // CreateConnectorRequest represents the request body for creating a connector.
 type CreateConnectorRequest struct {
-	Name     string                 `json:"name"`
-	Platform string                 `json:"platform"`
-	Config   map[string]interface{} `json:"config"`
+	Name         string                 `json:"name"`
+	Platform     string                 `json:"platform"`
+	Config       map[string]interface{} `json:"config"`
+	SyncSchedule string                 `json:"syncSchedule,omitempty"` // Duration like "1h", "30m"
 }
 
 // Create creates a new connector.
@@ -64,10 +65,11 @@ func (h *ConnectorHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	connector, err := h.svc.Create(ctx, service.CreateConnectorParams{
-		OrgID:    org.ID,
-		Name:     req.Name,
-		Platform: req.Platform,
-		Config:   req.Config,
+		OrgID:        org.ID,
+		Name:         req.Name,
+		Platform:     req.Platform,
+		Config:       req.Config,
+		SyncSchedule: req.SyncSchedule,
 	})
 	if err != nil {
 		h.log.Error("failed to create connector", "error", err, "org_id", org.ID)

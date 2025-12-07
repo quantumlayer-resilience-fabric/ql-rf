@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Outfit, Source_Sans_3, JetBrains_Mono } from "next/font/google";
 import { ConditionalClerkProvider } from "@/providers/conditional-clerk-provider";
 import { QueryProvider } from "@/providers/query-provider";
+import { Toaster } from "sonner";
 import "./globals.css";
 
 // Display font - distinctive geometric sans for headings
@@ -87,6 +88,12 @@ export default function RootLayout({
           style={{ fontFamily: 'var(--font-body), system-ui, sans-serif' }}
         >
           <QueryProvider>{children}</QueryProvider>
+          <Toaster
+            position="top-right"
+            theme="dark"
+            richColors
+            closeButton
+          />
         </body>
       </html>
     </ConditionalClerkProvider>

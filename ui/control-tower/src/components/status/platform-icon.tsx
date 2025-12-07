@@ -70,7 +70,9 @@ function PlatformSVG({ platform, className }: { platform: Platform; className?: 
     ),
     vsphere: (
       <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
-        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z" />
+        {/* VMware vSphere logo - stylized V */}
+        <path d="M2.5 4.5L12 19.5L21.5 4.5H17.5L12 13.5L6.5 4.5H2.5Z" />
+        <path d="M8.5 4.5L12 10L15.5 4.5H12H8.5Z" opacity="0.6" />
       </svg>
     ),
     k8s: (

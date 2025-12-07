@@ -39,12 +39,17 @@ func NewConnectorRepository(pool *pgxpool.Pool) *ConnectorRepositoryAdapter {
 // Create creates a new connector.
 func (r *ConnectorRepositoryAdapter) Create(ctx context.Context, params service.CreateConnectorRepoParams) (*service.ConnectorModel, error) {
 	var c connectorRow
+	// Use default schedule if not provided
+	syncSchedule := params.SyncSchedule
+	if syncSchedule == "" {
+		syncSchedule = "1h"
+	}
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO connectors (org_id, name, platform, enabled, config)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO connectors (org_id, name, platform, enabled, config, sync_schedule, sync_enabled)
+		VALUES ($1, $2, $3, $4, $5, $6, TRUE)
 		RETURNING id, org_id, name, platform, enabled, config, last_sync_at,
 		          last_sync_status, last_sync_error, created_at, updated_at
-	`, params.OrgID, params.Name, params.Platform, params.Enabled, params.Config).Scan(
+	`, params.OrgID, params.Name, params.Platform, params.Enabled, params.Config, syncSchedule).Scan(
 		&c.ID, &c.OrgID, &c.Name, &c.Platform, &c.Enabled, &c.Config,
 		&c.LastSyncAt, &c.LastSyncStatus, &c.LastSyncError, &c.CreatedAt, &c.UpdatedAt,
 	)
