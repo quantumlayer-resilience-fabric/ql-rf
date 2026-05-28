@@ -54,6 +54,9 @@ temp/
 *.pem
 *.key
 secrets/
+# ...but pkg/secrets is the Vault-integration source package, not credentials.
+!pkg/secrets/
+!pkg/secrets/**
 sops/
 
 # Database
