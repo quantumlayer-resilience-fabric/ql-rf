@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated:** 2025-12-07
+**Last Updated:** 2026-01-09
 
 ## Project Overview
 
@@ -399,7 +399,7 @@ POST /api/v1/patch-campaigns/{id}/pause    # Pause rollout
 POST /api/v1/patch-campaigns/{id}/rollback # Trigger rollback
 ```
 
-**LLM Providers:** Azure Anthropic (default), Anthropic, OpenAI, Azure OpenAI
+**LLM Providers:** Azure OpenAI (default), Anthropic, OpenAI, Azure Anthropic
 
 ## Configuration
 
@@ -423,9 +423,9 @@ RF_CLERK_PUBLISHABLE_KEY=pk_test_...
 RF_CLERK_SECRET_KEY=sk_test_...
 
 # LLM Configuration
-RF_LLM_PROVIDER=azure_anthropic        # azure_anthropic | anthropic | openai | azure_openai
+RF_LLM_PROVIDER=azure_openai           # azure_openai | anthropic | openai | azure_anthropic
 RF_LLM_API_KEY=...
-RF_LLM_MODEL=claude-sonnet-4-5         # Model name
+RF_LLM_MODEL=gpt-4.1                   # Model name (Azure OpenAI deployment)
 RF_LLM_MAX_TOKENS=4096
 RF_LLM_TEMPERATURE=0.3
 
