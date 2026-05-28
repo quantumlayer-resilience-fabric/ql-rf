@@ -111,9 +111,20 @@ async function globalSetup(config: FullConfig) {
       await verifyButton.click();
     }
 
-    // Wait for redirect to dashboard
+    // Wait for redirect to dashboard or onboarding (new users)
     console.log("[E2E Auth] Waiting for redirect...");
-    await page.waitForURL(/\/(overview|dashboard)/, { timeout: 15000 });
+    await page.waitForURL(/\/(overview|dashboard|onboarding)/, { timeout: 15000 });
+
+    // If redirected to onboarding, skip to overview directly
+    if (page.url().includes("/onboarding")) {
+      console.log("[E2E Auth] New user on onboarding page, navigating to overview...");
+      await page.screenshot({ path: "playwright/.clerk/step-onboarding.png" });
+
+      // Navigate directly to overview - the sidebar is already available
+      await page.goto(`${baseURL}/overview`);
+      await page.waitForLoadState("domcontentloaded");
+      console.log("[E2E Auth] Navigated to overview, URL:", page.url());
+    }
 
     await page.screenshot({ path: "playwright/.clerk/step3-authenticated.png" });
     console.log("[E2E Auth] Current URL:", page.url());
