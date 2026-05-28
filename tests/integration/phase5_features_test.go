@@ -26,11 +26,12 @@ func TestSBOM_GenerateSPDX(t *testing.T) {
 	ctx := context.Background()
 	gen := sbom.NewGenerator(testDB, nil)
 
-	imageID := uuid.New()
+	orgID := seedOrg(t)
+	imageID := seedImage(t, orgID)
 
 	req := sbom.GenerateRequest{
 		ImageID:      imageID,
-		OrgID:        uuid.New(),
+		OrgID:        orgID,
 		Format:       sbom.FormatSPDX,
 		Scanner:      "test-scanner",
 		IncludeVulns: false,
@@ -69,11 +70,12 @@ func TestSBOM_GenerateCycloneDX(t *testing.T) {
 	ctx := context.Background()
 	gen := sbom.NewGenerator(testDB, nil)
 
-	imageID := uuid.New()
+	orgID := seedOrg(t)
+	imageID := seedImage(t, orgID)
 
 	req := sbom.GenerateRequest{
 		ImageID:      imageID,
-		OrgID:        uuid.New(),
+		OrgID:        orgID,
 		Format:       sbom.FormatCycloneDX,
 		Scanner:      "test-scanner",
 		IncludeVulns: false,
@@ -139,10 +141,11 @@ func TestSBOM_ParseSPDX(t *testing.T) {
 	}
 
 	// Create SBOM in database
+	orgID := seedOrg(t)
 	sbomDoc := &sbom.SBOM{
 		ID:           uuid.New(),
-		ImageID:      uuid.New(),
-		OrgID:        uuid.New(),
+		ImageID:      seedImage(t, orgID),
+		OrgID:        orgID,
 		Format:       sbom.FormatSPDX,
 		Version:      "SPDX-2.3",
 		Content:      spdxDoc,
@@ -202,10 +205,11 @@ func TestSBOM_VulnerabilityMatching(t *testing.T) {
 	svc := sbom.NewService(testDB, nil)
 
 	// Create SBOM
+	orgID := seedOrg(t)
 	sbomDoc := &sbom.SBOM{
 		ID:           uuid.New(),
-		ImageID:      uuid.New(),
-		OrgID:        uuid.New(),
+		ImageID:      seedImage(t, orgID),
+		OrgID:        orgID,
 		Format:       sbom.FormatSPDX,
 		Version:      "SPDX-2.3",
 		Content:      map[string]interface{}{},
@@ -294,10 +298,11 @@ func TestSBOM_LicenseAnalysis(t *testing.T) {
 	svc := sbom.NewService(testDB, nil)
 
 	// Create SBOM with packages containing different licenses
+	orgID := seedOrg(t)
 	sbomDoc := &sbom.SBOM{
 		ID:           uuid.New(),
-		ImageID:      uuid.New(),
-		OrgID:        uuid.New(),
+		ImageID:      seedImage(t, orgID),
+		OrgID:        orgID,
 		Format:       sbom.FormatSPDX,
 		Version:      "SPDX-2.3",
 		Content:      map[string]interface{}{},
@@ -312,17 +317,17 @@ func TestSBOM_LicenseAnalysis(t *testing.T) {
 
 	// Create packages with various licenses
 	licenses := []string{"MIT", "Apache-2.0", "GPL-3.0"}
-	for i, license := range licenses {
+	for _, license := range licenses {
 		pkg := sbom.Package{
 			SBOMID:  sbomDoc.ID,
-			Name:    "package-" + string(rune(i)),
+			Name:    "package-" + license,
 			Version: "1.0.0",
 			Type:    "npm",
 			License: license,
 		}
 		err = svc.CreatePackage(ctx, &pkg)
 		if err != nil {
-			t.Fatalf("Create package %d: %v", i, err)
+			t.Fatalf("Create package %s: %v", license, err)
 		}
 	}
 
@@ -358,10 +363,11 @@ func TestSBOM_ComponentSearch(t *testing.T) {
 	svc := sbom.NewService(testDB, nil)
 
 	// Create SBOM with multiple packages
+	orgID := seedOrg(t)
 	sbomDoc := &sbom.SBOM{
 		ID:           uuid.New(),
-		ImageID:      uuid.New(),
-		OrgID:        uuid.New(),
+		ImageID:      seedImage(t, orgID),
+		OrgID:        orgID,
 		Format:       sbom.FormatSPDX,
 		Version:      "SPDX-2.3",
 		Content:      map[string]interface{}{},
@@ -429,14 +435,14 @@ func TestSBOM_List(t *testing.T) {
 	ctx := context.Background()
 	svc := sbom.NewService(testDB, nil)
 
-	orgID := uuid.New()
+	orgID := seedOrg(t)
 
 	// Create multiple SBOMs
 	for i := 0; i < 3; i++ {
 		sbomDoc := &sbom.SBOM{
 			ID:           uuid.New(),
-			ImageID:      uuid.New(),
-			OrgID:        uuid.New(),
+			ImageID:      seedImage(t, orgID),
+			OrgID:        orgID,
 			Format:       sbom.FormatSPDX,
 			Version:      "SPDX-2.3",
 			Content:      map[string]interface{}{},
@@ -581,9 +587,9 @@ func TestInSpec_TriggerScan(t *testing.T) {
 	ctx := context.Background()
 	svc := inspec.NewService(testDB)
 
-	orgID := uuid.New()
-	assetID := uuid.New()
-	profileID := uuid.New()
+	orgID := seedOrg(t)
+	assetID := seedAsset(t, orgID)
+	profileID := seedInspecProfile(t)
 
 	// Create a run
 	run, err := svc.CreateRun(ctx, orgID, assetID, profileID)
@@ -608,9 +614,9 @@ func TestInSpec_GetScanResults(t *testing.T) {
 	ctx := context.Background()
 	svc := inspec.NewService(testDB)
 
-	orgID := uuid.New()
-	assetID := uuid.New()
-	profileID := uuid.New()
+	orgID := seedOrg(t)
+	assetID := seedAsset(t, orgID)
+	profileID := seedInspecProfile(t)
 
 	// Create a run
 	run, err := svc.CreateRun(ctx, orgID, assetID, profileID)
@@ -690,9 +696,9 @@ func TestInSpec_CollectEvidence(t *testing.T) {
 	ctx := context.Background()
 	svc := inspec.NewService(testDB)
 
-	orgID := uuid.New()
-	assetID := uuid.New()
-	profileID := uuid.New()
+	orgID := seedOrg(t)
+	assetID := seedAsset(t, orgID)
+	profileID := seedInspecProfile(t)
 
 	// Create run
 	run, err := svc.CreateRun(ctx, orgID, assetID, profileID)
@@ -752,8 +758,8 @@ func TestInSpec_ProfileMapping(t *testing.T) {
 	ctx := context.Background()
 	svc := inspec.NewService(testDB)
 
-	profileID := uuid.New()
-	complianceControlID := uuid.New()
+	profileID := seedInspecProfile(t)
+	complianceControlID := existingComplianceControlID(t)
 
 	// Create control mapping
 	mapping := inspec.ControlMapping{
@@ -808,9 +814,9 @@ func TestInSpec_RunStatusTransitions(t *testing.T) {
 	ctx := context.Background()
 	svc := inspec.NewService(testDB)
 
-	orgID := uuid.New()
-	assetID := uuid.New()
-	profileID := uuid.New()
+	orgID := seedOrg(t)
+	assetID := seedAsset(t, orgID)
+	profileID := seedInspecProfile(t)
 
 	// Create run
 	run, err := svc.CreateRun(ctx, orgID, assetID, profileID)
@@ -856,9 +862,9 @@ func TestInSpec_CancelRun(t *testing.T) {
 	ctx := context.Background()
 	svc := inspec.NewService(testDB)
 
-	orgID := uuid.New()
-	assetID := uuid.New()
-	profileID := uuid.New()
+	orgID := seedOrg(t)
+	assetID := seedAsset(t, orgID)
+	profileID := seedInspecProfile(t)
 
 	// Create run
 	run, err := svc.CreateRun(ctx, orgID, assetID, profileID)
