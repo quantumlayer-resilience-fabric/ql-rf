@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // Service provides SBOM management operations.
@@ -399,7 +400,7 @@ func (s *Service) CreateVulnerability(ctx context.Context, vuln *Vulnerability) 
 		INSERT INTO sbom_vulnerabilities (
 			id, sbom_id, package_id, cve_id, severity, cvss_score, cvss_vector,
 			description, fixed_version, published_date, modified_date,
-			references, data_source, exploit_available, created_at, updated_at
+			reference_urls, data_source, exploit_available, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
 	`
 
@@ -446,7 +447,7 @@ func (s *Service) CreateVulnerabilityBatch(ctx context.Context, vulns []Vulnerab
 		INSERT INTO sbom_vulnerabilities (
 			id, sbom_id, package_id, cve_id, severity, cvss_score, cvss_vector,
 			description, fixed_version, published_date, modified_date,
-			references, data_source, exploit_available, created_at, updated_at
+			reference_urls, data_source, exploit_available, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
 	`)
 	if err != nil {
@@ -501,7 +502,7 @@ func (s *Service) GetVulnerabilities(ctx context.Context, sbomID uuid.UUID, filt
 			cvss_score, COALESCE(cvss_vector, '') as cvss_vector,
 			COALESCE(description, '') as description,
 			COALESCE(fixed_version, '') as fixed_version,
-			published_date, modified_date, references,
+			published_date, modified_date, reference_urls,
 			COALESCE(data_source, '') as data_source,
 			exploit_available, created_at, updated_at
 		FROM sbom_vulnerabilities
@@ -515,7 +516,7 @@ func (s *Service) GetVulnerabilities(ctx context.Context, sbomID uuid.UUID, filt
 	if filter != nil {
 		if len(filter.Severities) > 0 {
 			query += fmt.Sprintf(" AND severity = ANY($%d)", argIdx)
-			args = append(args, filter.Severities)
+			args = append(args, pq.Array(filter.Severities))
 			argIdx++
 		}
 		if filter.MinCVSS != nil {
