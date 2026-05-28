@@ -14,6 +14,11 @@ import (
 type Config struct {
 	Env      string `mapstructure:"env"`
 	LogLevel string `mapstructure:"log_level"`
+	// DevMode (RF_DEV_MODE) forces the API to skip JWT validation even when Clerk
+	// is configured. Intended for local/E2E use where the frontend authenticates
+	// against Clerk but the API should resolve a deterministic default org.
+	// Defaults to false, so production behavior is unchanged.
+	DevMode bool `mapstructure:"dev_mode"`
 
 	API           APIConfig          `mapstructure:"api"`
 	Database      DatabaseConfig     `mapstructure:"database"`
@@ -363,6 +368,7 @@ func setDefaults(v *viper.Viper) {
 	// Application
 	v.SetDefault("env", "development")
 	v.SetDefault("log_level", "info")
+	v.SetDefault("dev_mode", false)
 
 	// API
 	v.SetDefault("api.host", "0.0.0.0")
@@ -473,6 +479,7 @@ func bindEnvVars(v *viper.Viper) error {
 	envVars := []string{
 		"env",
 		"log_level",
+		"dev_mode",
 		"api.host",
 		"api.port",
 		"api.read_timeout",

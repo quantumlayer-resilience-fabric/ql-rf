@@ -170,10 +170,12 @@ func New(cfg Config) http.Handler {
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Apply authentication middleware to all API routes
-		// Only use dev mode if Clerk is NOT configured
+		// Apply authentication middleware to all API routes.
+		// Dev mode (skip JWT validation) is used when Clerk is NOT configured, or
+		// when explicitly forced via RF_DEV_MODE — the latter lets E2E run with a
+		// Clerk-authenticated frontend while the API resolves a deterministic org.
 		clerkConfigured := cfg.Config.Clerk.PublishableKey != "" && cfg.Config.Clerk.SecretKey != ""
-		devMode := !clerkConfigured
+		devMode := cfg.Config.DevMode || !clerkConfigured
 		authConfig := middleware.AuthConfig{
 			ClerkPublishableKey: cfg.Config.Clerk.PublishableKey,
 			ClerkSecretKey:      cfg.Config.Clerk.SecretKey,

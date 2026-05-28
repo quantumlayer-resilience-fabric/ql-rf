@@ -163,19 +163,22 @@ jobs:
     name: Frontend E2E Tests
     runs-on: ubuntu-latest
     needs: [frontend-lint]
-    # ADVISORY / non-blocking until E2E-001 lands. These specs need a running
-    # API + orchestrator + frontend with deterministic seeded data; without that
-    # fixture the dashboards are empty and the specs cannot pass. The job still
-    # runs and uploads its report so the signal stays visible, but its result
-    # must not block the pipeline. Remove continue-on-error and restore the
-    # ci-complete gate once the seeded full-stack E2E exists.
+    # ADVISORY / non-blocking while E2E-001 is in progress. This job now boots
+    # the full stack (docker compose) and seeds deterministic data so the specs
+    # run for real, but the suite is being hardened page-by-page (overview
+    # first), so its result must not block the pipeline yet. Remove
+    # continue-on-error and restore the ci-complete gate once the seeded suite
+    # is reliably green across the targeted pages.
     # Tracking: docs/E2E-001-deterministic-fullstack-e2e.md
     continue-on-error: true
-    defaults:
-      run:
-        working-directory: ui/control-tower
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -184,21 +187,46 @@ jobs:
           cache: 'npm'
           cache-dependency-path: ui/control-tower/package-lock.json
 
-      - name: Install dependencies
+      # Boot API (:8080), orchestrator (:8083) and the frontend (:3000) plus their
+      # dependencies. The compose `migrate` service applies migrations; the `ui`
+      # image is built with NEXT_PUBLIC_API_URL pointing at :8080, and the API
+      # runs with RF_DEV_MODE=true so it accepts the Clerk-authenticated session
+      # and resolves the seeded default org. --wait blocks until all are healthy.
+      - name: Start full stack (docker compose)
+        env:
+          RF_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          RF_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          RF_LLM_API_KEY: ${{ secrets.RF_LLM_API_KEY }}
+        run: docker compose up -d --build --wait --wait-timeout 600 ui
+
+      - name: Seed deterministic E2E fixture
+        env:
+          RF_DATABASE_URL: postgres://postgres:postgres@localhost:5432/qlrf?sslmode=disable
+        run: go run ./scripts/seed-e2e-data
+
+      - name: Install UI dependencies
+        working-directory: ui/control-tower
         run: npm ci
 
       - name: Install Playwright browsers
+        working-directory: ui/control-tower
         run: npx playwright install --with-deps chromium
 
-      - name: Run Playwright tests
-        run: npm run test:e2e:chromium
+      # Milestone E2E-001: prove the overview dashboard spec against the seeded
+      # stack first. Expand to the other pages in follow-up commits. Playwright
+      # runs in CI mode (webServer disabled) and targets the compose UI on :3000.
+      - name: Run Playwright tests (overview milestone)
+        working-directory: ui/control-tower
         env:
-          NEXT_PUBLIC_API_URL: http://localhost:8080/api/v1
-          NEXT_PUBLIC_ORCHESTRATOR_URL: http://localhost:8083
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           E2E_CLERK_USER_USERNAME: ${{ secrets.E2E_CLERK_USER_USERNAME }}
           E2E_CLERK_USER_PASSWORD: ${{ secrets.E2E_CLERK_USER_PASSWORD }}
+        run: npm run test:e2e:chromium -- e2e/overview.spec.ts
+
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=200
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
@@ -215,6 +243,10 @@ jobs:
           name: playwright-results
           path: ui/control-tower/test-results/
           retention-days: 7
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose down -v
 
   # =============================================================================
   # Docker Images
