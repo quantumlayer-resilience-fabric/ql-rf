@@ -64,8 +64,7 @@ type JWK struct {
 	E   string `json:"e"`
 }
 
-// NewClerkVerifier creates a new Clerk JWT verifier.
-// clerkDomain should be like "fluent-glowworm-43.clerk.accounts.dev" (from publishable key)
+// clerkDomain should be like "fluent-glowworm-43.clerk.accounts.dev" (from publishable key).
 func NewClerkVerifier(clerkDomain string) *ClerkVerifier {
 	// Extract domain from publishable key if provided
 	domain := clerkDomain
@@ -161,7 +160,7 @@ func (v *ClerkVerifier) getKey(ctx context.Context, kid string) (*rsa.PublicKey,
 
 // fetchJWKS fetches the JWKS from Clerk.
 func (v *ClerkVerifier) fetchJWKS(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", v.jwksURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", v.jwksURL, http.NoBody)
 	if err != nil {
 		return err
 	}
@@ -189,7 +188,7 @@ func (v *ClerkVerifier) fetchJWKS(ctx context.Context) error {
 			continue
 		}
 
-		key, err := jwkToRSAPublicKey(jwk)
+		key, err := jwkToRSAPublicKey(&jwk)
 		if err != nil {
 			continue // Skip invalid keys
 		}
@@ -204,7 +203,7 @@ func (v *ClerkVerifier) fetchJWKS(ctx context.Context) error {
 }
 
 // jwkToRSAPublicKey converts a JWK to an RSA public key.
-func jwkToRSAPublicKey(jwk JWK) (*rsa.PublicKey, error) {
+func jwkToRSAPublicKey(jwk *JWK) (*rsa.PublicKey, error) {
 	// Decode N (modulus)
 	nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
 	if err != nil {

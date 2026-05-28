@@ -70,11 +70,11 @@ type ControlMapping struct {
 type EvidenceType string
 
 const (
-	EvidenceScreenshot   EvidenceType = "screenshot"
-	EvidenceLog          EvidenceType = "log"
-	EvidenceConfig       EvidenceType = "config"
-	EvidenceReport       EvidenceType = "report"
-	EvidenceAttestation  EvidenceType = "attestation"
+	EvidenceScreenshot  EvidenceType = "screenshot"
+	EvidenceLog         EvidenceType = "log"
+	EvidenceConfig      EvidenceType = "config"
+	EvidenceReport      EvidenceType = "report"
+	EvidenceAttestation EvidenceType = "attestation"
 )
 
 // Evidence represents compliance evidence for a control.
@@ -116,35 +116,35 @@ const (
 
 // Assessment represents a compliance assessment run.
 type Assessment struct {
-	ID              uuid.UUID        `json:"id" db:"id"`
-	OrgID           uuid.UUID        `json:"org_id" db:"org_id"`
-	FrameworkID     uuid.UUID        `json:"framework_id" db:"framework_id"`
-	AssessmentType  string           `json:"assessment_type" db:"assessment_type"`
-	Name            string           `json:"name" db:"name"`
-	Description     string           `json:"description,omitempty" db:"description"`
-	ScopeSites      []uuid.UUID      `json:"scope_sites,omitempty" db:"scope_sites"`
-	ScopeAssets     []uuid.UUID      `json:"scope_assets,omitempty" db:"scope_assets"`
-	Status          AssessmentStatus `json:"status" db:"status"`
-	StartedAt       *time.Time       `json:"started_at,omitempty" db:"started_at"`
-	CompletedAt     *time.Time       `json:"completed_at,omitempty" db:"completed_at"`
-	TotalControls   int              `json:"total_controls" db:"total_controls"`
-	PassedControls  int              `json:"passed_controls" db:"passed_controls"`
-	FailedControls  int              `json:"failed_controls" db:"failed_controls"`
-	NotApplicable   int              `json:"not_applicable" db:"not_applicable"`
-	Score           float64          `json:"score,omitempty" db:"score"`
-	InitiatedBy     string           `json:"initiated_by" db:"initiated_by"`
-	CreatedAt       time.Time        `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time        `json:"updated_at" db:"updated_at"`
+	ID             uuid.UUID        `json:"id" db:"id"`
+	OrgID          uuid.UUID        `json:"org_id" db:"org_id"`
+	FrameworkID    uuid.UUID        `json:"framework_id" db:"framework_id"`
+	AssessmentType string           `json:"assessment_type" db:"assessment_type"`
+	Name           string           `json:"name" db:"name"`
+	Description    string           `json:"description,omitempty" db:"description"`
+	ScopeSites     []uuid.UUID      `json:"scope_sites,omitempty" db:"scope_sites"`
+	ScopeAssets    []uuid.UUID      `json:"scope_assets,omitempty" db:"scope_assets"`
+	Status         AssessmentStatus `json:"status" db:"status"`
+	StartedAt      *time.Time       `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt    *time.Time       `json:"completed_at,omitempty" db:"completed_at"`
+	TotalControls  int              `json:"total_controls" db:"total_controls"`
+	PassedControls int              `json:"passed_controls" db:"passed_controls"`
+	FailedControls int              `json:"failed_controls" db:"failed_controls"`
+	NotApplicable  int              `json:"not_applicable" db:"not_applicable"`
+	Score          float64          `json:"score,omitempty" db:"score"`
+	InitiatedBy    string           `json:"initiated_by" db:"initiated_by"`
+	CreatedAt      time.Time        `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time        `json:"updated_at" db:"updated_at"`
 }
 
 // ControlResultStatus represents the result status of a control assessment.
 type ControlResultStatus string
 
 const (
-	ControlPassed       ControlResultStatus = "passed"
-	ControlFailed       ControlResultStatus = "failed"
+	ControlPassed        ControlResultStatus = "passed"
+	ControlFailed        ControlResultStatus = "failed"
 	ControlNotApplicable ControlResultStatus = "not_applicable"
-	ControlManualReview ControlResultStatus = "manual_review"
+	ControlManualReview  ControlResultStatus = "manual_review"
 )
 
 // AssessmentResult represents the result of assessing a single control.
@@ -205,7 +205,7 @@ func (s *Service) ListFrameworks(ctx context.Context) ([]Framework, error) {
 	}
 	defer rows.Close()
 
-	var frameworks []Framework
+	frameworks := make([]Framework, 0)
 	for rows.Next() {
 		var f Framework
 		var description, category, version, regulatoryBody sql.NullString
@@ -258,7 +258,7 @@ func (s *Service) ListControls(ctx context.Context, frameworkID uuid.UUID) ([]Co
 	}
 	defer rows.Close()
 
-	var controls []Control
+	controls := make([]Control, 0)
 	for rows.Next() {
 		var c Control
 		var description, recommendation sql.NullString
@@ -330,7 +330,7 @@ func (s *Service) GetMappedControls(ctx context.Context, controlID uuid.UUID) ([
 	}
 	defer rows.Close()
 
-	var controls []Control
+	controls := make([]Control, 0)
 	for rows.Next() {
 		var c Control
 		var description, recommendation sql.NullString
@@ -444,7 +444,7 @@ func (s *Service) ListAssessments(ctx context.Context, orgID uuid.UUID, limit in
 	}
 	defer rows.Close()
 
-	var assessments []Assessment
+	assessments := make([]Assessment, 0)
 	for rows.Next() {
 		var a Assessment
 		if err := rows.Scan(
@@ -462,7 +462,7 @@ func (s *Service) ListAssessments(ctx context.Context, orgID uuid.UUID, limit in
 }
 
 // RecordControlResult records the result of assessing a control.
-func (s *Service) RecordControlResult(ctx context.Context, result AssessmentResult) error {
+func (s *Service) RecordControlResult(ctx context.Context, result *AssessmentResult) error {
 	result.ID = uuid.New()
 	result.EvaluatedAt = time.Now()
 
@@ -525,7 +525,7 @@ func (s *Service) ListEvidence(ctx context.Context, orgID, controlID uuid.UUID) 
 	}
 	defer rows.Close()
 
-	var evidences []Evidence
+	evidences := make([]Evidence, 0)
 	for rows.Next() {
 		var e Evidence
 		if err := rows.Scan(
@@ -584,7 +584,7 @@ func (s *Service) GetActiveExemptions(ctx context.Context, orgID uuid.UUID) ([]E
 	}
 	defer rows.Close()
 
-	var exemptions []Exemption
+	exemptions := make([]Exemption, 0)
 	for rows.Next() {
 		var e Exemption
 		if err := rows.Scan(
@@ -602,7 +602,7 @@ func (s *Service) GetActiveExemptions(ctx context.Context, orgID uuid.UUID) ([]E
 }
 
 // GetComplianceScore calculates the overall compliance score for an organization.
-func (s *Service) GetComplianceScore(ctx context.Context, orgID uuid.UUID, frameworkID *uuid.UUID) (*ComplianceScore, error) {
+func (s *Service) GetComplianceScore(ctx context.Context, orgID uuid.UUID, frameworkID *uuid.UUID) (*Score, error) {
 	query := `
 		SELECT
 			COUNT(DISTINCT ca.id) as assessment_count,
@@ -622,7 +622,7 @@ func (s *Service) GetComplianceScore(ctx context.Context, orgID uuid.UUID, frame
 		args = append(args, *frameworkID)
 	}
 
-	var score ComplianceScore
+	var score Score
 	err := s.db.QueryRowContext(ctx, query, args...).Scan(
 		&score.AssessmentCount, &score.AverageScore,
 		&score.TotalPassed, &score.TotalFailed, &score.TotalNA,
@@ -640,8 +640,8 @@ func (s *Service) GetComplianceScore(ctx context.Context, orgID uuid.UUID, frame
 	return &score, nil
 }
 
-// ComplianceScore represents the overall compliance score.
-type ComplianceScore struct {
+// Score represents the overall compliance score.
+type Score struct {
 	OrgID           uuid.UUID  `json:"org_id"`
 	FrameworkID     *uuid.UUID `json:"framework_id,omitempty"`
 	AssessmentCount int        `json:"assessment_count"`

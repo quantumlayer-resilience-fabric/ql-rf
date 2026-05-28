@@ -30,9 +30,9 @@ type Config struct {
 	Enabled        bool
 
 	// Exporter configuration
-	ExporterType   ExporterType // stdout, otlp_grpc, otlp_http
-	OTLPEndpoint   string       // OTLP collector endpoint
-	OTLPInsecure   bool         // Use insecure connection (for dev)
+	ExporterType ExporterType // stdout, otlp_grpc, otlp_http
+	OTLPEndpoint string       // OTLP collector endpoint
+	OTLPInsecure bool         // Use insecure connection (for dev)
 
 	// Sampling
 	SampleRate float64 // 0.0 to 1.0
@@ -44,6 +44,7 @@ type Config struct {
 // ExporterType defines the type of trace exporter.
 type ExporterType string
 
+// ExporterType constants.
 const (
 	ExporterStdout   ExporterType = "stdout"
 	ExporterOTLPGRPC ExporterType = "otlp_grpc"
@@ -99,10 +100,14 @@ func NewProvider(cfg *Config) (*Provider, error) {
 
 	// Add custom attributes
 	for k, v := range cfg.Attributes {
-		res, _ = resource.Merge(res, resource.NewWithAttributes(
+		merged, mergeErr := resource.Merge(res, resource.NewWithAttributes(
 			semconv.SchemaURL,
 			attribute.String(k, v),
 		))
+		if mergeErr != nil {
+			return nil, fmt.Errorf("failed to merge resource attribute %s: %w", k, mergeErr)
+		}
+		res = merged
 	}
 
 	// Create exporter
@@ -167,7 +172,9 @@ func createExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 		return otlptracehttp.New(ctx, opts...)
 
 	case ExporterStdout:
-		fallthrough
+		return stdouttrace.New(
+			stdouttrace.WithPrettyPrint(),
+		)
 	default:
 		return stdouttrace.New(
 			stdouttrace.WithPrettyPrint(),

@@ -5,11 +5,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
@@ -17,10 +19,10 @@ import (
 
 // UsageTracker tracks LLM usage and costs.
 type UsageTracker struct {
-	db       *pgxpool.Pool
-	log      *logger.Logger
-	pricing  map[string]ModelPricing
-	priceMu  sync.RWMutex
+	db      *pgxpool.Pool
+	log     *logger.Logger
+	pricing map[string]ModelPricing
+	priceMu sync.RWMutex
 }
 
 // NewUsageTracker creates a new LLM usage tracker.
@@ -39,14 +41,14 @@ func NewUsageTracker(db *pgxpool.Pool, log *logger.Logger) *UsageTracker {
 
 // ModelPricing contains pricing for a specific model.
 type ModelPricing struct {
-	Provider                    string
-	Model                       string
-	InputPricePerMTokCents      int
-	OutputPricePerMTokCents     int
+	Provider                       string
+	Model                          string
+	InputPricePerMTokCents         int
+	OutputPricePerMTokCents        int
 	CacheCreationPricePerMTokCents *int
-	CacheReadPricePerMTokCents    *int
-	ContextWindow               int
-	MaxOutputTokens             int
+	CacheReadPricePerMTokCents     *int
+	ContextWindow                  int
+	MaxOutputTokens                int
 }
 
 // UsageRecord represents a single LLM API call.
@@ -63,10 +65,10 @@ type UsageRecord struct {
 	Model    string
 
 	// Token usage
-	InputTokens        int
-	OutputTokens       int
+	InputTokens         int
+	OutputTokens        int
 	CacheCreationTokens int
-	CacheReadTokens    int
+	CacheReadTokens     int
 
 	// Request metadata
 	OperationType string
@@ -77,7 +79,7 @@ type UsageRecord struct {
 }
 
 // RecordUsage records an LLM API call and calculates cost.
-func (t *UsageTracker) RecordUsage(ctx context.Context, record UsageRecord) error {
+func (t *UsageTracker) RecordUsage(ctx context.Context, record *UsageRecord) error {
 	// Calculate costs
 	pricing := t.getPricing(record.Provider, record.Model)
 
@@ -132,10 +134,13 @@ func (t *UsageTracker) RecordUsage(ctx context.Context, record UsageRecord) erro
 	return nil
 }
 
-// RecordUsageAsync records usage asynchronously.
-func (t *UsageTracker) RecordUsageAsync(ctx context.Context, record UsageRecord) {
+// RecordUsageAsync records usage asynchronously. The write must survive the
+// caller's request, so it detaches from request cancellation with
+// context.WithoutCancel while preserving context values (trace IDs, etc.).
+func (t *UsageTracker) RecordUsageAsync(ctx context.Context, record *UsageRecord) {
+	detached := context.WithoutCancel(ctx)
 	go func() {
-		recordCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		recordCtx, cancel := context.WithTimeout(detached, 5*time.Second)
 		defer cancel()
 
 		if err := t.RecordUsage(recordCtx, record); err != nil {
@@ -195,11 +200,14 @@ func (t *UsageTracker) GetMonthlyUsage(ctx context.Context, orgID uuid.UUID, mon
 		&usageByModel, &usageByAgent,
 	)
 	if err != nil {
-		// No usage for this month
-		return &MonthlyUsage{
-			OrgID: orgID,
-			Month: monthStart,
-		}, nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			// No usage for this month - return empty usage record
+			return &MonthlyUsage{
+				OrgID: orgID,
+				Month: monthStart,
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to get monthly usage: %w", err)
 	}
 
 	usage.OrgID = orgID
@@ -212,14 +220,14 @@ func (t *UsageTracker) GetMonthlyUsage(ctx context.Context, orgID uuid.UUID, mon
 
 // MonthlyUsage represents aggregated monthly usage.
 type MonthlyUsage struct {
-	OrgID             uuid.UUID         `json:"org_id"`
-	Month             time.Time         `json:"month"`
-	TotalRequests     int               `json:"total_requests"`
-	TotalInputTokens  int64             `json:"total_input_tokens"`
-	TotalOutputTokens int64             `json:"total_output_tokens"`
-	TotalTokens       int64             `json:"total_tokens"`
-	TotalCostCents    int               `json:"total_cost_cents"`
-	TotalCostUSD      float64           `json:"total_cost_usd"`
+	OrgID             uuid.UUID             `json:"org_id"`
+	Month             time.Time             `json:"month"`
+	TotalRequests     int                   `json:"total_requests"`
+	TotalInputTokens  int64                 `json:"total_input_tokens"`
+	TotalOutputTokens int64                 `json:"total_output_tokens"`
+	TotalTokens       int64                 `json:"total_tokens"`
+	TotalCostCents    int                   `json:"total_cost_cents"`
+	TotalCostUSD      float64               `json:"total_cost_usd"`
 	UsageByModel      map[string]ModelUsage `json:"usage_by_model,omitempty"`
 	UsageByAgent      map[string]AgentUsage `json:"usage_by_agent,omitempty"`
 }
@@ -417,9 +425,9 @@ func (t *UsageTracker) GetCostReport(ctx context.Context, orgID uuid.UUID, start
 	defer rows.Close()
 
 	report := &CostReport{
-		OrgID:     orgID,
-		StartDate: startDate,
-		EndDate:   endDate,
+		OrgID:      orgID,
+		StartDate:  startDate,
+		EndDate:    endDate,
 		DailyUsage: make([]DailyUsage, 0),
 	}
 
@@ -446,14 +454,14 @@ func (t *UsageTracker) GetCostReport(ctx context.Context, orgID uuid.UUID, start
 
 // CostReport contains a cost report for a time period.
 type CostReport struct {
-	OrgID           uuid.UUID    `json:"org_id"`
-	StartDate       time.Time    `json:"start_date"`
-	EndDate         time.Time    `json:"end_date"`
-	TotalRequests   int          `json:"total_requests"`
-	TotalTokens     int64        `json:"total_tokens"`
-	TotalCostCents  int          `json:"total_cost_cents"`
-	TotalCostUSD    float64      `json:"total_cost_usd"`
-	DailyUsage      []DailyUsage `json:"daily_usage"`
+	OrgID          uuid.UUID    `json:"org_id"`
+	StartDate      time.Time    `json:"start_date"`
+	EndDate        time.Time    `json:"end_date"`
+	TotalRequests  int          `json:"total_requests"`
+	TotalTokens    int64        `json:"total_tokens"`
+	TotalCostCents int          `json:"total_cost_cents"`
+	TotalCostUSD   float64      `json:"total_cost_usd"`
+	DailyUsage     []DailyUsage `json:"daily_usage"`
 }
 
 // DailyUsage represents usage for a single day and model.

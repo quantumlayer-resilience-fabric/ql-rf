@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/quantumlayerhq/ql-rf/pkg/finops"
 )
 
@@ -21,7 +22,7 @@ func NewGCPCostCollector() *GCPCostCollector {
 }
 
 // CollectCosts retrieves cost data from GCP Cloud Billing.
-func (c *GCPCostCollector) CollectCosts(ctx context.Context, orgID uuid.UUID, startDate, endDate time.Time) ([]finops.CostRecord, error) {
+func (c *GCPCostCollector) CollectCosts(_ context.Context, orgID uuid.UUID, _, _ time.Time) ([]finops.CostRecord, error) {
 	// TODO: Implement actual GCP Cloud Billing API integration
 
 	records := []finops.CostRecord{
@@ -101,7 +102,7 @@ func (c *GCPCostCollector) CollectCosts(ctx context.Context, orgID uuid.UUID, st
 }
 
 // GenerateRecommendations generates cost optimization recommendations for GCP resources.
-func (c *GCPCostCollector) GenerateRecommendations(ctx context.Context, orgID uuid.UUID) ([]finops.CostRecommendation, error) {
+func (c *GCPCostCollector) GenerateRecommendations(_ context.Context, orgID uuid.UUID) ([]finops.CostRecommendation, error) {
 	// TODO: Implement actual GCP Recommender API integration
 
 	recommendations := []finops.CostRecommendation{
@@ -175,26 +176,26 @@ func (c *GCPCostCollector) GenerateRecommendations(ctx context.Context, orgID uu
 }
 
 // GetServiceCosts retrieves costs broken down by GCP service.
-func (c *GCPCostCollector) GetServiceCosts(ctx context.Context, orgID uuid.UUID, startDate, endDate time.Time) (map[string]float64, error) {
+func (c *GCPCostCollector) GetServiceCosts(_ context.Context, _ uuid.UUID, _, _ time.Time) (map[string]float64, error) {
 	// TODO: Implement actual GCP Cloud Billing service breakdown
 
 	serviceCosts := map[string]float64{
-		"compute-engine":      487.30,
-		"kubernetes-engine":   378.90,
-		"cloud-sql":           198.60,
-		"cloud-storage":       167.80,
-		"cloud-functions":     45.20,
-		"cloud-run":           89.40,
+		"compute-engine":       487.30,
+		"kubernetes-engine":    378.90,
+		"cloud-sql":            198.60,
+		"cloud-storage":        167.80,
+		"cloud-functions":      45.20,
+		"cloud-run":            89.40,
 		"cloud-load-balancing": 56.70,
-		"cloud-cdn":           78.30,
-		"bigquery":            123.50,
+		"cloud-cdn":            78.30,
+		"bigquery":             123.50,
 	}
 
 	return serviceCosts, nil
 }
 
 // ValidateCredentials validates GCP credentials and permissions.
-func (c *GCPCostCollector) ValidateCredentials(ctx context.Context) error {
+func (c *GCPCostCollector) ValidateCredentials(_ context.Context) error {
 	// TODO: Implement actual GCP credential validation
 	// Check for Cloud Billing API access
 
@@ -202,7 +203,7 @@ func (c *GCPCostCollector) ValidateCredentials(ctx context.Context) error {
 }
 
 // EstimateMonthlyCost estimates monthly cost based on current usage patterns.
-func (c *GCPCostCollector) EstimateMonthlyCost(ctx context.Context, orgID uuid.UUID) (*finops.CostForecast, error) {
+func (c *GCPCostCollector) EstimateMonthlyCost(_ context.Context, orgID uuid.UUID) (*finops.CostForecast, error) {
 	// TODO: Implement actual forecasting using historical data and ML
 
 	forecast := &finops.CostForecast{
@@ -230,7 +231,7 @@ func (c *GCPCostCollector) EstimateMonthlyCost(ctx context.Context, orgID uuid.U
 }
 
 // AnalyzeIdleResources identifies idle or underutilized GCP resources.
-func (c *GCPCostCollector) AnalyzeIdleResources(ctx context.Context, orgID uuid.UUID) ([]finops.CostRecommendation, error) {
+func (c *GCPCostCollector) AnalyzeIdleResources(_ context.Context, _ uuid.UUID) ([]finops.CostRecommendation, error) {
 	// TODO: Implement actual idle resource detection using Cloud Monitoring
 	// Check for:
 	// - Compute instances with low CPU/memory

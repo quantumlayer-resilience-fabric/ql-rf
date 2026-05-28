@@ -262,12 +262,10 @@ func TestCalculateStatus(t *testing.T) {
 
 	t.Run("quota exceeded", func(t *testing.T) {
 		status := QuotaStatus{
-			ResourceType:   QuotaImages,
-			Limit:          10,
-			Used:           15,
-			Remaining:      -5,
-			PercentageUsed: 150.0,
-			IsExceeded:     true,
+			ResourceType: QuotaImages,
+			Limit:        10,
+			Used:         15,
+			IsExceeded:   true,
 		}
 
 		assert.Equal(t, QuotaImages, status.ResourceType)
@@ -279,8 +277,6 @@ func TestCalculateStatus(t *testing.T) {
 	t.Run("quota at limit", func(t *testing.T) {
 		status := QuotaStatus{
 			ResourceType:   QuotaSites,
-			Limit:          20,
-			Used:           20,
 			Remaining:      0,
 			PercentageUsed: 100.0,
 			IsExceeded:     true,
@@ -294,12 +290,9 @@ func TestCalculateStatus(t *testing.T) {
 
 	t.Run("unlimited quota (-1)", func(t *testing.T) {
 		status := QuotaStatus{
-			ResourceType:   QuotaUsers,
-			Limit:          -1, // unlimited
-			Used:           1000,
-			Remaining:      -1, // unlimited
-			PercentageUsed: 0.0,
-			IsExceeded:     false,
+			ResourceType: QuotaUsers,
+			Limit:        -1, // unlimited
+			IsExceeded:   false,
 		}
 
 		assert.Equal(t, QuotaUsers, status.ResourceType)
@@ -321,18 +314,13 @@ func TestOrganizationQuotaStruct(t *testing.T) {
 
 	t.Run("populated values", func(t *testing.T) {
 		quota := OrganizationQuota{
-			MaxAssets:             1000,
-			MaxImages:             100,
-			MaxSites:              50,
-			MaxUsers:              100,
-			MaxAITasksPerDay:      100,
-			MaxAITokensPerMonth:   10000000,
-			MaxStorageBytes:       107374182400, // 100GB
-			APIRateLimitPerMinute: 1000,
-			DREnabled:             true,
-			ComplianceEnabled:     true,
-			AdvancedAnalytics:     true,
-			CustomIntegrations:    true,
+			MaxAssets:          1000,
+			MaxImages:          100,
+			MaxStorageBytes:    107374182400, // 100GB
+			DREnabled:          true,
+			ComplianceEnabled:  true,
+			AdvancedAnalytics:  true,
+			CustomIntegrations: true,
 		}
 
 		assert.Equal(t, 1000, quota.MaxAssets)
@@ -357,12 +345,9 @@ func TestOrganizationUsageStruct(t *testing.T) {
 		usage := OrganizationUsage{
 			AssetCount:        500,
 			ImageCount:        25,
-			SiteCount:         10,
-			UserCount:         50,
 			StorageUsedBytes:  5368709120, // 5GB
 			AITasksToday:      42,
 			AITokensThisMonth: 500000,
-			APIRequestsToday:  1500,
 		}
 
 		assert.Equal(t, 500, usage.AssetCount)
@@ -377,12 +362,7 @@ func TestSubscriptionPlanStruct(t *testing.T) {
 	t.Run("free plan", func(t *testing.T) {
 		plan := SubscriptionPlan{
 			Name:             "free",
-			DisplayName:      "Free",
-			PlanType:         "free",
 			DefaultMaxAssets: 100,
-			DefaultMaxImages: 10,
-			DefaultMaxSites:  5,
-			DefaultMaxUsers:  5,
 			DRIncluded:       false,
 			IsActive:         true,
 		}
@@ -399,18 +379,13 @@ func TestSubscriptionPlanStruct(t *testing.T) {
 		annualPrice := 4990.0
 		plan := SubscriptionPlan{
 			Name:               "enterprise",
-			DisplayName:        "Enterprise",
-			PlanType:           "enterprise",
 			DefaultMaxAssets:   -1, // unlimited
-			DefaultMaxImages:   -1,
-			DefaultMaxSites:    -1,
 			DRIncluded:         true,
 			ComplianceIncluded: true,
 			AdvancedAnalytics:  true,
 			CustomIntegrations: true,
 			MonthlyPriceUSD:    &monthlyPrice,
 			AnnualPriceUSD:     &annualPrice,
-			IsActive:           true,
 		}
 
 		assert.Equal(t, "enterprise", plan.Name)

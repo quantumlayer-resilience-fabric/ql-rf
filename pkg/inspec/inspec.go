@@ -81,7 +81,7 @@ func (s *Service) GetAvailableProfiles(ctx context.Context) ([]AvailableProfile,
 	}
 	defer rows.Close()
 
-	var profiles []AvailableProfile
+	profiles := make([]AvailableProfile, 0)
 	for rows.Next() {
 		var p AvailableProfile
 		if err := rows.Scan(
@@ -250,7 +250,7 @@ func (s *Service) ListRuns(ctx context.Context, orgID uuid.UUID, limit, offset i
 	}
 	defer rows.Close()
 
-	var runs []RunSummary
+	runs := make([]RunSummary, 0)
 	for rows.Next() {
 		var r RunSummary
 		var startedAt, completedAt sql.NullTime
@@ -335,7 +335,7 @@ func (s *Service) GetRunResults(ctx context.Context, runID uuid.UUID) ([]Result,
 	}
 	defer rows.Close()
 
-	var results []Result
+	results := make([]Result, 0)
 	for rows.Next() {
 		var r Result
 		var message, resource, sourceLocation, codeDesc sql.NullString
@@ -376,7 +376,7 @@ func (s *Service) ParseResults(jsonOutput []byte) (*InSpecResult, error) {
 }
 
 // MapToControls maps InSpec control results to compliance controls.
-func (s *Service) MapToControls(ctx context.Context, runID uuid.UUID, frameworkID uuid.UUID) error {
+func (s *Service) MapToControls(ctx context.Context, runID, _ uuid.UUID) error {
 	// Get the profile ID from the run
 	var profileID uuid.UUID
 	err := s.db.QueryRowContext(ctx, `
@@ -475,7 +475,7 @@ func (s *Service) GetControlMappings(ctx context.Context, profileID uuid.UUID) (
 	}
 	defer rows.Close()
 
-	var mappings []ControlMapping
+	mappings := make([]ControlMapping, 0)
 	for rows.Next() {
 		var m ControlMapping
 		var notes sql.NullString

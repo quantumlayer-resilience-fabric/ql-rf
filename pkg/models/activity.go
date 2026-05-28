@@ -10,7 +10,7 @@ import (
 type Activity struct {
 	ID        uuid.UUID  `json:"id" db:"id"`
 	OrgID     uuid.UUID  `json:"orgId" db:"org_id"`
-	Type      string     `json:"type" db:"type"`       // info, warning, success, critical
+	Type      string     `json:"type" db:"type"` // info, warning, success, critical
 	Action    string     `json:"action" db:"action"`
 	Detail    string     `json:"detail,omitempty" db:"detail"`
 	UserID    *uuid.UUID `json:"userId,omitempty" db:"user_id"`

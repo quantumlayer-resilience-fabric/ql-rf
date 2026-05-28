@@ -10,14 +10,14 @@ import (
 type Alert struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
 	OrgID          uuid.UUID  `json:"orgId" db:"org_id"`
-	Severity       string     `json:"severity" db:"severity"`     // critical, warning, info
+	Severity       string     `json:"severity" db:"severity"` // critical, warning, info
 	Title          string     `json:"title" db:"title"`
 	Description    string     `json:"description" db:"description"`
-	Source         string     `json:"source" db:"source"`         // drift, compliance, connector, system
+	Source         string     `json:"source" db:"source"` // drift, compliance, connector, system
 	SiteID         *uuid.UUID `json:"siteId,omitempty" db:"site_id"`
 	AssetID        *uuid.UUID `json:"assetId,omitempty" db:"asset_id"`
 	ImageID        *uuid.UUID `json:"imageId,omitempty" db:"image_id"`
-	Status         string     `json:"status" db:"status"`         // open, acknowledged, resolved
+	Status         string     `json:"status" db:"status"` // open, acknowledged, resolved
 	CreatedAt      time.Time  `json:"createdAt" db:"created_at"`
 	AcknowledgedAt *time.Time `json:"acknowledgedAt,omitempty" db:"acknowledged_at"`
 	AcknowledgedBy *uuid.UUID `json:"acknowledgedBy,omitempty" db:"acknowledged_by"`

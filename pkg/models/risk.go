@@ -132,96 +132,96 @@ func EnvironmentRiskMultiplier(env string) float64 {
 type RiskVelocity string
 
 const (
-	RiskVelocityRapidIncrease   RiskVelocity = "rapid_increase"   // >10 points/day
-	RiskVelocityIncreasing      RiskVelocity = "increasing"       // 2-10 points/day
-	RiskVelocityStable          RiskVelocity = "stable"           // -2 to 2 points/day
-	RiskVelocityDecreasing      RiskVelocity = "decreasing"       // -10 to -2 points/day
-	RiskVelocityRapidDecrease   RiskVelocity = "rapid_decrease"   // <-10 points/day
+	RiskVelocityRapidIncrease RiskVelocity = "rapid_increase" // >10 points/day
+	RiskVelocityIncreasing    RiskVelocity = "increasing"     // 2-10 points/day
+	RiskVelocityStable        RiskVelocity = "stable"         // -2 to 2 points/day
+	RiskVelocityDecreasing    RiskVelocity = "decreasing"     // -10 to -2 points/day
+	RiskVelocityRapidDecrease RiskVelocity = "rapid_decrease" // <-10 points/day
 )
 
 // RiskPrediction represents a predicted future risk state.
 type RiskPrediction struct {
 	AssetID           uuid.UUID    `json:"assetId,omitempty"`
-	Scope             string       `json:"scope,omitempty"`             // For org/env/platform predictions
+	Scope             string       `json:"scope,omitempty"` // For org/env/platform predictions
 	CurrentScore      float64      `json:"currentScore"`
 	PredictedScore    float64      `json:"predictedScore"`
 	PredictedLevel    RiskLevel    `json:"predictedLevel"`
-	Confidence        float64      `json:"confidence"`                  // 0-1 confidence level
-	PredictionHorizon int          `json:"predictionHorizon"`           // Days ahead
+	Confidence        float64      `json:"confidence"`        // 0-1 confidence level
+	PredictionHorizon int          `json:"predictionHorizon"` // Days ahead
 	Velocity          RiskVelocity `json:"velocity"`
-	VelocityValue     float64      `json:"velocityValue"`               // Points per day
-	Factors           []string     `json:"factors"`                     // Contributing factors
+	VelocityValue     float64      `json:"velocityValue"` // Points per day
+	Factors           []string     `json:"factors"`       // Contributing factors
 	RecommendedAction string       `json:"recommendedAction,omitempty"`
 	PredictedAt       time.Time    `json:"predictedAt"`
 }
 
 // RiskAnomaly represents an unusual risk pattern.
 type RiskAnomaly struct {
-	ID           uuid.UUID  `json:"id"`
-	AssetID      uuid.UUID  `json:"assetId,omitempty"`
-	Scope        string     `json:"scope,omitempty"`
-	AnomalyType  string     `json:"anomalyType"`  // spike, drop, pattern_break
-	Severity     RiskLevel  `json:"severity"`
-	Description  string     `json:"description"`
+	ID            uuid.UUID `json:"id"`
+	AssetID       uuid.UUID `json:"assetId,omitempty"`
+	Scope         string    `json:"scope,omitempty"`
+	AnomalyType   string    `json:"anomalyType"` // spike, drop, pattern_break
+	Severity      RiskLevel `json:"severity"`
+	Description   string    `json:"description"`
 	ExpectedScore float64   `json:"expectedScore"`
-	ActualScore  float64    `json:"actualScore"`
-	Deviation    float64    `json:"deviation"`    // Standard deviations from mean
-	DetectedAt   time.Time  `json:"detectedAt"`
-	IsActive     bool       `json:"isActive"`
+	ActualScore   float64   `json:"actualScore"`
+	Deviation     float64   `json:"deviation"` // Standard deviations from mean
+	DetectedAt    time.Time `json:"detectedAt"`
+	IsActive      bool      `json:"isActive"`
 }
 
 // RiskForecast provides organization-wide risk predictions.
 type RiskForecast struct {
-	OrgID             uuid.UUID        `json:"orgId"`
-	CurrentScore      float64          `json:"currentScore"`
-	Predictions       []RiskPrediction `json:"predictions"`       // 7, 14, 30 day predictions
-	Velocity          RiskVelocity     `json:"velocity"`
-	VelocityValue     float64          `json:"velocityValue"`
-	Anomalies         []RiskAnomaly    `json:"anomalies"`
-	AtRiskAssets      []AssetRiskScore `json:"atRiskAssets"`      // Assets predicted to breach threshold
-	ImprovingAssets   []AssetRiskScore `json:"improvingAssets"`   // Assets with decreasing risk
+	OrgID              uuid.UUID            `json:"orgId"`
+	CurrentScore       float64              `json:"currentScore"`
+	Predictions        []RiskPrediction     `json:"predictions"` // 7, 14, 30 day predictions
+	Velocity           RiskVelocity         `json:"velocity"`
+	VelocityValue      float64              `json:"velocityValue"`
+	Anomalies          []RiskAnomaly        `json:"anomalies"`
+	AtRiskAssets       []AssetRiskScore     `json:"atRiskAssets"`    // Assets predicted to breach threshold
+	ImprovingAssets    []AssetRiskScore     `json:"improvingAssets"` // Assets with decreasing risk
 	TopRecommendations []RiskRecommendation `json:"topRecommendations"`
-	GeneratedAt       time.Time        `json:"generatedAt"`
+	GeneratedAt        time.Time            `json:"generatedAt"`
 }
 
 // RiskRecommendation represents an actionable risk mitigation suggestion.
 type RiskRecommendation struct {
-	ID             string    `json:"id"`
-	Priority       int       `json:"priority"`       // 1 = highest
-	Category       string    `json:"category"`       // patch, compliance, vulnerability, drift
-	Title          string    `json:"title"`
-	Description    string    `json:"description"`
-	Impact         string    `json:"impact"`         // Expected risk reduction
-	Effort         string    `json:"effort"`         // low, medium, high
-	AffectedAssets int       `json:"affectedAssets"`
-	AutoRemediable bool      `json:"autoRemediable"` // Can be auto-fixed
-	ActionType     string    `json:"actionType"`     // ai_task, manual, scheduled
+	ID             string `json:"id"`
+	Priority       int    `json:"priority"` // 1 = highest
+	Category       string `json:"category"` // patch, compliance, vulnerability, drift
+	Title          string `json:"title"`
+	Description    string `json:"description"`
+	Impact         string `json:"impact"` // Expected risk reduction
+	Effort         string `json:"effort"` // low, medium, high
+	AffectedAssets int    `json:"affectedAssets"`
+	AutoRemediable bool   `json:"autoRemediable"` // Can be auto-fixed
+	ActionType     string `json:"actionType"`     // ai_task, manual, scheduled
 }
 
 // AutoRemediationPolicy defines rules for automatic remediation.
 type AutoRemediationPolicy struct {
-	ID              uuid.UUID `json:"id"`
-	OrgID           uuid.UUID `json:"orgId"`
-	Name            string    `json:"name"`
-	Description     string    `json:"description"`
-	Enabled         bool      `json:"enabled"`
+	ID          uuid.UUID `json:"id"`
+	OrgID       uuid.UUID `json:"orgId"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Enabled     bool      `json:"enabled"`
 
 	// Conditions
-	MaxRiskLevel    RiskLevel `json:"maxRiskLevel"`    // Only auto-remediate up to this level
-	Environments    []string  `json:"environments"`    // Allowed environments
-	Platforms       []string  `json:"platforms"`       // Allowed platforms
-	Categories      []string  `json:"categories"`      // drift, patch, compliance
+	MaxRiskLevel RiskLevel `json:"maxRiskLevel"` // Only auto-remediate up to this level
+	Environments []string  `json:"environments"` // Allowed environments
+	Platforms    []string  `json:"platforms"`    // Allowed platforms
+	Categories   []string  `json:"categories"`   // drift, patch, compliance
 
 	// Actions
-	RequireApproval bool      `json:"requireApproval"` // Still require human approval
-	NotifyOnAction  bool      `json:"notifyOnAction"`
-	MaxActionsPerDay int      `json:"maxActionsPerDay"`
+	RequireApproval  bool `json:"requireApproval"` // Still require human approval
+	NotifyOnAction   bool `json:"notifyOnAction"`
+	MaxActionsPerDay int  `json:"maxActionsPerDay"`
 
 	// Schedule
-	AllowedWindows  []MaintenanceWindow `json:"allowedWindows"`
+	AllowedWindows []MaintenanceWindow `json:"allowedWindows"`
 
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // MaintenanceWindow defines when auto-remediation can occur.

@@ -31,10 +31,10 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		os.Exit(1)
 	}
-	defer testDB.Close()
 
 	// Run tests
 	code := m.Run()
+	testDB.Close()
 	os.Exit(code)
 }
 

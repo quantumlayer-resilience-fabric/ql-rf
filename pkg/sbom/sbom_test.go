@@ -592,17 +592,9 @@ func TestGenerateChecksum(t *testing.T) {
 
 func TestSBOMStruct(t *testing.T) {
 	sbom := &SBOM{
-		ID:      uuid.New(),
-		ImageID: uuid.New(),
-		OrgID:   uuid.New(),
-		Format:  FormatSPDX,
-		Version: "SPDX-2.3",
-		Content: map[string]interface{}{
-			"spdxVersion": "SPDX-2.3",
-			"name":        "Test SBOM",
-		},
+		ID:           uuid.New(),
+		Format:       FormatSPDX,
 		PackageCount: 10,
-		VulnCount:    2,
 	}
 
 	if sbom.ID == uuid.Nil {
@@ -618,13 +610,8 @@ func TestSBOMStruct(t *testing.T) {
 
 func TestPackageStruct(t *testing.T) {
 	pkg := Package{
-		ID:      uuid.New(),
-		SBOMID:  uuid.New(),
-		Name:    "express",
-		Version: "4.18.2",
-		Type:    "npm",
-		PURL:    "pkg:npm/express@4.18.2",
-		License: "MIT",
+		Name: "express",
+		Type: "npm",
 	}
 
 	if pkg.Name != "express" {
@@ -638,13 +625,9 @@ func TestPackageStruct(t *testing.T) {
 func TestVulnerabilityStruct(t *testing.T) {
 	cvssScore := 9.1
 	vuln := Vulnerability{
-		ID:               uuid.New(),
-		SBOMID:           uuid.New(),
-		PackageID:        uuid.New(),
-		CVEID:            "CVE-2024-1234",
-		Severity:         "critical",
-		CVSSScore:        &cvssScore,
-		ExploitAvailable: true,
+		CVEID:     "CVE-2024-1234",
+		Severity:  "critical",
+		CVSSScore: &cvssScore,
 	}
 
 	if vuln.CVEID != "CVE-2024-1234" {

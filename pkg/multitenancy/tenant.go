@@ -4,7 +4,9 @@ package multitenancy
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,56 +16,63 @@ import (
 type QuotaType string
 
 const (
-	QuotaAssets    QuotaType = "assets"
-	QuotaImages    QuotaType = "images"
-	QuotaSites     QuotaType = "sites"
-	QuotaUsers     QuotaType = "users"
-	QuotaTeams     QuotaType = "teams"
-	QuotaAITasks   QuotaType = "ai_tasks"
-	QuotaAITokens  QuotaType = "ai_tokens"
-	QuotaStorage   QuotaType = "storage"
-	QuotaAPIRate   QuotaType = "api_requests"
+	QuotaAssets   QuotaType = "assets"
+	QuotaImages   QuotaType = "images"
+	QuotaSites    QuotaType = "sites"
+	QuotaUsers    QuotaType = "users"
+	QuotaTeams    QuotaType = "teams"
+	QuotaAITasks  QuotaType = "ai_tasks"
+	QuotaAITokens QuotaType = "ai_tokens"
+	QuotaStorage  QuotaType = "storage"
+	QuotaAPIRate  QuotaType = "api_requests"
+)
+
+// Platform constants for demo data generation.
+const (
+	platformAWS   = "aws"
+	platformAzure = "azure"
+	platformGCP   = "gcp"
 )
 
 // OrganizationQuota represents the quota limits for an organization.
 type OrganizationQuota struct {
-	ID                     uuid.UUID `json:"id" db:"id"`
-	OrgID                  uuid.UUID `json:"org_id" db:"org_id"`
-	MaxAssets              int       `json:"max_assets" db:"max_assets"`
-	MaxImages              int       `json:"max_images" db:"max_images"`
-	MaxSites               int       `json:"max_sites" db:"max_sites"`
-	MaxUsers               int       `json:"max_users" db:"max_users"`
-	MaxTeams               int       `json:"max_teams" db:"max_teams"`
-	MaxAITasksPerDay       int       `json:"max_ai_tasks_per_day" db:"max_ai_tasks_per_day"`
-	MaxAITokensPerMonth    int64     `json:"max_ai_tokens_per_month" db:"max_ai_tokens_per_month"`
-	MaxConcurrentTasks     int       `json:"max_concurrent_tasks" db:"max_concurrent_tasks"`
-	MaxStorageBytes        int64     `json:"max_storage_bytes" db:"max_storage_bytes"`
-	MaxArtifactSizeBytes   int64     `json:"max_artifact_size_bytes" db:"max_artifact_size_bytes"`
-	APIRateLimitPerMinute  int       `json:"api_rate_limit_per_minute" db:"api_rate_limit_per_minute"`
-	APIRateLimitPerDay     int       `json:"api_rate_limit_per_day" db:"api_rate_limit_per_day"`
-	DREnabled              bool      `json:"dr_enabled" db:"dr_enabled"`
-	ComplianceEnabled      bool      `json:"compliance_enabled" db:"compliance_enabled"`
-	AdvancedAnalytics      bool      `json:"advanced_analytics_enabled" db:"advanced_analytics_enabled"`
-	CustomIntegrations     bool      `json:"custom_integrations_enabled" db:"custom_integrations_enabled"`
-	CreatedAt              time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt              time.Time `json:"updated_at" db:"updated_at"`
+	ID                    uuid.UUID `json:"id" db:"id"`
+	OrgID                 uuid.UUID `json:"org_id" db:"org_id"`
+	MaxAssets             int       `json:"max_assets" db:"max_assets"`
+	MaxImages             int       `json:"max_images" db:"max_images"`
+	MaxSites              int       `json:"max_sites" db:"max_sites"`
+	MaxUsers              int       `json:"max_users" db:"max_users"`
+	MaxTeams              int       `json:"max_teams" db:"max_teams"`
+	MaxAITasksPerDay      int       `json:"max_ai_tasks_per_day" db:"max_ai_tasks_per_day"`
+	MaxAITokensPerMonth   int64     `json:"max_ai_tokens_per_month" db:"max_ai_tokens_per_month"`
+	MaxConcurrentTasks    int       `json:"max_concurrent_tasks" db:"max_concurrent_tasks"`
+	MaxStorageBytes       int64     `json:"max_storage_bytes" db:"max_storage_bytes"`
+	MaxArtifactSizeBytes  int64     `json:"max_artifact_size_bytes" db:"max_artifact_size_bytes"`
+	APIRateLimitPerMinute int       `json:"api_rate_limit_per_minute" db:"api_rate_limit_per_minute"`
+	APIRateLimitPerDay    int       `json:"api_rate_limit_per_day" db:"api_rate_limit_per_day"`
+	DREnabled             bool      `json:"dr_enabled" db:"dr_enabled"`
+	ComplianceEnabled     bool      `json:"compliance_enabled" db:"compliance_enabled"`
+	AdvancedAnalytics     bool      `json:"advanced_analytics_enabled" db:"advanced_analytics_enabled"`
+	CustomIntegrations    bool      `json:"custom_integrations_enabled" db:"custom_integrations_enabled"`
+	CreatedAt             time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // OrganizationUsage represents the current usage for an organization.
 type OrganizationUsage struct {
-	ID                 uuid.UUID `json:"id" db:"id"`
-	OrgID              uuid.UUID `json:"org_id" db:"org_id"`
-	AssetCount         int       `json:"asset_count" db:"asset_count"`
-	ImageCount         int       `json:"image_count" db:"image_count"`
-	SiteCount          int       `json:"site_count" db:"site_count"`
-	UserCount          int       `json:"user_count" db:"user_count"`
-	TeamCount          int       `json:"team_count" db:"team_count"`
-	StorageUsedBytes   int64     `json:"storage_used_bytes" db:"storage_used_bytes"`
-	AITasksToday       int       `json:"ai_tasks_today" db:"ai_tasks_today"`
-	AITokensThisMonth  int64     `json:"ai_tokens_this_month" db:"ai_tokens_this_month"`
-	APIRequestsToday   int       `json:"api_requests_today" db:"api_requests_today"`
-	APIRequestsMinute  int       `json:"api_requests_this_minute" db:"api_requests_this_minute"`
-	UpdatedAt          time.Time `json:"updated_at" db:"updated_at"`
+	ID                uuid.UUID `json:"id" db:"id"`
+	OrgID             uuid.UUID `json:"org_id" db:"org_id"`
+	AssetCount        int       `json:"asset_count" db:"asset_count"`
+	ImageCount        int       `json:"image_count" db:"image_count"`
+	SiteCount         int       `json:"site_count" db:"site_count"`
+	UserCount         int       `json:"user_count" db:"user_count"`
+	TeamCount         int       `json:"team_count" db:"team_count"`
+	StorageUsedBytes  int64     `json:"storage_used_bytes" db:"storage_used_bytes"`
+	AITasksToday      int       `json:"ai_tasks_today" db:"ai_tasks_today"`
+	AITokensThisMonth int64     `json:"ai_tokens_this_month" db:"ai_tokens_this_month"`
+	APIRequestsToday  int       `json:"api_requests_today" db:"api_requests_today"`
+	APIRequestsMinute int       `json:"api_requests_this_minute" db:"api_requests_this_minute"`
+	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // QuotaStatus represents the status of quota usage.
@@ -78,28 +87,28 @@ type QuotaStatus struct {
 
 // SubscriptionPlan represents a subscription plan.
 type SubscriptionPlan struct {
-	ID                     uuid.UUID       `json:"id" db:"id"`
-	Name                   string          `json:"name" db:"name"`
-	DisplayName            string          `json:"display_name" db:"display_name"`
-	Description            string          `json:"description,omitempty" db:"description"`
-	PlanType               string          `json:"plan_type" db:"plan_type"`
-	DefaultMaxAssets       int             `json:"default_max_assets" db:"default_max_assets"`
-	DefaultMaxImages       int             `json:"default_max_images" db:"default_max_images"`
-	DefaultMaxSites        int             `json:"default_max_sites" db:"default_max_sites"`
-	DefaultMaxUsers        int             `json:"default_max_users" db:"default_max_users"`
-	DefaultMaxAITasks      int             `json:"default_max_ai_tasks_per_day" db:"default_max_ai_tasks_per_day"`
-	DefaultMaxAITokens     int64           `json:"default_max_ai_tokens_per_month" db:"default_max_ai_tokens_per_month"`
-	DefaultMaxStorage      int64           `json:"default_max_storage_bytes" db:"default_max_storage_bytes"`
-	DefaultAPIRateLimit    int             `json:"default_api_rate_limit_per_minute" db:"default_api_rate_limit_per_minute"`
-	DRIncluded             bool            `json:"dr_included" db:"dr_included"`
-	ComplianceIncluded     bool            `json:"compliance_included" db:"compliance_included"`
-	AdvancedAnalytics      bool            `json:"advanced_analytics_included" db:"advanced_analytics_included"`
-	CustomIntegrations     bool            `json:"custom_integrations_included" db:"custom_integrations_included"`
-	MonthlyPriceUSD        *float64        `json:"monthly_price_usd,omitempty" db:"monthly_price_usd"`
-	AnnualPriceUSD         *float64        `json:"annual_price_usd,omitempty" db:"annual_price_usd"`
-	IsActive               bool            `json:"is_active" db:"is_active"`
-	CreatedAt              time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt              time.Time       `json:"updated_at" db:"updated_at"`
+	ID                  uuid.UUID `json:"id" db:"id"`
+	Name                string    `json:"name" db:"name"`
+	DisplayName         string    `json:"display_name" db:"display_name"`
+	Description         string    `json:"description,omitempty" db:"description"`
+	PlanType            string    `json:"plan_type" db:"plan_type"`
+	DefaultMaxAssets    int       `json:"default_max_assets" db:"default_max_assets"`
+	DefaultMaxImages    int       `json:"default_max_images" db:"default_max_images"`
+	DefaultMaxSites     int       `json:"default_max_sites" db:"default_max_sites"`
+	DefaultMaxUsers     int       `json:"default_max_users" db:"default_max_users"`
+	DefaultMaxAITasks   int       `json:"default_max_ai_tasks_per_day" db:"default_max_ai_tasks_per_day"`
+	DefaultMaxAITokens  int64     `json:"default_max_ai_tokens_per_month" db:"default_max_ai_tokens_per_month"`
+	DefaultMaxStorage   int64     `json:"default_max_storage_bytes" db:"default_max_storage_bytes"`
+	DefaultAPIRateLimit int       `json:"default_api_rate_limit_per_minute" db:"default_api_rate_limit_per_minute"`
+	DRIncluded          bool      `json:"dr_included" db:"dr_included"`
+	ComplianceIncluded  bool      `json:"compliance_included" db:"compliance_included"`
+	AdvancedAnalytics   bool      `json:"advanced_analytics_included" db:"advanced_analytics_included"`
+	CustomIntegrations  bool      `json:"custom_integrations_included" db:"custom_integrations_included"`
+	MonthlyPriceUSD     *float64  `json:"monthly_price_usd,omitempty" db:"monthly_price_usd"`
+	AnnualPriceUSD      *float64  `json:"annual_price_usd,omitempty" db:"annual_price_usd"`
+	IsActive            bool      `json:"is_active" db:"is_active"`
+	CreatedAt           time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // Subscription represents an organization's subscription.
@@ -310,7 +319,7 @@ func (s *Service) calculateStatus(resourceType QuotaType, limit, used int64) Quo
 }
 
 // CreateQuota creates quota configuration for an organization.
-func (s *Service) CreateQuota(ctx context.Context, quota OrganizationQuota) error {
+func (s *Service) CreateQuota(ctx context.Context, quota *OrganizationQuota) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO organization_quotas (
 			org_id, max_assets, max_images, max_sites, max_users, max_teams,
@@ -419,7 +428,7 @@ func (s *Service) ListPlans(ctx context.Context) ([]SubscriptionPlan, error) {
 	}
 	defer rows.Close()
 
-	var plans []SubscriptionPlan
+	plans := make([]SubscriptionPlan, 0)
 	for rows.Next() {
 		var p SubscriptionPlan
 		err := rows.Scan(
@@ -488,7 +497,7 @@ func (s *Service) CreateSubscription(ctx context.Context, orgID, planID uuid.UUI
 			AdvancedAnalytics:     plan.AdvancedAnalytics,
 			CustomIntegrations:    plan.CustomIntegrations,
 		}
-		return s.CreateQuota(ctx, quota)
+		return s.CreateQuota(ctx, &quota)
 	}
 
 	return nil
@@ -566,9 +575,9 @@ type CreateOrganizationParams struct {
 
 // CreateOrganizationResult contains the result of creating an organization.
 type CreateOrganizationResult struct {
-	Organization *Organization        `json:"organization"`
-	Quota        *OrganizationQuota   `json:"quota"`
-	Subscription *Subscription        `json:"subscription"`
+	Organization *Organization      `json:"organization"`
+	Quota        *OrganizationQuota `json:"quota"`
+	Subscription *Subscription      `json:"subscription"`
 }
 
 // CreateOrganization creates a new organization with quota and subscription.
@@ -584,7 +593,11 @@ func (s *Service) CreateOrganization(ctx context.Context, params CreateOrganizat
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+			slog.Error("failed to roll back transaction", "error", rbErr)
+		}
+	}()
 
 	// Create the organization
 	var org Organization
@@ -800,24 +813,30 @@ type SeedDemoDataResult struct {
 }
 
 // SeedDemoData seeds demo data for an organization.
+//
+//nolint:gocyclo // complexity is from necessary error checks across multiple DB operations
 func (s *Service) SeedDemoData(ctx context.Context, orgID uuid.UUID, params SeedDemoDataParams) (*SeedDemoDataResult, error) {
 	platform := params.Platform
 	if platform == "" {
-		platform = "aws"
+		platform = platformAWS
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+			slog.Error("failed to roll back transaction", "error", rbErr)
+		}
+	}()
 
 	result := &SeedDemoDataResult{}
 
 	// Create demo sites
 	sites := getDemoSites(platform)
 	for _, site := range sites {
-		_, err := tx.ExecContext(ctx, `
+		_, err = tx.ExecContext(ctx, `
 			INSERT INTO sites (org_id, name, platform, region, environment, metadata)
 			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT DO NOTHING
@@ -837,7 +856,7 @@ func (s *Service) SeedDemoData(ctx context.Context, orgID uuid.UUID, params Seed
 	for rows.Next() {
 		var id uuid.UUID
 		var name string
-		if err := rows.Scan(&id, &name); err != nil {
+		if err = rows.Scan(&id, &name); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("failed to scan site: %w", err)
 		}
@@ -852,15 +871,23 @@ func (s *Service) SeedDemoData(ctx context.Context, orgID uuid.UUID, params Seed
 	imageMap := make(map[string]uuid.UUID)
 	for _, img := range images {
 		var imageID uuid.UUID
-		err := tx.QueryRowContext(ctx, `
+		err = tx.QueryRowContext(ctx, `
 			INSERT INTO images (org_id, family, version, os_name, os_version, status)
 			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT (org_id, family, version) DO NOTHING
 			RETURNING id
 		`, orgID, img.family, img.version, img.osName, img.osVersion, img.status).Scan(&imageID)
-		if err != nil {
-			// Image might already exist, try to get its ID
-			_ = tx.QueryRowContext(ctx, `SELECT id FROM images WHERE org_id = $1 AND family = $2 AND version = $3`, orgID, img.family, img.version).Scan(&imageID)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			// Image already exists (ON CONFLICT DO NOTHING returned no row); look up its ID.
+			if lookupErr := tx.QueryRowContext(ctx,
+				`SELECT id FROM images WHERE org_id = $1 AND family = $2 AND version = $3`,
+				orgID, img.family, img.version,
+			).Scan(&imageID); lookupErr != nil {
+				return nil, fmt.Errorf("failed to look up existing image %s/%s: %w", img.family, img.version, lookupErr)
+			}
+		case err != nil:
+			return nil, fmt.Errorf("failed to create image %s/%s: %w", img.family, img.version, err)
 		}
 		if imageID != uuid.Nil {
 			imageMap[img.name] = imageID
@@ -870,14 +897,15 @@ func (s *Service) SeedDemoData(ctx context.Context, orgID uuid.UUID, params Seed
 
 	// Create demo assets
 	assets := getDemoAssets(platform)
-	for _, asset := range assets {
+	for i := range assets {
+		asset := &assets[i]
 		siteID, ok := siteMap[asset.siteName]
 		if !ok {
 			continue
 		}
 		// Assets table uses: instance_id (required), name (optional), state (not status),
 		// image_ref (not image_id), and tags for metadata
-		_, err := tx.ExecContext(ctx, `
+		_, err = tx.ExecContext(ctx, `
 			INSERT INTO assets (org_id, site_id, instance_id, name, platform, state, image_ref, region, tags)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			ON CONFLICT (org_id, platform, instance_id) DO NOTHING
@@ -934,32 +962,32 @@ type demoAsset struct {
 
 func getDemoSites(platform string) []demoSite {
 	switch platform {
-	case "aws":
+	case platformAWS:
 		return []demoSite{
-			{name: "AWS US-East-1", platform: "aws", region: "us-east-1", metadata: `{"account_id": "123456789012"}`},
-			{name: "AWS US-West-2", platform: "aws", region: "us-west-2", metadata: `{"account_id": "123456789012"}`},
-			{name: "AWS EU-West-1", platform: "aws", region: "eu-west-1", metadata: `{"account_id": "123456789012"}`},
+			{name: "AWS US-East-1", platform: platformAWS, region: "us-east-1", metadata: `{"account_id": "123456789012"}`},
+			{name: "AWS US-West-2", platform: platformAWS, region: "us-west-2", metadata: `{"account_id": "123456789012"}`},
+			{name: "AWS EU-West-1", platform: platformAWS, region: "eu-west-1", metadata: `{"account_id": "123456789012"}`},
 		}
-	case "azure":
+	case platformAzure:
 		return []demoSite{
-			{name: "Azure East US", platform: "azure", region: "eastus", metadata: `{"subscription_id": "sub-12345"}`},
-			{name: "Azure West Europe", platform: "azure", region: "westeurope", metadata: `{"subscription_id": "sub-12345"}`},
-			{name: "Azure Southeast Asia", platform: "azure", region: "southeastasia", metadata: `{"subscription_id": "sub-12345"}`},
+			{name: "Azure East US", platform: platformAzure, region: "eastus", metadata: `{"subscription_id": "sub-12345"}`},
+			{name: "Azure West Europe", platform: platformAzure, region: "westeurope", metadata: `{"subscription_id": "sub-12345"}`},
+			{name: "Azure Southeast Asia", platform: platformAzure, region: "southeastasia", metadata: `{"subscription_id": "sub-12345"}`},
 		}
-	case "gcp":
+	case platformGCP:
 		return []demoSite{
-			{name: "GCP US-Central1", platform: "gcp", region: "us-central1", metadata: `{"project_id": "my-project-123"}`},
-			{name: "GCP Europe-West1", platform: "gcp", region: "europe-west1", metadata: `{"project_id": "my-project-123"}`},
-			{name: "GCP Asia-East1", platform: "gcp", region: "asia-east1", metadata: `{"project_id": "my-project-123"}`},
+			{name: "GCP US-Central1", platform: platformGCP, region: "us-central1", metadata: `{"project_id": "my-project-123"}`},
+			{name: "GCP Europe-West1", platform: platformGCP, region: "europe-west1", metadata: `{"project_id": "my-project-123"}`},
+			{name: "GCP Asia-East1", platform: platformGCP, region: "asia-east1", metadata: `{"project_id": "my-project-123"}`},
 		}
 	default:
-		return getDemoSites("aws")
+		return getDemoSites(platformAWS)
 	}
 }
 
 func getDemoImages(platform string) []demoImage {
 	switch platform {
-	case "aws":
+	case platformAWS:
 		return []demoImage{
 			{name: "ami-prod-web-2024.12", family: "prod-web", version: "2024.12.01", osName: "Amazon Linux", osVersion: "2023", status: "production"},
 			{name: "ami-prod-api-2024.12", family: "prod-api", version: "2024.12.01", osName: "Amazon Linux", osVersion: "2023", status: "production"},
@@ -967,14 +995,14 @@ func getDemoImages(platform string) []demoImage {
 			{name: "ami-dev-base-2024.12", family: "dev-base", version: "2024.12.05", osName: "Ubuntu", osVersion: "22.04", status: "production"},
 			{name: "ami-staging-web-2024.12", family: "staging-web", version: "2024.12.03", osName: "Amazon Linux", osVersion: "2023", status: "staging"},
 		}
-	case "azure":
+	case platformAzure:
 		return []demoImage{
 			{name: "img-prod-web-2024.12", family: "prod-web", version: "2024.12.01", osName: "Ubuntu", osVersion: "22.04", status: "production"},
 			{name: "img-prod-api-2024.12", family: "prod-api", version: "2024.12.01", osName: "Ubuntu", osVersion: "22.04", status: "production"},
 			{name: "img-prod-db-2024.11", family: "prod-db", version: "2024.11.15", osName: "Windows Server", osVersion: "2022", status: "deprecated"},
 			{name: "img-dev-base-2024.12", family: "dev-base", version: "2024.12.05", osName: "Ubuntu", osVersion: "22.04", status: "production"},
 		}
-	case "gcp":
+	case platformGCP:
 		return []demoImage{
 			{name: "gce-prod-web-2024.12", family: "prod-web", version: "2024.12.01", osName: "Debian", osVersion: "12", status: "production"},
 			{name: "gce-prod-api-2024.12", family: "prod-api", version: "2024.12.01", osName: "Debian", osVersion: "12", status: "production"},
@@ -982,81 +1010,93 @@ func getDemoImages(platform string) []demoImage {
 			{name: "gce-dev-base-2024.12", family: "dev-base", version: "2024.12.05", osName: "Ubuntu", osVersion: "22.04", status: "production"},
 		}
 	default:
-		return getDemoImages("aws")
+		return getDemoImages(platformAWS)
 	}
 }
 
 func getDemoAssets(platform string) []demoAsset {
 	switch platform {
-	case "aws":
+	case platformAWS:
 		return []demoAsset{
 			// US-East-1
-			{instanceID: "i-demo0001", name: "web-prod-01", siteName: "AWS US-East-1", imageRef: "ami-prod-web-2024.12", platform: "aws", state: "running", region: "us-east-1", tags: `{"instance_type": "t3.medium", "environment": "production"}`},
-			{instanceID: "i-demo0002", name: "web-prod-02", siteName: "AWS US-East-1", imageRef: "ami-prod-web-2024.12", platform: "aws", state: "running", region: "us-east-1", tags: `{"instance_type": "t3.medium", "environment": "production"}`},
-			{instanceID: "i-demo0003", name: "api-prod-01", siteName: "AWS US-East-1", imageRef: "ami-prod-api-2024.12", platform: "aws", state: "running", region: "us-east-1", tags: `{"instance_type": "t3.large", "environment": "production"}`},
-			{instanceID: "i-demo0004", name: "api-prod-02", siteName: "AWS US-East-1", imageRef: "ami-prod-api-2024.12", platform: "aws", state: "running", region: "us-east-1", tags: `{"instance_type": "t3.large", "environment": "production"}`},
-			{instanceID: "i-demo0005", name: "db-prod-01", siteName: "AWS US-East-1", imageRef: "ami-prod-db-2024.11", platform: "aws", state: "running", region: "us-east-1", tags: `{"instance_type": "r5.xlarge", "environment": "production"}`},
+			{instanceID: "i-demo0001", name: "web-prod-01", siteName: "AWS US-East-1", imageRef: "ami-prod-web-2024.12", platform: platformAWS, state: "running", region: "us-east-1", tags: `{"instance_type": "t3.medium", "environment": "production"}`},
+			{instanceID: "i-demo0002", name: "web-prod-02", siteName: "AWS US-East-1", imageRef: "ami-prod-web-2024.12", platform: platformAWS, state: "running", region: "us-east-1", tags: `{"instance_type": "t3.medium", "environment": "production"}`},
+			{instanceID: "i-demo0003", name: "api-prod-01", siteName: "AWS US-East-1", imageRef: "ami-prod-api-2024.12", platform: platformAWS, state: "running", region: "us-east-1", tags: `{"instance_type": "t3.large", "environment": "production"}`},
+			{instanceID: "i-demo0004", name: "api-prod-02", siteName: "AWS US-East-1", imageRef: "ami-prod-api-2024.12", platform: platformAWS, state: "running", region: "us-east-1", tags: `{"instance_type": "t3.large", "environment": "production"}`},
+			{instanceID: "i-demo0005", name: "db-prod-01", siteName: "AWS US-East-1", imageRef: "ami-prod-db-2024.11", platform: platformAWS, state: "running", region: "us-east-1", tags: `{"instance_type": "r5.xlarge", "environment": "production"}`},
 			// US-West-2
-			{instanceID: "i-demo0006", name: "web-dr-01", siteName: "AWS US-West-2", imageRef: "ami-prod-web-2024.12", platform: "aws", state: "running", region: "us-west-2", tags: `{"instance_type": "t3.medium", "environment": "dr"}`},
-			{instanceID: "i-demo0007", name: "api-dr-01", siteName: "AWS US-West-2", imageRef: "ami-prod-api-2024.12", platform: "aws", state: "running", region: "us-west-2", tags: `{"instance_type": "t3.large", "environment": "dr"}`},
-			{instanceID: "i-demo0008", name: "db-dr-01", siteName: "AWS US-West-2", imageRef: "ami-prod-db-2024.11", platform: "aws", state: "stopped", region: "us-west-2", tags: `{"instance_type": "r5.xlarge", "environment": "dr"}`},
+			{instanceID: "i-demo0006", name: "web-dr-01", siteName: "AWS US-West-2", imageRef: "ami-prod-web-2024.12", platform: platformAWS, state: "running", region: "us-west-2", tags: `{"instance_type": "t3.medium", "environment": "dr"}`},
+			{instanceID: "i-demo0007", name: "api-dr-01", siteName: "AWS US-West-2", imageRef: "ami-prod-api-2024.12", platform: platformAWS, state: "running", region: "us-west-2", tags: `{"instance_type": "t3.large", "environment": "dr"}`},
+			{instanceID: "i-demo0008", name: "db-dr-01", siteName: "AWS US-West-2", imageRef: "ami-prod-db-2024.11", platform: platformAWS, state: "stopped", region: "us-west-2", tags: `{"instance_type": "r5.xlarge", "environment": "dr"}`},
 			// EU-West-1
-			{instanceID: "i-demo0009", name: "dev-base-01", siteName: "AWS EU-West-1", imageRef: "ami-dev-base-2024.12", platform: "aws", state: "running", region: "eu-west-1", tags: `{"instance_type": "t3.small", "environment": "development"}`},
-			{instanceID: "i-demo0010", name: "staging-web-01", siteName: "AWS EU-West-1", imageRef: "ami-staging-web-2024.12", platform: "aws", state: "running", region: "eu-west-1", tags: `{"instance_type": "t3.medium", "environment": "staging"}`},
+			{instanceID: "i-demo0009", name: "dev-base-01", siteName: "AWS EU-West-1", imageRef: "ami-dev-base-2024.12", platform: platformAWS, state: "running", region: "eu-west-1", tags: `{"instance_type": "t3.small", "environment": "development"}`},
+			{instanceID: "i-demo0010", name: "staging-web-01", siteName: "AWS EU-West-1", imageRef: "ami-staging-web-2024.12", platform: platformAWS, state: "running", region: "eu-west-1", tags: `{"instance_type": "t3.medium", "environment": "staging"}`},
 		}
-	case "azure":
+	case platformAzure:
 		return []demoAsset{
 			// East US
-			{instanceID: "vm-demo0001", name: "vm-web-prod-01", siteName: "Azure East US", imageRef: "img-prod-web-2024.12", platform: "azure", state: "running", region: "eastus", tags: `{"vm_size": "Standard_D2s_v3", "environment": "production"}`},
-			{instanceID: "vm-demo0002", name: "vm-web-prod-02", siteName: "Azure East US", imageRef: "img-prod-web-2024.12", platform: "azure", state: "running", region: "eastus", tags: `{"vm_size": "Standard_D2s_v3", "environment": "production"}`},
-			{instanceID: "vm-demo0003", name: "vm-api-prod-01", siteName: "Azure East US", imageRef: "img-prod-api-2024.12", platform: "azure", state: "running", region: "eastus", tags: `{"vm_size": "Standard_D4s_v3", "environment": "production"}`},
-			{instanceID: "vm-demo0004", name: "vm-db-prod-01", siteName: "Azure East US", imageRef: "img-prod-db-2024.11", platform: "azure", state: "running", region: "eastus", tags: `{"vm_size": "Standard_E4s_v3", "environment": "production"}`},
+			{instanceID: "vm-demo0001", name: "vm-web-prod-01", siteName: "Azure East US", imageRef: "img-prod-web-2024.12", platform: platformAzure, state: "running", region: "eastus", tags: `{"vm_size": "Standard_D2s_v3", "environment": "production"}`},
+			{instanceID: "vm-demo0002", name: "vm-web-prod-02", siteName: "Azure East US", imageRef: "img-prod-web-2024.12", platform: platformAzure, state: "running", region: "eastus", tags: `{"vm_size": "Standard_D2s_v3", "environment": "production"}`},
+			{instanceID: "vm-demo0003", name: "vm-api-prod-01", siteName: "Azure East US", imageRef: "img-prod-api-2024.12", platform: platformAzure, state: "running", region: "eastus", tags: `{"vm_size": "Standard_D4s_v3", "environment": "production"}`},
+			{instanceID: "vm-demo0004", name: "vm-db-prod-01", siteName: "Azure East US", imageRef: "img-prod-db-2024.11", platform: platformAzure, state: "running", region: "eastus", tags: `{"vm_size": "Standard_E4s_v3", "environment": "production"}`},
 			// West Europe
-			{instanceID: "vm-demo0005", name: "vm-web-dr-01", siteName: "Azure West Europe", imageRef: "img-prod-web-2024.12", platform: "azure", state: "running", region: "westeurope", tags: `{"vm_size": "Standard_D2s_v3", "environment": "dr"}`},
-			{instanceID: "vm-demo0006", name: "vm-api-dr-01", siteName: "Azure West Europe", imageRef: "img-prod-api-2024.12", platform: "azure", state: "stopped", region: "westeurope", tags: `{"vm_size": "Standard_D4s_v3", "environment": "dr"}`},
+			{instanceID: "vm-demo0005", name: "vm-web-dr-01", siteName: "Azure West Europe", imageRef: "img-prod-web-2024.12", platform: platformAzure, state: "running", region: "westeurope", tags: `{"vm_size": "Standard_D2s_v3", "environment": "dr"}`},
+			{instanceID: "vm-demo0006", name: "vm-api-dr-01", siteName: "Azure West Europe", imageRef: "img-prod-api-2024.12", platform: platformAzure, state: "stopped", region: "westeurope", tags: `{"vm_size": "Standard_D4s_v3", "environment": "dr"}`},
 			// Southeast Asia
-			{instanceID: "vm-demo0007", name: "vm-dev-01", siteName: "Azure Southeast Asia", imageRef: "img-dev-base-2024.12", platform: "azure", state: "running", region: "southeastasia", tags: `{"vm_size": "Standard_D2s_v3", "environment": "development"}`},
+			{instanceID: "vm-demo0007", name: "vm-dev-01", siteName: "Azure Southeast Asia", imageRef: "img-dev-base-2024.12", platform: platformAzure, state: "running", region: "southeastasia", tags: `{"vm_size": "Standard_D2s_v3", "environment": "development"}`},
 		}
-	case "gcp":
+	case platformGCP:
 		return []demoAsset{
 			// US-Central1
-			{instanceID: "gce-demo0001", name: "gce-web-prod-01", siteName: "GCP US-Central1", imageRef: "gce-prod-web-2024.12", platform: "gcp", state: "running", region: "us-central1", tags: `{"machine_type": "n2-standard-2", "environment": "production"}`},
-			{instanceID: "gce-demo0002", name: "gce-web-prod-02", siteName: "GCP US-Central1", imageRef: "gce-prod-web-2024.12", platform: "gcp", state: "running", region: "us-central1", tags: `{"machine_type": "n2-standard-2", "environment": "production"}`},
-			{instanceID: "gce-demo0003", name: "gce-api-prod-01", siteName: "GCP US-Central1", imageRef: "gce-prod-api-2024.12", platform: "gcp", state: "running", region: "us-central1", tags: `{"machine_type": "n2-standard-4", "environment": "production"}`},
-			{instanceID: "gce-demo0004", name: "gce-db-prod-01", siteName: "GCP US-Central1", imageRef: "gce-prod-db-2024.11", platform: "gcp", state: "running", region: "us-central1", tags: `{"machine_type": "n2-highmem-4", "environment": "production"}`},
+			{instanceID: "gce-demo0001", name: "gce-web-prod-01", siteName: "GCP US-Central1", imageRef: "gce-prod-web-2024.12", platform: platformGCP, state: "running", region: "us-central1", tags: `{"machine_type": "n2-standard-2", "environment": "production"}`},
+			{instanceID: "gce-demo0002", name: "gce-web-prod-02", siteName: "GCP US-Central1", imageRef: "gce-prod-web-2024.12", platform: platformGCP, state: "running", region: "us-central1", tags: `{"machine_type": "n2-standard-2", "environment": "production"}`},
+			{instanceID: "gce-demo0003", name: "gce-api-prod-01", siteName: "GCP US-Central1", imageRef: "gce-prod-api-2024.12", platform: platformGCP, state: "running", region: "us-central1", tags: `{"machine_type": "n2-standard-4", "environment": "production"}`},
+			{instanceID: "gce-demo0004", name: "gce-db-prod-01", siteName: "GCP US-Central1", imageRef: "gce-prod-db-2024.11", platform: platformGCP, state: "running", region: "us-central1", tags: `{"machine_type": "n2-highmem-4", "environment": "production"}`},
 			// Europe-West1
-			{instanceID: "gce-demo0005", name: "gce-web-dr-01", siteName: "GCP Europe-West1", imageRef: "gce-prod-web-2024.12", platform: "gcp", state: "stopped", region: "europe-west1", tags: `{"machine_type": "n2-standard-2", "environment": "dr"}`},
+			{instanceID: "gce-demo0005", name: "gce-web-dr-01", siteName: "GCP Europe-West1", imageRef: "gce-prod-web-2024.12", platform: platformGCP, state: "stopped", region: "europe-west1", tags: `{"machine_type": "n2-standard-2", "environment": "dr"}`},
 			// Asia-East1
-			{instanceID: "gce-demo0006", name: "gce-dev-01", siteName: "GCP Asia-East1", imageRef: "gce-dev-base-2024.12", platform: "gcp", state: "running", region: "asia-east1", tags: `{"machine_type": "n2-standard-2", "environment": "development"}`},
+			{instanceID: "gce-demo0006", name: "gce-dev-01", siteName: "GCP Asia-East1", imageRef: "gce-dev-base-2024.12", platform: platformGCP, state: "running", region: "asia-east1", tags: `{"machine_type": "n2-standard-2", "environment": "development"}`},
 		}
 	default:
-		return getDemoAssets("aws")
+		return getDemoAssets(platformAWS)
 	}
+}
+
+// slugChar returns the slug-safe character for r, or (0, false) if it should
+// be treated as a separator, or (0, false/ignored) if it should be skipped.
+// Returns (ch, true) when ch should be appended directly, (0, false) for separators.
+func slugChar(r rune) (rune, bool) {
+	if r >= 'a' && r <= 'z' {
+		return r, true
+	}
+	if r >= 'A' && r <= 'Z' {
+		return r + 32, true // to lowercase
+	}
+	if r >= '0' && r <= '9' {
+		return r, true
+	}
+	return 0, false
 }
 
 // generateSlug generates a URL-friendly slug from a name.
 func generateSlug(name string) string {
 	slug := ""
 	for _, r := range name {
-		if r >= 'a' && r <= 'z' {
-			slug += string(r)
-		} else if r >= 'A' && r <= 'Z' {
-			slug += string(r + 32) // Convert to lowercase
-		} else if r >= '0' && r <= '9' {
-			slug += string(r)
+		if ch, ok := slugChar(r); ok {
+			slug += string(ch)
 		} else if r == ' ' || r == '-' || r == '_' {
-			if len(slug) > 0 && slug[len(slug)-1] != '-' {
+			if slug != "" && slug[len(slug)-1] != '-' {
 				slug += "-"
 			}
 		}
 	}
 	// Trim trailing dashes
-	for len(slug) > 0 && slug[len(slug)-1] == '-' {
+	for slug != "" && slug[len(slug)-1] == '-' {
 		slug = slug[:len(slug)-1]
 	}
 	// Add a short unique suffix to avoid collisions
 	suffix := uuid.New().String()[:8]
-	if len(slug) > 0 {
+	if slug != "" {
 		return slug + "-" + suffix
 	}
 	return suffix

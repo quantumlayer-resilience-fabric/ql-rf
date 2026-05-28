@@ -4,6 +4,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,9 +26,18 @@ func New(ctx context.Context, cfg config.DatabaseConfig) (*DB, error) {
 		return nil, fmt.Errorf("failed to parse database URL: %w", err)
 	}
 
-	// Configure pool settings
-	poolConfig.MaxConns = int32(cfg.MaxOpenConns)
-	poolConfig.MinConns = int32(cfg.MaxIdleConns)
+	// Configure pool settings. Connection counts are validated/clamped to a sane
+	// int32 range so the int->int32 narrowing below cannot overflow or go negative.
+	maxConns, err := boundedConnCount("max_open_conns", cfg.MaxOpenConns)
+	if err != nil {
+		return nil, err
+	}
+	minConns, err := boundedConnCount("max_idle_conns", cfg.MaxIdleConns)
+	if err != nil {
+		return nil, err
+	}
+	poolConfig.MaxConns = maxConns
+	poolConfig.MinConns = minConns
 	poolConfig.MaxConnLifetime = cfg.ConnMaxLifetime
 	poolConfig.MaxConnIdleTime = 5 * time.Minute
 	poolConfig.HealthCheckPeriod = 1 * time.Minute
@@ -44,6 +54,15 @@ func New(ctx context.Context, cfg config.DatabaseConfig) (*DB, error) {
 	}
 
 	return &DB{Pool: pool}, nil
+}
+
+// boundedConnCount converts a configured pool connection count to int32, rejecting
+// negative or out-of-range values so the narrowing conversion is provably safe.
+func boundedConnCount(name string, v int) (int32, error) {
+	if v < 0 || v > math.MaxInt32 {
+		return 0, fmt.Errorf("invalid %s: %d (must be between 0 and %d)", name, v, math.MaxInt32)
+	}
+	return int32(v), nil
 }
 
 // Close closes the database connection pool.
@@ -113,14 +132,18 @@ func (db *DB) WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 
 	defer func() {
 		if p := recover(); p != nil {
-			_ = tx.Rollback(ctx)
+			// best-effort rollback on panic; re-panic regardless of rollback outcome
+			rbErr := tx.Rollback(ctx)
+			if rbErr != nil {
+				panic(fmt.Errorf("panic during tx (rollback also failed: %w): %v", rbErr, p))
+			}
 			panic(p)
 		}
 	}()
 
 	if err := fn(tx); err != nil {
 		if rbErr := tx.Rollback(ctx); rbErr != nil {
-			return fmt.Errorf("tx error: %v, rollback error: %w", err, rbErr)
+			return fmt.Errorf("tx error: %w, rollback error: %w", err, rbErr)
 		}
 		return err
 	}
@@ -212,7 +235,9 @@ func (tc *TenantConn) BeginTx(ctx context.Context) (pgx.Tx, error) {
 	// Ensure RLS context is set within the transaction
 	_, err = tx.Exec(ctx, "SET LOCAL app.current_org_id = $1", tc.orgID.String())
 	if err != nil {
-		_ = tx.Rollback(ctx)
+		if rbErr := tx.Rollback(ctx); rbErr != nil {
+			return nil, fmt.Errorf("failed to set RLS context in transaction: %w (rollback: %w)", err, rbErr)
+		}
 		return nil, fmt.Errorf("failed to set RLS context in transaction: %w", err)
 	}
 
@@ -228,14 +253,18 @@ func (tc *TenantConn) WithTx(ctx context.Context, fn func(tx pgx.Tx) error) erro
 
 	defer func() {
 		if p := recover(); p != nil {
-			_ = tx.Rollback(ctx)
+			// best-effort rollback on panic; re-panic regardless of rollback outcome
+			rbErr := tx.Rollback(ctx)
+			if rbErr != nil {
+				panic(fmt.Errorf("panic during tx (rollback also failed: %w): %v", rbErr, p))
+			}
 			panic(p)
 		}
 	}()
 
 	if err := fn(tx); err != nil {
 		if rbErr := tx.Rollback(ctx); rbErr != nil {
-			return fmt.Errorf("tx error: %v, rollback error: %w", err, rbErr)
+			return fmt.Errorf("tx error: %w, rollback error: %w", err, rbErr)
 		}
 		return err
 	}

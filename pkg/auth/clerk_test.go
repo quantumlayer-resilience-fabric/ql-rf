@@ -44,7 +44,7 @@ func TestNewClerkVerifier(t *testing.T) {
 	}
 }
 
-func TestClerkVerifier_Verify(t *testing.T) {
+func TestClerkVerifier_Verify(t *testing.T) { //nolint:gocyclo // high complexity is acceptable for this comprehensive table-driven test covering all verify scenarios
 	// Generate a test RSA key pair
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -70,7 +70,9 @@ func TestClerkVerifier_Verify(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/jwks.json" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(jwks)
+			if encErr := json.NewEncoder(w).Encode(jwks); encErr != nil {
+				http.Error(w, "encode error", http.StatusInternalServerError)
+			}
 			return
 		}
 		http.NotFound(w, r)
@@ -240,7 +242,7 @@ func TestJwkToRSAPublicKey(t *testing.T) {
 			E:   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(publicKey.E)).Bytes()),
 		}
 
-		result, err := jwkToRSAPublicKey(jwk)
+		result, err := jwkToRSAPublicKey(&jwk)
 		if err != nil {
 			t.Fatalf("jwkToRSAPublicKey failed: %v", err)
 		}
@@ -261,7 +263,7 @@ func TestJwkToRSAPublicKey(t *testing.T) {
 			E:   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(publicKey.E)).Bytes()),
 		}
 
-		_, err := jwkToRSAPublicKey(jwk)
+		_, err := jwkToRSAPublicKey(&jwk)
 		if err == nil {
 			t.Error("expected error for invalid N encoding")
 		}
@@ -275,7 +277,7 @@ func TestJwkToRSAPublicKey(t *testing.T) {
 			E:   "not-valid-base64!!",
 		}
 
-		_, err := jwkToRSAPublicKey(jwk)
+		_, err := jwkToRSAPublicKey(&jwk)
 		if err == nil {
 			t.Error("expected error for invalid E encoding")
 		}
@@ -309,7 +311,9 @@ func TestClerkVerifier_KeyCaching(t *testing.T) {
 		if r.URL.Path == "/.well-known/jwks.json" {
 			fetchCount++
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(jwks)
+			if encErr := json.NewEncoder(w).Encode(jwks); encErr != nil {
+				http.Error(w, "encode error", http.StatusInternalServerError)
+			}
 			return
 		}
 		http.NotFound(w, r)

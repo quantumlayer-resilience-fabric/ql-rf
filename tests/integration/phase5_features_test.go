@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 
-	"github.com/quantumlayerhq/ql-rf/pkg/finops"
 	"github.com/quantumlayerhq/ql-rf/pkg/inspec"
 	"github.com/quantumlayerhq/ql-rf/pkg/sbom"
 )
@@ -27,7 +26,6 @@ func TestSBOM_GenerateSPDX(t *testing.T) {
 	ctx := context.Background()
 	gen := sbom.NewGenerator(testDB, nil)
 
-	
 	imageID := uuid.New()
 
 	req := sbom.GenerateRequest{
@@ -71,7 +69,6 @@ func TestSBOM_GenerateCycloneDX(t *testing.T) {
 	ctx := context.Background()
 	gen := sbom.NewGenerator(testDB, nil)
 
-	
 	imageID := uuid.New()
 
 	req := sbom.GenerateRequest{
@@ -110,10 +107,10 @@ func TestSBOM_ParseSPDX(t *testing.T) {
 
 	// Create minimal SPDX document
 	spdxDoc := map[string]interface{}{
-		"spdxVersion":  "SPDX-2.3",
-		"dataLicense":  "CC0-1.0",
-		"SPDXID":       "SPDXRef-DOCUMENT",
-		"name":         "test-sbom",
+		"spdxVersion": "SPDX-2.3",
+		"dataLicense": "CC0-1.0",
+		"SPDXID":      "SPDXRef-DOCUMENT",
+		"name":        "test-sbom",
 		"creationInfo": map[string]interface{}{
 			"created": time.Now().Format(time.RFC3339),
 		},
@@ -480,382 +477,30 @@ func TestFinOps_CollectCosts(t *testing.T) {
 	// Note: FinOps uses pgxpool.Pool instead of sql.DB
 	// These tests would need a separate test setup with pgxpool
 	t.Skip("FinOps requires pgxpool.Pool connection (different from sql.DB)")
-
-	ctx := context.Background()
-	_ = ctx // Suppress unused warning
-	// costSvc := finops.NewCostService(testDB)
-
-	_ = uuid.New() // orgID
-
-	// Record costs
-	_ = []finops.CostRecord{
-		{
-			OrgID:        uuid.New(),
-			ResourceID:   "i-1234567890",
-			ResourceType: "ec2_instance",
-			ResourceName: "web-server-1",
-			Cloud:        "aws",
-			Service:      "ec2",
-			Region:       "us-east-1",
-			Cost:         100.50,
-			Currency:     "USD",
-			UsageHours:   720,
-			RecordedAt:   time.Now(),
-		},
-		{
-			OrgID:        uuid.New(),
-			ResourceID:   "rds-abcdefgh",
-			ResourceType: "rds_instance",
-			ResourceName: "prod-db",
-			Cloud:        "aws",
-			Service:      "rds",
-			Region:       "us-east-1",
-			Cost:         250.75,
-			Currency:     "USD",
-			UsageHours:   720,
-			RecordedAt:   time.Now(),
-		},
-	}
-
-	/*
-	for _, cost := range costs {
-		err := costSvc.RecordCost(ctx, cost)
-		if err != nil {
-			t.Fatalf("RecordCost() error = %v", err)
-		}
-	}
-
-	// Verify cost summary
-	timeRange := finops.NewTimeRangeLast(30)
-	summary, err := costSvc.GetCostSummary(ctx, orgID, timeRange)
-	if err != nil {
-		t.Fatalf("GetCostSummary() error = %v", err)
-	}
-
-	if summary.TotalCost == 0 {
-		t.Error("Expected non-zero total cost")
-	}
-
-	if summary.Currency != "USD" {
-		t.Errorf("Expected currency USD, got %s", summary.Currency)
-	}
-	*/
 }
 
 func TestFinOps_AggregateByService(t *testing.T) {
 	t.Skip("FinOps requires pgxpool.Pool connection (different from sql.DB)")
-
-	if testDB == nil {
-		t.Skip("Database not available")
-	}
-
-	ctx := context.Background()
-	_ = ctx
-	// costSvc := finops.NewCostService(testDB)
-
-	_ = uuid.New() // orgID
-
-	// Record costs for different services
-	_ = map[string]float64{
-		"ec2": 500.0,
-		"rds": 300.0,
-		"s3":  100.0,
-	}
-
-	/*
-	for service, cost := range services {
-		record := finops.CostRecord{
-			OrgID:        uuid.New(),
-			ResourceID:   "resource-" + service,
-			ResourceType: service + "_instance",
-			Cloud:        "aws",
-			Service:      service,
-			Cost:         cost,
-			Currency:     "USD",
-			RecordedAt:   time.Now(),
-		}
-		err := costSvc.RecordCost(ctx, record)
-		if err != nil {
-			t.Fatalf("RecordCost() error = %v", err)
-		}
-	}
-
-	// Get breakdown by service
-	timeRange := finops.NewTimeRangeLast(30)
-	breakdown, err := costSvc.GetCostBreakdown(ctx, orgID, "service", timeRange)
-	if err != nil {
-		t.Fatalf("GetCostBreakdown() error = %v", err)
-	}
-
-	if len(breakdown.Items) == 0 {
-		t.Error("Expected breakdown items")
-	}
-
-	// Verify total
-	expectedTotal := 900.0
-	if breakdown.TotalCost < expectedTotal*0.9 { // Allow 10% variance
-		t.Errorf("Expected total cost around %f, got %f", expectedTotal, breakdown.TotalCost)
-	}
-	*/
 }
 
 func TestFinOps_AggregateByTag(t *testing.T) {
 	t.Skip("FinOps requires pgxpool.Pool connection (different from sql.DB)")
-
-	if testDB == nil {
-		t.Skip("Database not available")
-	}
-
-	ctx := context.Background()
-	_ = ctx
-	// costSvc := finops.NewCostService(testDB)
-
-	_ = uuid.New() // orgID
-
-	// Record costs with tags
-	_ = []finops.CostRecord{
-		{
-			OrgID:        uuid.New(),
-			ResourceID:   "res-1",
-			ResourceType: "ec2_instance",
-			Cloud:        "aws",
-			Cost:         100.0,
-			Currency:     "USD",
-			Tags:         map[string]string{"environment": "production", "team": "backend"},
-			RecordedAt:   time.Now(),
-		},
-		{
-			OrgID:        uuid.New(),
-			ResourceID:   "res-2",
-			ResourceType: "ec2_instance",
-			Cloud:        "aws",
-			Cost:         50.0,
-			Currency:     "USD",
-			Tags:         map[string]string{"environment": "staging", "team": "frontend"},
-			RecordedAt:   time.Now(),
-		},
-	}
-
-	/*
-	for _, record := range records {
-		err := costSvc.RecordCost(ctx, record)
-		if err != nil {
-			t.Fatalf("RecordCost() error = %v", err)
-		}
-	}
-
-	// Query resources with costs
-	timeRange := finops.NewTimeRangeLast(30)
-	resources, err := costSvc.GetCostByResource(ctx, orgID, "", timeRange)
-	if err != nil {
-		t.Fatalf("GetCostByResource() error = %v", err)
-	}
-
-	if len(resources) == 0 {
-		t.Error("Expected resources with tags")
-	}
-
-	// Verify tags are preserved
-	foundTags := false
-	for _, res := range resources {
-		if len(res.Tags) > 0 {
-			foundTags = true
-			break
-		}
-	}
-
-	if !foundTags {
-		t.Error("Expected at least one resource with tags")
-	}
-	*/
 }
 
 func TestFinOps_CreateBudget(t *testing.T) {
 	t.Skip("FinOps requires pgxpool.Pool connection (different from sql.DB)")
-
-	if testDB == nil {
-		t.Skip("Database not available")
-	}
-
-	ctx := context.Background()
-	_ = ctx
-	// costSvc := finops.NewCostService(testDB)
-
-	_ = uuid.New() // orgID
-
-	_ = finops.CostBudget{
-		OrgID:          uuid.New(),
-		Name:           "Monthly AWS Budget",
-		Description:    "Budget for AWS resources",
-		Amount:         10000.0,
-		Currency:       "USD",
-		Period:         "monthly",
-		Scope:          "cloud",
-		ScopeValue:     "aws",
-		AlertThreshold: 80.0,
-		StartDate:      time.Now(),
-		CreatedBy:      "test-user",
-	}
-
-	/*
-	created, err := costSvc.CreateBudget(ctx, budget)
-	if err != nil {
-		t.Fatalf("CreateBudget() error = %v", err)
-	}
-
-	if created.ID == uuid.Nil {
-		t.Error("Expected non-nil budget ID")
-	}
-
-	if created.Amount != 10000.0 {
-		t.Errorf("Expected amount 10000.0, got %f", created.Amount)
-	}
-
-	if !created.Active {
-		t.Error("Expected budget to be active")
-	}
-	*/
 }
 
 func TestFinOps_BudgetAlerts(t *testing.T) {
 	t.Skip("FinOps requires pgxpool.Pool connection (different from sql.DB)")
-
-	if testDB == nil {
-		t.Skip("Database not available")
-	}
-
-	ctx := context.Background()
-	_ = ctx
-	// costSvc := finops.NewCostService(testDB)
-
-	_ = uuid.New() // orgID
-
-	// Create budget
-	_ = finops.CostBudget{
-		OrgID:          uuid.New(),
-		Name:           "Test Budget",
-		Amount:         1000.0,
-		Currency:       "USD",
-		Period:         "monthly",
-		Scope:          "organization",
-		AlertThreshold: 80.0,
-		StartDate:      time.Now(),
-		CreatedBy:      "test-user",
-	}
-
-	/*
-	created, err := costSvc.CreateBudget(ctx, budget)
-	if err != nil {
-		t.Fatalf("CreateBudget() error = %v", err)
-	}
-
-	// Create alert
-	alert := finops.CostAlert{
-		OrgID:       orgID,
-		BudgetID:    created.ID,
-		BudgetName:  created.Name,
-		Amount:      850.0,
-		BudgetLimit: 1000.0,
-		Percentage:  85.0,
-		Currency:    "USD",
-		Message:     "Budget exceeded 80% threshold",
-		Severity:    "warning",
-	}
-
-	err = costSvc.CreateCostAlert(ctx, alert)
-	if err != nil {
-		t.Fatalf("CreateCostAlert() error = %v", err)
-	}
-
-	// Verify alert was created
-	if alert.ID == uuid.Nil {
-		t.Error("Expected non-nil alert ID")
-	}
-	*/
 }
 
 func TestFinOps_GenerateRecommendations(t *testing.T) {
 	t.Skip("FinOps requires pgxpool.Pool connection (different from sql.DB)")
-
-	if testDB == nil {
-		t.Skip("Database not available")
-	}
-
-	ctx := context.Background()
-	_ = ctx
-	// costSvc := finops.NewCostService(testDB)
-
-	_ = uuid.New() // orgID
-
-	// Get recommendations (may be empty initially)
-	/*
-	recommendations, err := costSvc.GetCostOptimizationRecommendations(ctx, orgID)
-	if err != nil {
-		t.Fatalf("GetCostOptimizationRecommendations() error = %v", err)
-	}
-
-	// Recommendations list should not be nil
-	if recommendations == nil {
-		t.Error("Expected non-nil recommendations list")
-	}
-
-	t.Logf("Found %d recommendations", len(recommendations))
-	*/
 }
 
 func TestFinOps_ForecastCosts(t *testing.T) {
 	t.Skip("FinOps requires pgxpool.Pool connection (different from sql.DB)")
-
-	if testDB == nil {
-		t.Skip("Database not available")
-	}
-
-	ctx := context.Background()
-	_ = ctx
-	// costSvc := finops.NewCostService(testDB)
-
-	_ = uuid.New() // orgID
-
-	// Record historical costs for trend analysis
-	/*
-	baseDate := time.Now().AddDate(0, 0, -30)
-	for i := 0; i < 30; i++ {
-		record := finops.CostRecord{
-			OrgID:        uuid.New(),
-			ResourceID:   "resource-1",
-			ResourceType: "ec2_instance",
-			Cloud:        "aws",
-			Cost:         100.0 + float64(i)*2, // Increasing trend
-			Currency:     "USD",
-			RecordedAt:   baseDate.AddDate(0, 0, i),
-		}
-		err := costSvc.RecordCost(ctx, record)
-		if err != nil {
-			t.Fatalf("RecordCost() error = %v", err)
-		}
-	}
-
-	// Get cost trend
-	trend, err := costSvc.GetCostTrend(ctx, orgID, 30)
-	if err != nil {
-		t.Fatalf("GetCostTrend() error = %v", err)
-	}
-
-	if len(trend) == 0 {
-		t.Error("Expected trend data")
-	}
-
-	t.Logf("Trend has %d data points", len(trend))
-
-	// Verify trend is increasing
-	if len(trend) > 1 {
-		first := trend[0].Cost
-		last := trend[len(trend)-1].Cost
-		if last <= first {
-			t.Logf("Warning: Expected increasing trend, first=%f, last=%f", first, last)
-		}
-	}
-	*/
 }
 
 // =============================================================================
@@ -1222,22 +867,22 @@ func TestInSpec_CancelRun(t *testing.T) {
 	}
 
 	// Cancel the run
-	err = svc.UpdateRunStatus(ctx, run.ID, inspec.RunStatusCancelled, "Cancelled by user")
+	err = svc.UpdateRunStatus(ctx, run.ID, inspec.RunStatusCancelled, "Canceled by user")
 	if err != nil {
 		t.Fatalf("UpdateRunStatus() error = %v", err)
 	}
 
 	// Verify cancellation
-	cancelled, err := svc.GetRun(ctx, run.ID)
+	canceled, err := svc.GetRun(ctx, run.ID)
 	if err != nil {
 		t.Fatalf("GetRun() error = %v", err)
 	}
 
-	if cancelled.Status != inspec.RunStatusCancelled {
-		t.Errorf("Expected status cancelled, got %s", cancelled.Status)
+	if canceled.Status != inspec.RunStatusCancelled {
+		t.Errorf("Expected status canceled, got %s", canceled.Status)
 	}
 
-	if cancelled.ErrorMessage != "Cancelled by user" {
-		t.Errorf("Expected error message 'Cancelled by user', got %s", cancelled.ErrorMessage)
+	if canceled.ErrorMessage != "Canceled by user" {
+		t.Errorf("Expected error message 'Cancelled by user', got %s", canceled.ErrorMessage)
 	}
 }

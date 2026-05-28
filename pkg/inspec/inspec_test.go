@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestNewService tests service initialization
+// TestNewService tests service initialization.
 func TestNewService(t *testing.T) {
 	db, _, err := sqlmock.New()
 	if err != nil {
@@ -21,14 +21,14 @@ func TestNewService(t *testing.T) {
 
 	svc := NewService(db)
 	if svc == nil {
-		t.Error("NewService() returned nil")
+		t.Fatal("NewService() returned nil")
 	}
 	if svc.db == nil {
 		t.Error("NewService() db is nil")
 	}
 }
 
-// TestCreateProfile tests profile creation
+// TestCreateProfile tests profile creation.
 func TestCreateProfile(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -111,7 +111,7 @@ func TestCreateProfile(t *testing.T) {
 	}
 }
 
-// TestGetProfile tests profile retrieval
+// TestGetProfile tests profile retrieval.
 func TestGetProfile(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -196,7 +196,7 @@ func TestGetProfile(t *testing.T) {
 	}
 }
 
-// TestGetAvailableProfiles tests listing available profiles
+// TestGetAvailableProfiles tests listing available profiles.
 func TestGetAvailableProfiles(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -274,7 +274,7 @@ func TestGetAvailableProfiles(t *testing.T) {
 	}
 }
 
-// TestCreateRun tests run creation
+// TestCreateRun tests run creation.
 func TestCreateRun(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -342,7 +342,7 @@ func TestCreateRun(t *testing.T) {
 	}
 }
 
-// TestUpdateRunStatus tests run status updates
+// TestUpdateRunStatus tests run status updates.
 func TestUpdateRunStatus(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -419,7 +419,7 @@ func TestUpdateRunStatus(t *testing.T) {
 	}
 }
 
-// TestCompleteRun tests completing a run with statistics
+// TestCompleteRun tests completing a run with statistics.
 func TestCompleteRun(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -492,7 +492,7 @@ func TestCompleteRun(t *testing.T) {
 	}
 }
 
-// TestParseResults tests parsing InSpec JSON output
+// TestParseResults tests parsing InSpec JSON output.
 func TestParseResults(t *testing.T) {
 	db, _, err := sqlmock.New()
 	if err != nil {
@@ -581,7 +581,7 @@ func TestParseResults(t *testing.T) {
 	}
 }
 
-// TestSaveResult tests saving individual control results
+// TestSaveResult tests saving individual control results.
 func TestSaveResult(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -647,7 +647,7 @@ func TestSaveResult(t *testing.T) {
 	}
 }
 
-// TestMapToControls tests mapping InSpec results to compliance controls
+// TestMapToControls tests mapping InSpec results to compliance controls.
 func TestMapToControls(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -714,7 +714,7 @@ func TestMapToControls(t *testing.T) {
 	}
 }
 
-// TestCreateControlMapping tests control mapping creation
+// TestCreateControlMapping tests control mapping creation.
 func TestCreateControlMapping(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -783,7 +783,7 @@ func TestCreateControlMapping(t *testing.T) {
 	}
 }
 
-// TestListRuns tests listing runs for an organization
+// TestListRuns tests listing runs for an organization.
 func TestListRuns(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -866,7 +866,7 @@ func TestListRuns(t *testing.T) {
 	}
 }
 
-// TestRunStatus tests RunStatus type
+// TestRunStatus tests RunStatus type.
 func TestRunStatus(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -889,7 +889,7 @@ func TestRunStatus(t *testing.T) {
 	}
 }
 
-// TestResultStatus tests ResultStatus type
+// TestResultStatus tests ResultStatus type.
 func TestResultStatus(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -911,7 +911,7 @@ func TestResultStatus(t *testing.T) {
 	}
 }
 
-// TestInSpecResultStructure tests InSpec result structure parsing
+// TestInSpecResultStructure tests InSpec result structure parsing.
 func TestInSpecResultStructure(t *testing.T) {
 	jsonData := `{
 		"platform": {

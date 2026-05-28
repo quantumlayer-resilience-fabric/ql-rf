@@ -9,6 +9,23 @@ import (
 	"time"
 )
 
+// runExpectingError runs fn through the breaker and asserts an error is returned
+// (the injected failure, or a breaker-open rejection once tripped).
+func runExpectingError(t *testing.T, b *Breaker, fn func() (any, error)) {
+	t.Helper()
+	if _, err := b.Execute(context.Background(), fn); err == nil {
+		t.Fatal("expected an error from breaker Execute, got nil")
+	}
+}
+
+// runExpectingSuccess runs fn through the breaker and asserts no error is returned.
+func runExpectingSuccess(t *testing.T, b *Breaker, fn func() (any, error)) {
+	t.Helper()
+	if _, err := b.Execute(context.Background(), fn); err != nil {
+		t.Fatalf("expected success from breaker Execute, got %v", err)
+	}
+}
+
 func TestBreaker_ClosedState(t *testing.T) {
 	b := NewBreaker(&BreakerConfig{
 		Name:        "test",
@@ -46,7 +63,7 @@ func TestBreaker_OpensAfterFailures(t *testing.T) {
 
 	// Cause failures
 	for i := 0; i < 3; i++ {
-		_, _ = b.Execute(context.Background(), func() (any, error) {
+		runExpectingError(t, b, func() (any, error) {
 			return nil, testErr
 		})
 	}
@@ -83,7 +100,7 @@ func TestBreaker_TransitionsToHalfOpen(t *testing.T) {
 
 	// Trip the breaker
 	for i := 0; i < 2; i++ {
-		_, _ = b.Execute(context.Background(), func() (any, error) {
+		runExpectingError(t, b, func() (any, error) {
 			return nil, testErr
 		})
 	}
@@ -118,7 +135,7 @@ func TestBreaker_ClosesAfterHalfOpenSuccess(t *testing.T) {
 	})
 
 	// Trip the breaker
-	_, _ = b.Execute(context.Background(), func() (any, error) {
+	runExpectingError(t, b, func() (any, error) {
 		return nil, errors.New("fail")
 	})
 
@@ -153,14 +170,14 @@ func TestBreaker_ReOpensOnHalfOpenFailure(t *testing.T) {
 	})
 
 	// Trip the breaker
-	_, _ = b.Execute(context.Background(), func() (any, error) {
+	runExpectingError(t, b, func() (any, error) {
 		return nil, errors.New("fail")
 	})
 
 	time.Sleep(20 * time.Millisecond)
 
 	// Fail in half-open
-	_, _ = b.Execute(context.Background(), func() (any, error) {
+	runExpectingError(t, b, func() (any, error) {
 		return nil, errors.New("fail again")
 	})
 
@@ -180,7 +197,7 @@ func TestBreaker_SuccessResetsFailureCount(t *testing.T) {
 
 	// Two failures
 	for i := 0; i < 2; i++ {
-		_, _ = b.Execute(context.Background(), func() (any, error) {
+		runExpectingError(t, b, func() (any, error) {
 			return nil, testErr
 		})
 	}
@@ -190,7 +207,7 @@ func TestBreaker_SuccessResetsFailureCount(t *testing.T) {
 	}
 
 	// Success should reset
-	_, _ = b.Execute(context.Background(), func() (any, error) {
+	runExpectingSuccess(t, b, func() (any, error) {
 		return "success", nil
 	})
 
@@ -208,14 +225,14 @@ func TestBreaker_Metrics(t *testing.T) {
 
 	// Some successful calls
 	for i := 0; i < 3; i++ {
-		_, _ = b.Execute(context.Background(), func() (any, error) {
+		runExpectingSuccess(t, b, func() (any, error) {
 			return "ok", nil
 		})
 	}
 
 	// Some failures
 	for i := 0; i < 2; i++ {
-		_, _ = b.Execute(context.Background(), func() (any, error) {
+		runExpectingError(t, b, func() (any, error) {
 			return nil, errors.New("fail")
 		})
 	}
@@ -248,7 +265,7 @@ func TestBreaker_Reset(t *testing.T) {
 
 	// Trip the breaker
 	for i := 0; i < 2; i++ {
-		_, _ = b.Execute(context.Background(), func() (any, error) {
+		runExpectingError(t, b, func() (any, error) {
 			return nil, errors.New("fail")
 		})
 	}
@@ -284,7 +301,7 @@ func TestBreaker_CustomIsSuccessful(t *testing.T) {
 
 	// Soft errors shouldn't count as failures
 	for i := 0; i < 5; i++ {
-		_, _ = b.Execute(context.Background(), func() (any, error) {
+		runExpectingError(t, b, func() (any, error) {
 			return nil, softErr
 		})
 	}
@@ -308,7 +325,7 @@ func TestBreaker_OnStateChange(t *testing.T) {
 		Name:        "test",
 		MaxFailures: 1,
 		Timeout:     10 * time.Millisecond,
-		OnStateChange: func(name string, from, to State) {
+		OnStateChange: func(_ string, from, to State) {
 			mu.Lock()
 			transitions = append(transitions, struct{ from, to State }{from, to})
 			mu.Unlock()
@@ -316,14 +333,14 @@ func TestBreaker_OnStateChange(t *testing.T) {
 	})
 
 	// Trip the breaker
-	_, _ = b.Execute(context.Background(), func() (any, error) {
+	runExpectingError(t, b, func() (any, error) {
 		return nil, errors.New("fail")
 	})
 
 	time.Sleep(20 * time.Millisecond)
 
 	// Transition to half-open
-	_, _ = b.Execute(context.Background(), func() (any, error) {
+	runExpectingSuccess(t, b, func() (any, error) {
 		return "ok", nil
 	})
 
@@ -481,7 +498,7 @@ func TestRegistry_ResetAll(t *testing.T) {
 	// Create and trip breakers
 	for _, name := range []string{"a", "b", "c"} {
 		b := r.Get(name)
-		_, _ = b.Execute(context.Background(), func() (any, error) {
+		runExpectingError(t, b, func() (any, error) {
 			return nil, errors.New("fail")
 		})
 	}

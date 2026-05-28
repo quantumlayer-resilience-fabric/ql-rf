@@ -9,17 +9,17 @@ import (
 
 // Site represents a logical site/datacenter/location.
 type Site struct {
-	ID                 uuid.UUID       `json:"id" db:"id"`
-	OrgID              uuid.UUID       `json:"orgId" db:"org_id"`
-	Name               string          `json:"name" db:"name"`
-	Region             string          `json:"region" db:"region"`
-	Platform           Platform        `json:"platform" db:"platform"`
-	Environment        string          `json:"environment" db:"environment"`
-	DRPairedSiteID     *uuid.UUID      `json:"drPairedSiteId,omitempty" db:"dr_paired_site_id"`
-	LastSyncAt         *time.Time      `json:"lastSyncAt,omitempty" db:"last_sync_at"`
-	Metadata           json.RawMessage `json:"metadata,omitempty" db:"metadata"`
-	CreatedAt          time.Time       `json:"createdAt" db:"created_at"`
-	UpdatedAt          time.Time       `json:"updatedAt" db:"updated_at"`
+	ID             uuid.UUID       `json:"id" db:"id"`
+	OrgID          uuid.UUID       `json:"orgId" db:"org_id"`
+	Name           string          `json:"name" db:"name"`
+	Region         string          `json:"region" db:"region"`
+	Platform       Platform        `json:"platform" db:"platform"`
+	Environment    string          `json:"environment" db:"environment"`
+	DRPairedSiteID *uuid.UUID      `json:"drPairedSiteId,omitempty" db:"dr_paired_site_id"`
+	LastSyncAt     *time.Time      `json:"lastSyncAt,omitempty" db:"last_sync_at"`
+	Metadata       json.RawMessage `json:"metadata,omitempty" db:"metadata"`
+	CreatedAt      time.Time       `json:"createdAt" db:"created_at"`
+	UpdatedAt      time.Time       `json:"updatedAt" db:"updated_at"`
 
 	// Computed fields (not stored in DB)
 	AssetCount         int     `json:"assetCount"`

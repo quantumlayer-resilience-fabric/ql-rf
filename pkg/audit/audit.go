@@ -31,11 +31,11 @@ func NewLogger(db *pgxpool.Pool, log *logger.Logger) *Logger {
 // Entry represents an audit log entry.
 type Entry struct {
 	// Actor information
-	ActorType     ActorType `json:"actor_type"`
-	ActorID       string    `json:"actor_id"`
-	ActorEmail    string    `json:"actor_email,omitempty"`
-	ActorIP       net.IP    `json:"actor_ip,omitempty"`
-	ActorUserAgent string   `json:"actor_user_agent,omitempty"`
+	ActorType      ActorType `json:"actor_type"`
+	ActorID        string    `json:"actor_id"`
+	ActorEmail     string    `json:"actor_email,omitempty"`
+	ActorIP        net.IP    `json:"actor_ip,omitempty"`
+	ActorUserAgent string    `json:"actor_user_agent,omitempty"`
 
 	// Organization context
 	OrgID uuid.UUID `json:"org_id"`
@@ -83,6 +83,7 @@ type Change struct {
 // ActorType defines who performed the action.
 type ActorType string
 
+// ActorType constants.
 const (
 	ActorTypeUser   ActorType = "user"
 	ActorTypeSystem ActorType = "system"
@@ -93,6 +94,7 @@ const (
 // ActionCategory classifies the action type.
 type ActionCategory string
 
+// ActionCategory constants.
 const (
 	ActionCategoryRead    ActionCategory = "read"
 	ActionCategoryCreate  ActionCategory = "create"
@@ -104,6 +106,7 @@ const (
 // RiskLevel classifies the risk of the action.
 type RiskLevel string
 
+// RiskLevel constants.
 const (
 	RiskLevelLow      RiskLevel = "low"
 	RiskLevelMedium   RiskLevel = "medium"
@@ -114,6 +117,7 @@ const (
 // Status indicates the outcome of the action.
 type Status string
 
+// Status constants.
 const (
 	StatusSuccess Status = "success"
 	StatusFailure Status = "failure"
@@ -121,7 +125,7 @@ const (
 )
 
 // Log writes an audit entry to the database.
-func (l *Logger) Log(ctx context.Context, entry Entry) error {
+func (l *Logger) Log(ctx context.Context, entry *Entry) error {
 	changesJSON, err := json.Marshal(entry.Changes)
 	if err != nil {
 		changesJSON = []byte("{}")
@@ -178,11 +182,13 @@ func (l *Logger) Log(ctx context.Context, entry Entry) error {
 	return nil
 }
 
-// LogAsync writes an audit entry asynchronously (fire and forget).
-func (l *Logger) LogAsync(ctx context.Context, entry Entry) {
+// LogAsync writes an audit entry asynchronously (fire and forget). The write must
+// survive the caller's request, so it detaches from request cancellation with
+// context.WithoutCancel while preserving context values (trace IDs, etc.).
+func (l *Logger) LogAsync(ctx context.Context, entry *Entry) {
+	detached := context.WithoutCancel(ctx)
 	go func() {
-		// Create a new context with timeout since the original may be cancelled
-		logCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		logCtx, cancel := context.WithTimeout(detached, 5*time.Second)
 		defer cancel()
 
 		if err := l.Log(logCtx, entry); err != nil {
@@ -191,8 +197,59 @@ func (l *Logger) LogAsync(ctx context.Context, entry Entry) {
 	}()
 }
 
+// buildQueryFilters appends WHERE clause fragments and args based on QueryFilters.
+func buildQueryFilters(q string, a []interface{}, filters *QueryFilters) (outQuery string, outArgs []interface{}) {
+	outQuery = q
+	outArgs = a
+	argIdx := len(a) + 1
+
+	if filters.ActorID != "" {
+		outQuery += fmt.Sprintf(" AND actor_id = $%d", argIdx)
+		outArgs = append(outArgs, filters.ActorID)
+		argIdx++
+	}
+	if filters.Action != "" {
+		outQuery += fmt.Sprintf(" AND action = $%d", argIdx)
+		outArgs = append(outArgs, filters.Action)
+		argIdx++
+	}
+	if filters.ResourceType != "" {
+		outQuery += fmt.Sprintf(" AND resource_type = $%d", argIdx)
+		outArgs = append(outArgs, filters.ResourceType)
+		argIdx++
+	}
+	if filters.ResourceID != "" {
+		outQuery += fmt.Sprintf(" AND resource_id = $%d", argIdx)
+		outArgs = append(outArgs, filters.ResourceID)
+		argIdx++
+	}
+	if filters.RiskLevel != "" {
+		outQuery += fmt.Sprintf(" AND risk_level = $%d", argIdx)
+		outArgs = append(outArgs, filters.RiskLevel)
+		argIdx++
+	}
+	if !filters.StartTime.IsZero() {
+		outQuery += fmt.Sprintf(" AND timestamp >= $%d", argIdx)
+		outArgs = append(outArgs, filters.StartTime)
+		argIdx++
+	}
+	if !filters.EndTime.IsZero() {
+		outQuery += fmt.Sprintf(" AND timestamp <= $%d", argIdx)
+		outArgs = append(outArgs, filters.EndTime)
+		argIdx++
+	}
+	if filters.ComplianceOnly {
+		outQuery += " AND compliance_relevant = TRUE"
+	}
+	if filters.Status != "" {
+		outQuery += fmt.Sprintf(" AND status = $%d", argIdx)
+		outArgs = append(outArgs, filters.Status)
+	}
+	return outQuery, outArgs
+}
+
 // Query retrieves audit logs with filters.
-func (l *Logger) Query(ctx context.Context, filters QueryFilters) ([]AuditLogRow, error) {
+func (l *Logger) Query(ctx context.Context, filters *QueryFilters) ([]LogRow, error) {
 	query := `
 		SELECT
 			id, timestamp, actor_type, actor_id, actor_email, actor_ip_address,
@@ -206,59 +263,8 @@ func (l *Logger) Query(ctx context.Context, filters QueryFilters) ([]AuditLogRow
 		WHERE org_id = $1
 	`
 	args := []interface{}{filters.OrgID}
-	argIdx := 2
 
-	if filters.ActorID != "" {
-		query += fmt.Sprintf(" AND actor_id = $%d", argIdx)
-		args = append(args, filters.ActorID)
-		argIdx++
-	}
-
-	if filters.Action != "" {
-		query += fmt.Sprintf(" AND action = $%d", argIdx)
-		args = append(args, filters.Action)
-		argIdx++
-	}
-
-	if filters.ResourceType != "" {
-		query += fmt.Sprintf(" AND resource_type = $%d", argIdx)
-		args = append(args, filters.ResourceType)
-		argIdx++
-	}
-
-	if filters.ResourceID != "" {
-		query += fmt.Sprintf(" AND resource_id = $%d", argIdx)
-		args = append(args, filters.ResourceID)
-		argIdx++
-	}
-
-	if filters.RiskLevel != "" {
-		query += fmt.Sprintf(" AND risk_level = $%d", argIdx)
-		args = append(args, filters.RiskLevel)
-		argIdx++
-	}
-
-	if !filters.StartTime.IsZero() {
-		query += fmt.Sprintf(" AND timestamp >= $%d", argIdx)
-		args = append(args, filters.StartTime)
-		argIdx++
-	}
-
-	if !filters.EndTime.IsZero() {
-		query += fmt.Sprintf(" AND timestamp <= $%d", argIdx)
-		args = append(args, filters.EndTime)
-		argIdx++
-	}
-
-	if filters.ComplianceOnly {
-		query += " AND compliance_relevant = TRUE"
-	}
-
-	if filters.Status != "" {
-		query += fmt.Sprintf(" AND status = $%d", argIdx)
-		args = append(args, filters.Status)
-		argIdx++
-	}
+	query, args = buildQueryFilters(query, args, filters)
 
 	query += " ORDER BY timestamp DESC"
 
@@ -278,9 +284,9 @@ func (l *Logger) Query(ctx context.Context, filters QueryFilters) ([]AuditLogRow
 	}
 	defer rows.Close()
 
-	var results []AuditLogRow
+	results := make([]LogRow, 0)
 	for rows.Next() {
-		var row AuditLogRow
+		var row LogRow
 		var changes, context []byte
 		var actorIP *string
 		var requestID *uuid.UUID
@@ -306,8 +312,12 @@ func (l *Logger) Query(ctx context.Context, filters QueryFilters) ([]AuditLogRow
 			row.RequestID = *requestID
 		}
 
-		json.Unmarshal(changes, &row.Changes)
-		json.Unmarshal(context, &row.Context)
+		if err = json.Unmarshal(changes, &row.Changes); err != nil {
+			l.log.Warn("failed to unmarshal changes", "error", err)
+		}
+		if err = json.Unmarshal(context, &row.Context); err != nil {
+			l.log.Warn("failed to unmarshal context", "error", err)
+		}
 
 		results = append(results, row)
 	}
@@ -384,8 +394,8 @@ type QueryFilters struct {
 	Offset         int
 }
 
-// AuditLogRow represents a row from the audit_logs table.
-type AuditLogRow struct {
+// LogRow represents a row from the audit_logs table.
+type LogRow struct {
 	ID                 uuid.UUID              `json:"id"`
 	Timestamp          time.Time              `json:"timestamp"`
 	ActorType          string                 `json:"actor_type"`
@@ -430,46 +440,46 @@ type IntegrityViolation struct {
 	ActualHash   string    `json:"actual_hash"`
 }
 
-// Predefined action strings for consistency
+// Predefined action strings for consistency.
 const (
-	// Asset actions
+	// Asset actions.
 	ActionAssetCreate = "asset.create"
 	ActionAssetUpdate = "asset.update"
 	ActionAssetDelete = "asset.delete"
 	ActionAssetView   = "asset.view"
 
-	// Image actions
-	ActionImageCreate  = "image.create"
-	ActionImagePromote = "image.promote"
+	// Image actions.
+	ActionImageCreate    = "image.create"
+	ActionImagePromote   = "image.promote"
 	ActionImageDeprecate = "image.deprecate"
-	ActionImageDelete  = "image.delete"
+	ActionImageDelete    = "image.delete"
 
-	// AI Task actions
+	// AI Task actions.
 	ActionAITaskCreate  = "ai.task.create"
 	ActionAITaskApprove = "ai.task.approve"
 	ActionAITaskReject  = "ai.task.reject"
 	ActionAITaskExecute = "ai.task.execute"
 	ActionAITaskCancel  = "ai.task.cancel"
 
-	// User actions
-	ActionUserLogin   = "user.login"
-	ActionUserLogout  = "user.logout"
-	ActionUserCreate  = "user.create"
-	ActionUserUpdate  = "user.update"
-	ActionUserDelete  = "user.delete"
+	// User actions.
+	ActionUserLogin  = "user.login"
+	ActionUserLogout = "user.logout"
+	ActionUserCreate = "user.create"
+	ActionUserUpdate = "user.update"
+	ActionUserDelete = "user.delete"
 
-	// Connector actions
+	// Connector actions.
 	ActionConnectorConnect    = "connector.connect"
 	ActionConnectorDisconnect = "connector.disconnect"
 	ActionConnectorSync       = "connector.sync"
 
-	// Patching actions
+	// Patching actions.
 	ActionPatchScan     = "patch.scan"
 	ActionPatchInstall  = "patch.install"
 	ActionPatchApprove  = "patch.approve"
 	ActionPatchSchedule = "patch.schedule"
 
-	// Compliance actions
+	// Compliance actions.
 	ActionComplianceScan   = "compliance.scan"
 	ActionComplianceExport = "compliance.export"
 )
@@ -478,7 +488,7 @@ const (
 
 // LogUserAction logs a user-initiated action.
 func (l *Logger) LogUserAction(ctx context.Context, userID, email string, orgID uuid.UUID, action string, resource ResourceInfo, status Status) {
-	l.LogAsync(ctx, Entry{
+	l.LogAsync(ctx, &Entry{
 		ActorType:      ActorTypeUser,
 		ActorID:        userID,
 		ActorEmail:     email,
@@ -495,7 +505,7 @@ func (l *Logger) LogUserAction(ctx context.Context, userID, email string, orgID 
 
 // LogSystemAction logs a system-initiated action.
 func (l *Logger) LogSystemAction(ctx context.Context, orgID uuid.UUID, action string, resource ResourceInfo, status Status) {
-	l.LogAsync(ctx, Entry{
+	l.LogAsync(ctx, &Entry{
 		ActorType:      ActorTypeSystem,
 		ActorID:        "system",
 		OrgID:          orgID,
@@ -510,7 +520,7 @@ func (l *Logger) LogSystemAction(ctx context.Context, orgID uuid.UUID, action st
 
 // LogAgentAction logs an AI agent action.
 func (l *Logger) LogAgentAction(ctx context.Context, agentName string, orgID uuid.UUID, action string, resource ResourceInfo, status Status) {
-	l.LogAsync(ctx, Entry{
+	l.LogAsync(ctx, &Entry{
 		ActorType:      ActorTypeAgent,
 		ActorID:        agentName,
 		OrgID:          orgID,

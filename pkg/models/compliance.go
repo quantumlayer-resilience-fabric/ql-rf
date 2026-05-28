@@ -14,10 +14,10 @@ type ComplianceFramework struct {
 	Description     string    `json:"description,omitempty" db:"description"`
 	Level           *int      `json:"level,omitempty" db:"level"` // For SLSA levels
 	Enabled         bool      `json:"enabled" db:"enabled"`
-	Score           float64   `json:"score"`                      // Computed
-	PassingControls int       `json:"passingControls"`            // Computed
-	TotalControls   int       `json:"totalControls"`              // Computed
-	Status          string    `json:"status"`                     // passing, warning, failing - Computed
+	Score           float64   `json:"score"`           // Computed
+	PassingControls int       `json:"passingControls"` // Computed
+	TotalControls   int       `json:"totalControls"`   // Computed
+	Status          string    `json:"status"`          // passing, warning, failing - Computed
 	CreatedAt       time.Time `json:"createdAt" db:"created_at"`
 	UpdatedAt       time.Time `json:"updatedAt" db:"updated_at"`
 }
@@ -36,10 +36,10 @@ type ComplianceControl struct {
 
 // FailingControl represents a control that's not passing.
 type FailingControl struct {
-	ID             string `json:"id"`             // Control ID (e.g., "CIS-4.2.1")
-	Framework      string `json:"framework"`      // Framework name
+	ID             string `json:"id"`        // Control ID (e.g., "CIS-4.2.1")
+	Framework      string `json:"framework"` // Framework name
 	Title          string `json:"title"`
-	Severity       string `json:"severity"`       // high, medium, low
+	Severity       string `json:"severity"` // high, medium, low
 	AffectedAssets int    `json:"affectedAssets"`
 	Recommendation string `json:"recommendation"`
 }
@@ -58,25 +58,25 @@ type ComplianceResult struct {
 
 // ImageComplianceStatus represents compliance status for an image.
 type ImageComplianceStatus struct {
-	FamilyID    string    `json:"familyId"`
-	FamilyName  string    `json:"familyName"`
-	Version     string    `json:"version"`
-	CIS         bool      `json:"cis"`
-	SLSALevel   int       `json:"slsaLevel"`
-	CosignSigned bool     `json:"cosignSigned"`
-	LastScanAt  time.Time `json:"lastScanAt"`
-	IssueCount  int       `json:"issueCount"`
+	FamilyID     string    `json:"familyId"`
+	FamilyName   string    `json:"familyName"`
+	Version      string    `json:"version"`
+	CIS          bool      `json:"cis"`
+	SLSALevel    int       `json:"slsaLevel"`
+	CosignSigned bool      `json:"cosignSigned"`
+	LastScanAt   time.Time `json:"lastScanAt"`
+	IssueCount   int       `json:"issueCount"`
 }
 
 // ComplianceSummary represents the overall compliance summary.
 type ComplianceSummary struct {
-	OverallScore     float64               `json:"overallScore"`
-	CISCompliance    float64               `json:"cisCompliance"`
-	SLSALevel        int                   `json:"slsaLevel"`
-	SigstoreVerified float64               `json:"sigstoreVerified"` // Percentage of signed images
-	LastAuditAt      *time.Time            `json:"lastAuditAt,omitempty"`
-	Frameworks       []ComplianceFramework `json:"frameworks"`
-	FailingControls  []FailingControl      `json:"failingControls"`
+	OverallScore     float64                 `json:"overallScore"`
+	CISCompliance    float64                 `json:"cisCompliance"`
+	SLSALevel        int                     `json:"slsaLevel"`
+	SigstoreVerified float64                 `json:"sigstoreVerified"` // Percentage of signed images
+	LastAuditAt      *time.Time              `json:"lastAuditAt,omitempty"`
+	Frameworks       []ComplianceFramework   `json:"frameworks"`
+	FailingControls  []FailingControl        `json:"failingControls"`
 	ImageCompliance  []ImageComplianceStatus `json:"imageCompliance"`
 }
 
@@ -100,7 +100,7 @@ const (
 
 // TriggerAuditResponse represents response from triggering an audit.
 type TriggerAuditResponse struct {
-	JobID   string    `json:"jobId"`
-	Status  string    `json:"status"` // queued, running
+	JobID     string    `json:"jobId"`
+	Status    string    `json:"status"` // queued, running
 	StartedAt time.Time `json:"startedAt"`
 }

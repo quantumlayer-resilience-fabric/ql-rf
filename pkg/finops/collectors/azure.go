@@ -1,11 +1,12 @@
 // Package collectors provides cloud-specific cost data collection.
-package collectors
+package collectors //nolint:dupl // AWS/Azure/GCP collectors are intentionally parallel scaffolds; they diverge as each provider's real cost API lands, so deduping now is premature abstraction.
 
 import (
 	"context"
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/quantumlayerhq/ql-rf/pkg/finops"
 )
 
@@ -21,7 +22,7 @@ func NewAzureCostCollector() *AzureCostCollector {
 }
 
 // CollectCosts retrieves cost data from Azure Cost Management.
-func (c *AzureCostCollector) CollectCosts(ctx context.Context, orgID uuid.UUID, startDate, endDate time.Time) ([]finops.CostRecord, error) {
+func (c *AzureCostCollector) CollectCosts(_ context.Context, orgID uuid.UUID, _, _ time.Time) ([]finops.CostRecord, error) {
 	// TODO: Implement actual Azure Cost Management API integration
 
 	records := []finops.CostRecord{
@@ -84,7 +85,7 @@ func (c *AzureCostCollector) CollectCosts(ctx context.Context, orgID uuid.UUID, 
 }
 
 // GenerateRecommendations generates cost optimization recommendations for Azure resources.
-func (c *AzureCostCollector) GenerateRecommendations(ctx context.Context, orgID uuid.UUID) ([]finops.CostRecommendation, error) {
+func (c *AzureCostCollector) GenerateRecommendations(_ context.Context, orgID uuid.UUID) ([]finops.CostRecommendation, error) {
 	// TODO: Implement actual Azure Advisor integration
 
 	recommendations := []finops.CostRecommendation{
@@ -142,26 +143,26 @@ func (c *AzureCostCollector) GenerateRecommendations(ctx context.Context, orgID 
 }
 
 // GetServiceCosts retrieves costs broken down by Azure service.
-func (c *AzureCostCollector) GetServiceCosts(ctx context.Context, orgID uuid.UUID, startDate, endDate time.Time) (map[string]float64, error) {
+func (c *AzureCostCollector) GetServiceCosts(_ context.Context, _ uuid.UUID, _, _ time.Time) (map[string]float64, error) {
 	// TODO: Implement actual Azure Cost Management service breakdown
 
 	serviceCosts := map[string]float64{
-		"virtual-machines": 525.40,
-		"sql-database":     280.00,
-		"storage":          145.60,
-		"app-service":      234.75,
-		"cosmos-db":        189.20,
-		"azure-kubernetes": 456.30,
+		"virtual-machines":    525.40,
+		"sql-database":        280.00,
+		"storage":             145.60,
+		"app-service":         234.75,
+		"cosmos-db":           189.20,
+		"azure-kubernetes":    456.30,
 		"application-gateway": 78.90,
-		"load-balancer":    45.50,
-		"cdn":              67.80,
+		"load-balancer":       45.50,
+		"cdn":                 67.80,
 	}
 
 	return serviceCosts, nil
 }
 
 // ValidateCredentials validates Azure credentials and permissions.
-func (c *AzureCostCollector) ValidateCredentials(ctx context.Context) error {
+func (c *AzureCostCollector) ValidateCredentials(_ context.Context) error {
 	// TODO: Implement actual Azure credential validation
 	// Check for Cost Management API access
 
@@ -169,7 +170,7 @@ func (c *AzureCostCollector) ValidateCredentials(ctx context.Context) error {
 }
 
 // EstimateMonthlyCost estimates monthly cost based on current usage patterns.
-func (c *AzureCostCollector) EstimateMonthlyCost(ctx context.Context, orgID uuid.UUID) (*finops.CostForecast, error) {
+func (c *AzureCostCollector) EstimateMonthlyCost(_ context.Context, orgID uuid.UUID) (*finops.CostForecast, error) {
 	// TODO: Implement actual forecasting using historical data
 
 	forecast := &finops.CostForecast{
@@ -197,7 +198,7 @@ func (c *AzureCostCollector) EstimateMonthlyCost(ctx context.Context, orgID uuid
 }
 
 // AnalyzeIdleResources identifies idle or underutilized Azure resources.
-func (c *AzureCostCollector) AnalyzeIdleResources(ctx context.Context, orgID uuid.UUID) ([]finops.CostRecommendation, error) {
+func (c *AzureCostCollector) AnalyzeIdleResources(_ context.Context, _ uuid.UUID) ([]finops.CostRecommendation, error) {
 	// TODO: Implement actual idle resource detection using Azure Monitor metrics
 	// Check for:
 	// - VMs with low CPU/memory usage

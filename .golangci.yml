@@ -28,7 +28,7 @@ linters:
     - errname          # Check error naming conventions
     - errorlint        # Check error wrapping
     - exhaustive       # Check switch exhaustiveness
-    - exportloopref    # Check loop variable capture
+    - copyloopvar      # Check loop variable copies (Go 1.22+)
     - gochecknoinits   # No init functions
     - goconst          # Find repeated strings
     - gocritic         # Highly extensible linter
@@ -85,6 +85,9 @@ linters-settings:
       - ifElseChain
       - octalLiteral
       - whyNoLint
+      - hugeParam # Passing config/request structs by value to constructors and
+                  # service methods is idiomatic here; pointer churn across the
+                  # public service APIs is not worth the micro-copy savings.
 
   goimports:
     local-prefixes: github.com/quantumlayerhq/ql-rf
@@ -96,6 +99,11 @@ linters-settings:
 
   misspell:
     locale: US
+    ignore-words:
+      # "cancelled" (British) is our canonical spelling for the cancellation
+      # domain: it matches DB columns (cancelled_at) and persisted status
+      # values across migrations 000011/000013/000017. Do not "correct" it.
+      - cancelled
 
   nakedret:
     max-func-lines: 30

@@ -6,10 +6,11 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
+
 	"github.com/quantumlayerhq/ql-rf/pkg/inspec"
 )
 
-// TestGetCISAWSMappings tests CIS AWS control mappings
+// TestGetCISAWSMappings tests CIS AWS control mappings.
 func TestGetCISAWSMappings(t *testing.T) {
 	mappings := GetCISAWSMappings()
 
@@ -31,7 +32,7 @@ func TestGetCISAWSMappings(t *testing.T) {
 	}
 }
 
-// TestGetCISAWSMappings_SpecificControls tests specific AWS control mappings
+// TestGetCISAWSMappings_SpecificControls tests specific AWS control mappings.
 func TestGetCISAWSMappings_SpecificControls(t *testing.T) {
 	mappings := GetCISAWSMappings()
 
@@ -90,7 +91,7 @@ func TestGetCISAWSMappings_SpecificControls(t *testing.T) {
 	}
 }
 
-// TestGetCISAWSMappings_Coverage tests coverage of CIS AWS sections
+// TestGetCISAWSMappings_Coverage tests coverage of CIS AWS sections.
 func TestGetCISAWSMappings_Coverage(t *testing.T) {
 	mappings := GetCISAWSMappings()
 
@@ -113,7 +114,7 @@ func TestGetCISAWSMappings_Coverage(t *testing.T) {
 	t.Logf("CIS AWS controls by section: %+v", sectionCounts)
 }
 
-// TestCreateCISAWSProfile tests AWS profile creation
+// TestCreateCISAWSProfile tests AWS profile creation.
 func TestCreateCISAWSProfile(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -177,7 +178,7 @@ func TestCreateCISAWSProfile(t *testing.T) {
 	}
 }
 
-// TestGetCISLinuxLevel1Mappings tests CIS Linux Level 1 control mappings
+// TestGetCISLinuxLevel1Mappings tests CIS Linux Level 1 control mappings.
 func TestGetCISLinuxLevel1Mappings(t *testing.T) {
 	mappings := GetCISLinuxLevel1Mappings()
 
@@ -198,7 +199,7 @@ func TestGetCISLinuxLevel1Mappings(t *testing.T) {
 	t.Logf("CIS Linux Level 1 has %d control mappings", len(mappings))
 }
 
-// TestGetCISLinuxLevel2Mappings tests CIS Linux Level 2 control mappings
+// TestGetCISLinuxLevel2Mappings tests CIS Linux Level 2 control mappings.
 func TestGetCISLinuxLevel2Mappings(t *testing.T) {
 	level1 := GetCISLinuxLevel1Mappings()
 	level2 := GetCISLinuxLevel2Mappings()
@@ -231,7 +232,7 @@ func TestGetCISLinuxLevel2Mappings(t *testing.T) {
 		len(level2), foundLevel1Count)
 }
 
-// TestGetCISLinuxLevel1Mappings_SpecificControls tests specific Linux control mappings
+// TestGetCISLinuxLevel1Mappings_SpecificControls tests specific Linux control mappings.
 func TestGetCISLinuxLevel1Mappings_SpecificControls(t *testing.T) {
 	mappings := GetCISLinuxLevel1Mappings()
 
@@ -272,7 +273,7 @@ func TestGetCISLinuxLevel1Mappings_SpecificControls(t *testing.T) {
 	}
 }
 
-// TestCreateCISLinuxProfile tests Linux profile creation
+// TestCreateCISLinuxProfile tests Linux profile creation.
 func TestCreateCISLinuxProfile(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -351,7 +352,7 @@ func TestCreateCISLinuxProfile(t *testing.T) {
 	}
 }
 
-// TestGetSOC2Mappings tests SOC2 control mappings
+// TestGetSOC2Mappings tests SOC2 control mappings.
 func TestGetSOC2Mappings(t *testing.T) {
 	mappings := GetSOC2Mappings()
 
@@ -375,7 +376,7 @@ func TestGetSOC2Mappings(t *testing.T) {
 	t.Logf("SOC2 has %d control mappings", len(mappings))
 }
 
-// TestGetSOC2Mappings_TrustServiceCriteria tests SOC2 trust service criteria coverage
+// TestGetSOC2Mappings_TrustServiceCriteria tests SOC2 trust service criteria coverage.
 func TestGetSOC2Mappings_TrustServiceCriteria(t *testing.T) {
 	mappings := GetSOC2Mappings()
 
@@ -400,7 +401,7 @@ func TestGetSOC2Mappings_TrustServiceCriteria(t *testing.T) {
 	t.Logf("SOC2 controls by criteria: %+v", criteriaFound)
 }
 
-// TestGetSOC2Mappings_SpecificControls tests specific SOC2 control mappings
+// TestGetSOC2Mappings_SpecificControls tests specific SOC2 control mappings.
 func TestGetSOC2Mappings_SpecificControls(t *testing.T) {
 	mappings := GetSOC2Mappings()
 
@@ -467,7 +468,7 @@ func TestGetSOC2Mappings_SpecificControls(t *testing.T) {
 	}
 }
 
-// TestCreateSOC2Profile tests SOC2 profile creation
+// TestCreateSOC2Profile tests SOC2 profile creation.
 func TestCreateSOC2Profile(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -543,7 +544,7 @@ func TestCreateSOC2Profile(t *testing.T) {
 	}
 }
 
-// TestMappingConfidenceLevels tests mapping confidence levels
+// TestMappingConfidenceLevels tests mapping confidence levels.
 func TestMappingConfidenceLevels(t *testing.T) {
 	allMappings := []struct {
 		name     string
@@ -574,7 +575,7 @@ func TestMappingConfidenceLevels(t *testing.T) {
 	}
 }
 
-// TestProfileNamingConventions tests profile naming conventions
+// TestProfileNamingConventions tests profile naming conventions.
 func TestProfileNamingConventions(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -655,7 +656,7 @@ func TestProfileNamingConventions(t *testing.T) {
 	}
 }
 
-// TestControlMappingQuality tests the quality of control mappings
+// TestControlMappingQuality tests the quality of control mappings.
 func TestControlMappingQuality(t *testing.T) {
 	tests := []struct {
 		name     string

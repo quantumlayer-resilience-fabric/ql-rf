@@ -30,6 +30,16 @@ func NewMiddleware(service *Service) *Middleware {
 	return &Middleware{service: service}
 }
 
+// writeJSONForbidden writes a JSON forbidden response to w.
+func writeJSONForbidden(w http.ResponseWriter, body map[string]interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	if encErr := json.NewEncoder(w).Encode(body); encErr != nil {
+		// Header/status already written; nothing useful we can do here.
+		_ = encErr
+	}
+}
+
 // RequirePermission returns middleware that requires a specific permission.
 func (m *Middleware) RequirePermission(resourceType ResourceType, action Action) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -49,9 +59,7 @@ func (m *Middleware) RequirePermission(resourceType ResourceType, action Action)
 			}
 
 			if !check.Allowed {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				writeJSONForbidden(w, map[string]interface{}{
 					"error":   "forbidden",
 					"message": "insufficient permissions",
 					"details": map[string]string{
@@ -94,9 +102,7 @@ func (m *Middleware) RequireResourcePermission(resourceType ResourceType, action
 			}
 
 			if !check.Allowed {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				writeJSONForbidden(w, map[string]interface{}{
 					"error":   "forbidden",
 					"message": "insufficient permissions for this resource",
 					"details": map[string]string{
@@ -140,9 +146,7 @@ func (m *Middleware) RequireAnyPermission(permissions ...struct {
 				}
 			}
 
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			writeJSONForbidden(w, map[string]interface{}{
 				"error":   "forbidden",
 				"message": "insufficient permissions",
 			})
@@ -168,16 +172,14 @@ func (m *Middleware) RequireRole(roleName string) func(http.Handler) http.Handle
 				return
 			}
 
-			for _, role := range roles {
-				if role.Name == roleName {
+			for i := range roles {
+				if roles[i].Name == roleName {
 					next.ServeHTTP(w, r)
 					return
 				}
 			}
 
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			writeJSONForbidden(w, map[string]interface{}{
 				"error":   "forbidden",
 				"message": "required role not assigned",
 				"details": map[string]string{

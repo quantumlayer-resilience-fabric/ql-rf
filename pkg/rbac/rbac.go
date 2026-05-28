@@ -5,6 +5,7 @@ package rbac
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -153,7 +154,7 @@ func NewService(db *sql.DB) *Service {
 func (s *Service) CheckPermission(ctx context.Context, userID string, orgID uuid.UUID, resourceType ResourceType, resourceID *uuid.UUID, action Action) (*PermissionCheck, error) {
 	// Use the database function for permission checking
 	var hasAccess bool
-	var resourceIDArg interface{} = nil
+	var resourceIDArg interface{}
 	if resourceID != nil {
 		resourceIDArg = *resourceID
 	}
@@ -172,10 +173,7 @@ func (s *Service) CheckPermission(ctx context.Context, userID string, orgID uuid
 
 	if hasAccess {
 		// Determine the source of the permission
-		source, err := s.getPermissionSource(ctx, userID, orgID, resourceType, resourceID, action)
-		if err == nil {
-			result.Source = source
-		}
+		result.Source = s.getPermissionSource(ctx, userID, orgID, resourceType, resourceID, action)
 	} else {
 		result.Reason = "no matching permission found"
 	}
@@ -184,7 +182,7 @@ func (s *Service) CheckPermission(ctx context.Context, userID string, orgID uuid
 }
 
 // getPermissionSource determines where a permission came from.
-func (s *Service) getPermissionSource(ctx context.Context, userID string, orgID uuid.UUID, resourceType ResourceType, resourceID *uuid.UUID, action Action) (string, error) {
+func (s *Service) getPermissionSource(ctx context.Context, userID string, orgID uuid.UUID, resourceType ResourceType, _ *uuid.UUID, action Action) string {
 	// Check role-based first
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
@@ -201,7 +199,7 @@ func (s *Service) getPermissionSource(ctx context.Context, userID string, orgID 
 		)
 	`, userID, orgID, string(resourceType), string(action)).Scan(&exists)
 	if err == nil && exists {
-		return "role", nil
+		return "role"
 	}
 
 	// Check direct permissions
@@ -218,7 +216,7 @@ func (s *Service) getPermissionSource(ctx context.Context, userID string, orgID 
 		)
 	`, orgID, string(resourceType), string(action), userID).Scan(&exists)
 	if err == nil && exists {
-		return "direct", nil
+		return "direct"
 	}
 
 	// Check team permissions
@@ -236,10 +234,10 @@ func (s *Service) getPermissionSource(ctx context.Context, userID string, orgID 
 		)
 	`, orgID, string(resourceType), string(action), userID).Scan(&exists)
 	if err == nil && exists {
-		return "team", nil
+		return "team"
 	}
 
-	return "unknown", nil
+	return "unknown"
 }
 
 // GetUserPermissions returns all permissions for a user in an organization.
@@ -253,7 +251,7 @@ func (s *Service) GetUserPermissions(ctx context.Context, userID string, orgID u
 	}
 	defer rows.Close()
 
-	var permissions []UserPermission
+	permissions := make([]UserPermission, 0)
 	for rows.Next() {
 		var p UserPermission
 		if err := rows.Scan(&p.PermissionName, &p.ResourceType, &p.Action, &p.Source); err != nil {
@@ -293,8 +291,8 @@ func (s *Service) RevokeRole(ctx context.Context, userID string, orgID, roleID u
 		return fmt.Errorf("failed to revoke role: %w", err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	rowsAffected, raErr := result.RowsAffected()
+	if raErr != nil || rowsAffected == 0 {
 		return fmt.Errorf("role assignment not found")
 	}
 
@@ -319,7 +317,7 @@ func (s *Service) GetUserRoles(ctx context.Context, userID string, orgID uuid.UU
 	}
 	defer rows.Close()
 
-	var roles []Role
+	roles := make([]Role, 0)
 	for rows.Next() {
 		var r Role
 		if err := rows.Scan(&r.ID, &r.Name, &r.DisplayName, &r.Description, &r.OrgID,
@@ -364,8 +362,8 @@ func (s *Service) RevokeResourcePermission(ctx context.Context, orgID uuid.UUID,
 		return fmt.Errorf("failed to revoke resource permission: %w", err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	rowsAffected, raErr := result.RowsAffected()
+	if raErr != nil || rowsAffected == 0 {
 		return fmt.Errorf("resource permission not found")
 	}
 
@@ -416,8 +414,8 @@ func (s *Service) RemoveTeamMember(ctx context.Context, teamID uuid.UUID, userID
 		return fmt.Errorf("failed to remove team member: %w", err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	rowsAffected, raErr := result.RowsAffected()
+	if raErr != nil || rowsAffected == 0 {
 		return fmt.Errorf("team member not found")
 	}
 
@@ -435,7 +433,7 @@ func (s *Service) GetTeamMembers(ctx context.Context, teamID uuid.UUID) ([]TeamM
 	}
 	defer rows.Close()
 
-	var members []TeamMember
+	members := make([]TeamMember, 0)
 	for rows.Next() {
 		var m TeamMember
 		if err := rows.Scan(&m.ID, &m.TeamID, &m.UserID, &m.Role, &m.AddedBy, &m.AddedAt); err != nil {
@@ -489,7 +487,7 @@ func (s *Service) ListRoles(ctx context.Context, orgID uuid.UUID) ([]Role, error
 	}
 	defer rows.Close()
 
-	var roles []Role
+	roles := make([]Role, 0)
 	for rows.Next() {
 		var r Role
 		if err := rows.Scan(&r.ID, &r.Name, &r.DisplayName, &r.Description, &r.OrgID,
@@ -503,13 +501,16 @@ func (s *Service) ListRoles(ctx context.Context, orgID uuid.UUID) ([]Role, error
 }
 
 // logPermissionGrant logs a permission change to the audit log.
-func (s *Service) logPermissionGrant(ctx context.Context, orgID uuid.UUID, action, targetType, targetID, resourceType string, resourceID *uuid.UUID, permission string, oldValue interface{}, changedBy, reason string) {
+func (s *Service) logPermissionGrant(ctx context.Context, orgID uuid.UUID, action, targetType, targetID, resourceType string, resourceID *uuid.UUID, permission string, _ interface{}, changedBy, reason string) {
 	// Best effort logging - don't fail the operation if logging fails
-	_, _ = s.db.ExecContext(ctx, `
+	logResult, logErr := s.db.ExecContext(ctx, `
 		INSERT INTO permission_grants_log
 		(org_id, action, target_type, target_id, resource_type, resource_id, permission, changed_by, reason)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, orgID, action, targetType, targetID, resourceType, resourceID, permission, changedBy, reason)
+	// intentionally discard audit log insert failures to avoid disrupting the caller
+	_ = logResult
+	_ = logErr
 }
 
 // RequirePermission is a helper that returns an error if the user lacks permission.
@@ -546,6 +547,6 @@ func (e *PermissionDeniedError) Error() string {
 
 // IsPermissionDenied checks if an error is a permission denied error.
 func IsPermissionDenied(err error) bool {
-	_, ok := err.(*PermissionDeniedError)
-	return ok
+	var target *PermissionDeniedError
+	return errors.As(err, &target)
 }

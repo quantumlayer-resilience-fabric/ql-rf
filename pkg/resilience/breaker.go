@@ -92,10 +92,10 @@ type Breaker struct {
 	halfOpenCalls int
 
 	// Metrics
-	totalCalls      int64
-	totalFailures   int64
-	totalSuccesses  int64
-	totalRejected   int64
+	totalCalls     int64
+	totalFailures  int64
+	totalSuccesses int64
+	totalRejected  int64
 }
 
 // NewBreaker creates a new circuit breaker.
@@ -111,7 +111,7 @@ func NewBreaker(config *BreakerConfig) *Breaker {
 }
 
 // Execute wraps a function with circuit breaker protection.
-func (b *Breaker) Execute(ctx context.Context, fn func() (any, error)) (any, error) {
+func (b *Breaker) Execute(_ context.Context, fn func() (any, error)) (any, error) {
 	// Check if we can proceed
 	if err := b.beforeRequest(); err != nil {
 		return nil, err
@@ -146,9 +146,9 @@ func (b *Breaker) beforeRequest() error {
 		}
 		b.totalRejected++
 		return &BreakerOpenError{
-			Name:      b.config.Name,
-			RetryAt:   b.lastFailure.Add(b.config.Timeout),
-			Failures:  b.failures,
+			Name:     b.config.Name,
+			RetryAt:  b.lastFailure.Add(b.config.Timeout),
+			Failures: b.failures,
 		}
 
 	case StateHalfOpen:
@@ -202,6 +202,9 @@ func (b *Breaker) recordSuccess() {
 			b.failures = 0
 			b.successes = 0
 		}
+
+	case StateOpen:
+		// No action needed: open state requests are rejected before reaching here
 	}
 }
 
@@ -222,6 +225,9 @@ func (b *Breaker) recordFailure() {
 		// Any failure in half-open trips back to open
 		b.transition(StateOpen)
 		b.successes = 0
+
+	case StateOpen:
+		// No action needed: already open
 	}
 }
 
@@ -259,12 +265,12 @@ func (b *Breaker) Metrics() BreakerMetrics {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return BreakerMetrics{
-		Name:           b.config.Name,
-		State:          b.state.String(),
-		TotalCalls:     b.totalCalls,
-		TotalFailures:  b.totalFailures,
-		TotalSuccesses: b.totalSuccesses,
-		TotalRejected:  b.totalRejected,
+		Name:            b.config.Name,
+		State:           b.state.String(),
+		TotalCalls:      b.totalCalls,
+		TotalFailures:   b.totalFailures,
+		TotalSuccesses:  b.totalSuccesses,
+		TotalRejected:   b.totalRejected,
 		CurrentFailures: b.failures,
 	}
 }

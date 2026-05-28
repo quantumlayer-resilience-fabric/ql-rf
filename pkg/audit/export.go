@@ -29,7 +29,7 @@ type Exporter struct {
 
 // SIEMExporter is the interface for SIEM-specific exporters.
 type SIEMExporter interface {
-	Export(ctx context.Context, entries []AuditLogRow) error
+	Export(ctx context.Context, entries []LogRow) error
 	Name() string
 }
 
@@ -95,8 +95,12 @@ func (e *Exporter) ProcessQueue(ctx context.Context, batchSize int) error {
 			continue
 		}
 
-		json.Unmarshal(changes, &item.Log.Changes)
-		json.Unmarshal(context, &item.Log.Context)
+		if jsonErr := json.Unmarshal(changes, &item.Log.Changes); jsonErr != nil {
+			e.log.Warn("failed to unmarshal changes", "error", jsonErr)
+		}
+		if jsonErr := json.Unmarshal(context, &item.Log.Context); jsonErr != nil {
+			e.log.Warn("failed to unmarshal context", "error", jsonErr)
+		}
 
 		byDestination[item.Destination] = append(byDestination[item.Destination], item)
 	}
@@ -110,11 +114,11 @@ func (e *Exporter) ProcessQueue(ctx context.Context, batchSize int) error {
 		}
 
 		// Collect logs for this batch
-		logs := make([]AuditLogRow, len(items))
+		logs := make([]LogRow, len(items))
 		queueIDs := make([]uuid.UUID, len(items))
-		for i, item := range items {
-			logs[i] = item.Log
-			queueIDs[i] = item.QueueID
+		for i := range items {
+			logs[i] = items[i].Log
+			queueIDs[i] = items[i].QueueID
 		}
 
 		// Export
@@ -136,7 +140,7 @@ type exportItem struct {
 	AuditLogID  uuid.UUID
 	Destination string
 	Attempts    int
-	Log         AuditLogRow
+	Log         LogRow
 }
 
 func (e *Exporter) markCompleted(ctx context.Context, queueIDs []uuid.UUID) {
@@ -198,22 +202,23 @@ func NewSplunkExporter(cfg SplunkConfig, log *logger.Logger) *SplunkExporter {
 	}
 }
 
+// Name returns the exporter name.
 func (s *SplunkExporter) Name() string {
 	return "splunk"
 }
 
 // Export sends audit logs to Splunk HEC.
-func (s *SplunkExporter) Export(ctx context.Context, entries []AuditLogRow) error {
+func (s *SplunkExporter) Export(ctx context.Context, entries []LogRow) error {
 	var buf bytes.Buffer
 
-	for _, entry := range entries {
+	for i := range entries {
 		event := map[string]interface{}{
-			"time":       entry.Timestamp.Unix(),
+			"time":       entries[i].Timestamp.Unix(),
 			"host":       "ql-rf",
 			"source":     "audit",
 			"sourcetype": s.sourcetype,
 			"index":      s.index,
-			"event":      entry,
+			"event":      entries[i],
 		}
 
 		eventJSON, err := json.Marshal(event)
@@ -236,10 +241,17 @@ func (s *SplunkExporter) Export(ctx context.Context, entries []AuditLogRow) erro
 	if err != nil {
 		return fmt.Errorf("splunk request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			s.log.Warn("failed to close splunk response body", "error", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte("<unreadable>")
+		}
 		return fmt.Errorf("splunk returned status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -277,29 +289,36 @@ func NewElasticExporter(cfg ElasticConfig, log *logger.Logger) *ElasticExporter 
 	}
 }
 
+// Name returns the exporter name.
 func (e *ElasticExporter) Name() string {
 	return "elastic"
 }
 
 // Export sends audit logs to Elasticsearch using bulk API.
-func (e *ElasticExporter) Export(ctx context.Context, entries []AuditLogRow) error {
+func (e *ElasticExporter) Export(ctx context.Context, entries []LogRow) error {
 	var buf bytes.Buffer
 
 	// Build bulk request body
-	for _, entry := range entries {
+	for i := range entries {
 		// Action line
 		action := map[string]interface{}{
 			"index": map[string]interface{}{
-				"_index": fmt.Sprintf("%s-%s", e.index, entry.Timestamp.Format("2006.01.02")),
-				"_id":    entry.ID.String(),
+				"_index": fmt.Sprintf("%s-%s", e.index, entries[i].Timestamp.Format("2006.01.02")),
+				"_id":    entries[i].ID.String(),
 			},
 		}
-		actionJSON, _ := json.Marshal(action)
+		actionJSON, err := json.Marshal(action)
+		if err != nil {
+			return fmt.Errorf("failed to marshal action: %w", err)
+		}
 		buf.Write(actionJSON)
 		buf.WriteByte('\n')
 
 		// Document line
-		docJSON, _ := json.Marshal(entry)
+		docJSON, err := json.Marshal(entries[i])
+		if err != nil {
+			return fmt.Errorf("failed to marshal document: %w", err)
+		}
 		buf.Write(docJSON)
 		buf.WriteByte('\n')
 	}
@@ -317,10 +336,17 @@ func (e *ElasticExporter) Export(ctx context.Context, entries []AuditLogRow) err
 	if err != nil {
 		return fmt.Errorf("elasticsearch request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			e.log.Warn("failed to close elasticsearch response body", "error", closeErr)
+		}
+	}()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte("<unreadable>")
+		}
 		return fmt.Errorf("elasticsearch returned status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -355,24 +381,25 @@ func NewDatadogExporter(cfg DatadogConfig, log *logger.Logger) *DatadogExporter 
 	}
 }
 
+// Name returns the exporter name.
 func (d *DatadogExporter) Name() string {
 	return "datadog"
 }
 
 // Export sends audit logs to Datadog Logs API.
-func (d *DatadogExporter) Export(ctx context.Context, entries []AuditLogRow) error {
+func (d *DatadogExporter) Export(ctx context.Context, entries []LogRow) error {
 	// Build log entries
 	logs := make([]map[string]interface{}, len(entries))
-	for i, entry := range entries {
+	for i := range entries {
 		logs[i] = map[string]interface{}{
-			"ddsource": "ql-rf",
-			"ddtags":   fmt.Sprintf("service:%s,env:production", d.service),
-			"hostname": "ql-rf-api",
-			"service":  d.service,
-			"message":  fmt.Sprintf("%s: %s %s %s", entry.Action, entry.ActorType, entry.ResourceType, entry.ResourceID),
-			"status":   entry.Status,
-			"timestamp": entry.Timestamp.UnixMilli(),
-			"audit":    entry,
+			"ddsource":  "ql-rf",
+			"ddtags":    fmt.Sprintf("service:%s,env:production", d.service),
+			"hostname":  "ql-rf-api",
+			"service":   d.service,
+			"message":   fmt.Sprintf("%s: %s %s %s", entries[i].Action, entries[i].ActorType, entries[i].ResourceType, entries[i].ResourceID),
+			"status":    entries[i].Status,
+			"timestamp": entries[i].Timestamp.UnixMilli(),
+			"audit":     entries[i],
 		}
 	}
 
@@ -394,10 +421,17 @@ func (d *DatadogExporter) Export(ctx context.Context, entries []AuditLogRow) err
 	if err != nil {
 		return fmt.Errorf("datadog request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			d.log.Warn("failed to close datadog response body", "error", closeErr)
+		}
+	}()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte("<unreadable>")
+		}
 		return fmt.Errorf("datadog returned status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -432,12 +466,13 @@ func NewWebhookExporter(cfg WebhookConfig, log *logger.Logger) *WebhookExporter 
 	}
 }
 
+// Name returns the exporter name.
 func (w *WebhookExporter) Name() string {
 	return "webhook"
 }
 
 // Export sends audit logs to a webhook endpoint.
-func (w *WebhookExporter) Export(ctx context.Context, entries []AuditLogRow) error {
+func (w *WebhookExporter) Export(ctx context.Context, entries []LogRow) error {
 	payload := map[string]interface{}{
 		"type":      "audit_logs",
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
@@ -474,10 +509,17 @@ func (w *WebhookExporter) Export(ctx context.Context, entries []AuditLogRow) err
 	if err != nil {
 		return fmt.Errorf("webhook request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			w.log.Warn("failed to close webhook response body", "error", closeErr)
+		}
+	}()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			respBody = []byte("<unreadable>")
+		}
 		return fmt.Errorf("webhook returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -487,10 +529,10 @@ func (w *WebhookExporter) Export(ctx context.Context, entries []AuditLogRow) err
 
 // S3Exporter exports audit logs to AWS S3.
 type S3Exporter struct {
-	bucket     string
-	prefix     string
-	region     string
-	log        *logger.Logger
+	bucket string
+	prefix string
+	region string
+	log    *logger.Logger
 	// In production, would use AWS SDK
 }
 
@@ -511,12 +553,13 @@ func NewS3Exporter(cfg S3Config, log *logger.Logger) *S3Exporter {
 	}
 }
 
+// Name returns the exporter name.
 func (s *S3Exporter) Name() string {
 	return "s3"
 }
 
 // Export uploads audit logs to S3 as JSON files.
-func (s *S3Exporter) Export(ctx context.Context, entries []AuditLogRow) error {
+func (s *S3Exporter) Export(_ context.Context, entries []LogRow) error {
 	// In production, this would use the AWS SDK to upload
 	// For now, log what would happen
 

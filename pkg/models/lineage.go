@@ -14,9 +14,9 @@ import (
 type RelationshipType string
 
 const (
-	RelationshipDerivedFrom  RelationshipType = "derived_from"  // New base image derived from parent
-	RelationshipPatchedFrom  RelationshipType = "patched_from"  // Security patch applied
-	RelationshipRebuiltFrom  RelationshipType = "rebuilt_from"  // Same spec, fresh build
+	RelationshipDerivedFrom RelationshipType = "derived_from" // New base image derived from parent
+	RelationshipPatchedFrom RelationshipType = "patched_from" // Security patch applied
+	RelationshipRebuiltFrom RelationshipType = "rebuilt_from" // Same spec, fresh build
 )
 
 // ImageLineage represents a parent-child relationship between images.
@@ -59,10 +59,10 @@ type ImageBuild struct {
 	SourceTag    string `json:"source_tag,omitempty" db:"source_tag"`
 
 	// Build system
-	BuilderType    string            `json:"builder_type" db:"builder_type"` // packer, docker, etc.
-	BuilderVersion string            `json:"builder_version,omitempty" db:"builder_version"`
-	BuildTemplate  string            `json:"build_template,omitempty" db:"build_template"`
-	BuildConfig    map[string]any    `json:"build_config,omitempty" db:"build_config"`
+	BuilderType    string         `json:"builder_type" db:"builder_type"` // packer, docker, etc.
+	BuilderVersion string         `json:"builder_version,omitempty" db:"builder_version"`
+	BuildTemplate  string         `json:"build_template,omitempty" db:"build_template"`
+	BuildConfig    map[string]any `json:"build_config,omitempty" db:"build_config"`
 
 	// Build runner (CI)
 	BuildRunner    string `json:"build_runner,omitempty" db:"build_runner"`
@@ -107,9 +107,9 @@ const (
 type VulnerabilityStatus string
 
 const (
-	VulnStatusOpen        VulnerabilityStatus = "open"
-	VulnStatusFixed       VulnerabilityStatus = "fixed"
-	VulnStatusWontFix     VulnerabilityStatus = "wont_fix"
+	VulnStatusOpen          VulnerabilityStatus = "open"
+	VulnStatusFixed         VulnerabilityStatus = "fixed"
+	VulnStatusWontFix       VulnerabilityStatus = "wont_fix"
 	VulnStatusFalsePositive VulnerabilityStatus = "false_positive"
 )
 
@@ -326,10 +326,10 @@ type CreateVulnerabilityRequest struct {
 
 // CreatePromotionRequest represents a request to promote an image.
 type CreatePromotionRequest struct {
-	ToStatus       ImageStatus    `json:"to_status" validate:"required"`
-	ApprovedBy     string         `json:"approved_by,omitempty"`
-	ApprovalTicket string         `json:"approval_ticket,omitempty"`
-	Reason         string         `json:"reason,omitempty"`
+	ToStatus          ImageStatus    `json:"to_status" validate:"required"`
+	ApprovedBy        string         `json:"approved_by,omitempty"`
+	ApprovalTicket    string         `json:"approval_ticket,omitempty"`
+	Reason            string         `json:"reason,omitempty"`
 	ValidationResults map[string]any `json:"validation_results,omitempty"`
 }
 
@@ -350,9 +350,9 @@ type ImageLineageResponse struct {
 
 // ImportScanRequest is the request to import vulnerability scan results.
 type ImportScanRequest struct {
-	Scanner         string            `json:"scanner" validate:"required"` // trivy, grype, snyk, clair, anchore, aqua, twistlock, qualys
-	ScanVersion     string            `json:"scan_version,omitempty"`
-	ScanStartedAt   *time.Time        `json:"scan_started_at,omitempty"`
+	Scanner         string              `json:"scanner" validate:"required"` // trivy, grype, snyk, clair, anchore, aqua, twistlock, qualys
+	ScanVersion     string              `json:"scan_version,omitempty"`
+	ScanStartedAt   *time.Time          `json:"scan_started_at,omitempty"`
 	Vulnerabilities []ScanVulnerability `json:"vulnerabilities" validate:"required"`
 }
 

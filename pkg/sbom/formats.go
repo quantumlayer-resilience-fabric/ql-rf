@@ -8,6 +8,18 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	pkgTypeLibrary = "library"
+	pkgTypeDeb     = "deb"
+	pkgTypePypi    = "pypi"
+	pkgTypeApk     = "apk"
+	pkgTypePip     = "pip"
+	pkgTypeMaven   = "maven"
+	pkgTypeGolang  = "golang"
+	pkgTypeNPM     = "npm"
+	pkgTypeNuget   = "nuget"
+)
+
 // generateSPDXContent generates SPDX 2.3 format content.
 func (g *Generator) generateSPDXContent(sbom *SBOM, packages []Package) (map[string]interface{}, error) {
 	content := map[string]interface{}{
@@ -17,7 +29,7 @@ func (g *Generator) generateSPDXContent(sbom *SBOM, packages []Package) (map[str
 		"name":              fmt.Sprintf("SBOM for Image %s", sbom.ImageID),
 		"documentNamespace": fmt.Sprintf("https://ql-rf.quantumlayer.io/sbom/%s", sbom.ID),
 		"creationInfo": map[string]interface{}{
-			"created":  sbom.GeneratedAt.Format(time.RFC3339),
+			"created": sbom.GeneratedAt.Format(time.RFC3339),
 			"creators": []string{
 				"Tool: QL-RF SBOM Generator",
 			},
@@ -25,12 +37,13 @@ func (g *Generator) generateSPDXContent(sbom *SBOM, packages []Package) (map[str
 	}
 
 	// Add packages
-	var spdxPackages []map[string]interface{}
-	for i, pkg := range packages {
+	spdxPackages := make([]map[string]interface{}, 0, len(packages))
+	for i := range packages {
+		pkg := &packages[i]
 		spdxPkg := map[string]interface{}{
-			"SPDXID":       fmt.Sprintf("SPDXRef-Package-%d", i+1),
-			"name":         pkg.Name,
-			"versionInfo":  pkg.Version,
+			"SPDXID":           fmt.Sprintf("SPDXRef-Package-%d", i+1),
+			"name":             pkg.Name,
+			"versionInfo":      pkg.Version,
 			"downloadLocation": "NOASSERTION",
 		}
 
@@ -90,7 +103,7 @@ func (g *Generator) generateSPDXContent(sbom *SBOM, packages []Package) (map[str
 	content["packages"] = spdxPackages
 
 	// Add relationships
-	var relationships []map[string]string
+	relationships := make([]map[string]string, 0, len(packages))
 	for i := range packages {
 		relationships = append(relationships, map[string]string{
 			"spdxElementId":      "SPDXRef-DOCUMENT",
@@ -129,8 +142,9 @@ func (g *Generator) generateCycloneDXContent(sbom *SBOM, packages []Package) (ma
 	}
 
 	// Add components (packages)
-	var components []map[string]interface{}
-	for _, pkg := range packages {
+	components := make([]map[string]interface{}, 0, len(packages))
+	for i := range packages {
+		pkg := &packages[i]
 		component := map[string]interface{}{
 			"type":    mapPackageTypeToCycloneDX(pkg.Type),
 			"name":    pkg.Name,
@@ -188,9 +202,9 @@ func (g *Generator) generateCycloneDXContent(sbom *SBOM, packages []Package) (ma
 	// Add dependencies (simplified - all components depend on the root)
 	var dependencies []map[string]interface{}
 	rootRef := fmt.Sprintf("image-%s", sbom.ImageID)
-	var dependsOn []string
-	for _, pkg := range packages {
-		dependsOn = append(dependsOn, fmt.Sprintf("pkg:%s/%s@%s", pkg.Type, pkg.Name, pkg.Version))
+	dependsOn := make([]string, 0, len(packages))
+	for i := range packages {
+		dependsOn = append(dependsOn, fmt.Sprintf("pkg:%s/%s@%s", packages[i].Type, packages[i].Name, packages[i].Version))
 	}
 	dependencies = append(dependencies, map[string]interface{}{
 		"ref":       rootRef,
@@ -205,10 +219,10 @@ func (g *Generator) generateCycloneDXContent(sbom *SBOM, packages []Package) (ma
 // mapPackageTypeToCycloneDX maps package types to CycloneDX component types.
 func mapPackageTypeToCycloneDX(pkgType string) string {
 	switch pkgType {
-	case "deb", "rpm", "apk":
-		return "library"
-	case "npm", "pip", "pypi", "go", "golang", "maven", "nuget":
-		return "library"
+	case pkgTypeDeb, "rpm", pkgTypeApk:
+		return pkgTypeLibrary
+	case pkgTypeNPM, pkgTypePip, pkgTypePypi, "go", pkgTypeGolang, pkgTypeMaven, pkgTypeNuget:
+		return pkgTypeLibrary
 	case "container", "docker":
 		return "container"
 	case "os":

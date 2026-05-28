@@ -4,6 +4,7 @@ package finops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -57,8 +58,8 @@ func (s *CostService) GetCostSummary(ctx context.Context, orgID uuid.UUID, timeR
 	for rows.Next() {
 		var cost float64
 		var curr, cloud, service, site string
-		if err := rows.Scan(&cost, &curr, &cloud, &service, &site); err != nil {
-			return nil, fmt.Errorf("scan row: %w", err)
+		if scanErr := rows.Scan(&cost, &curr, &cloud, &service, &site); scanErr != nil {
+			return nil, fmt.Errorf("scan row: %w", scanErr)
 		}
 
 		totalCost += cost
@@ -72,8 +73,8 @@ func (s *CostService) GetCostSummary(ctx context.Context, orgID uuid.UUID, timeR
 		}
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate rows: %w", err)
+	if iterErr := rows.Err(); iterErr != nil {
+		return nil, fmt.Errorf("iterate rows: %w", iterErr)
 	}
 
 	// Get top resources by cost
@@ -143,7 +144,7 @@ func (s *CostService) GetCostByResource(ctx context.Context, orgID uuid.UUID, re
 	}
 	defer rows.Close()
 
-	var resources []ResourceCost
+	resources := make([]ResourceCost, 0, 100)
 	for rows.Next() {
 		var rc ResourceCost
 		var tagsJSON []byte
@@ -279,7 +280,7 @@ func (s *CostService) GetCostOptimizationRecommendations(ctx context.Context, or
 	}
 	defer rows.Close()
 
-	var recommendations []CostRecommendation
+	recommendations := make([]CostRecommendation, 0, 100)
 	for rows.Next() {
 		var rec CostRecommendation
 		if err := rows.Scan(
@@ -383,7 +384,7 @@ func (s *CostService) ListBudgets(ctx context.Context, orgID uuid.UUID) ([]CostB
 	}
 	defer rows.Close()
 
-	var budgets []CostBudget
+	budgets := make([]CostBudget, 0)
 	for rows.Next() {
 		var budget CostBudget
 		if err := rows.Scan(
@@ -566,7 +567,7 @@ func (s *CostService) GetCostBreakdown(ctx context.Context, orgID uuid.UUID, dim
 	}
 	defer rows.Close()
 
-	var items []CostBreakdownItem
+	items := make([]CostBreakdownItem, 0)
 	var totalCost float64
 	currency := "USD"
 
@@ -672,14 +673,14 @@ func (s *CostService) calculateTrendChange(ctx context.Context, orgID uuid.UUID,
 	var currentCost, previousCost float64
 
 	if err := s.db.QueryRow(ctx, currentQuery, orgID, timeRange.Start, timeRange.End).Scan(&currentCost); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
 		}
 		return 0, fmt.Errorf("query current cost: %w", err)
 	}
 
 	if err := s.db.QueryRow(ctx, currentQuery, orgID, previousStart, previousEnd).Scan(&previousCost); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
 		}
 		return 0, fmt.Errorf("query previous cost: %w", err)

@@ -14,6 +14,9 @@ import (
 	"github.com/package-url/packageurl-go"
 )
 
+// versionUnknown is used when a package version cannot be determined.
+const versionUnknown = "unknown"
+
 // Generator generates SBOMs for images.
 type Generator struct {
 	db     *sql.DB
@@ -44,7 +47,7 @@ type GenerateRequest struct {
 	OrgID        uuid.UUID
 	Format       Format
 	Scanner      string
-	Dockerfile   string // Optional Dockerfile content
+	Dockerfile   string            // Optional Dockerfile content
 	Manifests    map[string]string // Optional package manifests (type -> content)
 	IncludeVulns bool
 }
@@ -77,12 +80,8 @@ func (g *Generator) Generate(ctx context.Context, req GenerateRequest) (*Generat
 
 	// Parse Dockerfile if provided
 	if req.Dockerfile != "" {
-		dockerfilePackages, err := g.parseDockerfile(req.Dockerfile)
-		if err != nil {
-			g.logger.Warn("failed to parse dockerfile", "error", err)
-		} else {
-			allPackages = append(allPackages, dockerfilePackages...)
-		}
+		dockerfilePackages := g.parseDockerfile(req.Dockerfile)
+		allPackages = append(allPackages, dockerfilePackages...)
 	}
 
 	// Parse package manifests
@@ -104,7 +103,7 @@ func (g *Generator) Generate(ctx context.Context, req GenerateRequest) (*Generat
 		allPackages = []Package{
 			{
 				Name:    "base-os",
-				Version: "unknown",
+				Version: versionUnknown,
 				Type:    "os",
 			},
 		}
@@ -167,7 +166,7 @@ func (g *Generator) Generate(ctx context.Context, req GenerateRequest) (*Generat
 }
 
 // parseDockerfile extracts packages from a Dockerfile.
-func (g *Generator) parseDockerfile(content string) ([]Package, error) {
+func (g *Generator) parseDockerfile(content string) []Package {
 	var packages []Package
 	lines := strings.Split(content, "\n")
 
@@ -184,24 +183,24 @@ func (g *Generator) parseDockerfile(content string) ([]Package, error) {
 		if strings.HasPrefix(line, "COPY ") {
 			if strings.Contains(line, "package.json") {
 				packages = append(packages, Package{
-					Name:    "nodejs-dependencies",
-					Version: "unknown",
-					Type:    "npm",
+					Name:     "nodejs-dependencies",
+					Version:  versionUnknown,
+					Type:     "npm",
 					Location: "/app/package.json",
 				})
 			}
 			if strings.Contains(line, "requirements.txt") {
 				packages = append(packages, Package{
-					Name:    "python-dependencies",
-					Version: "unknown",
-					Type:    "pip",
+					Name:     "python-dependencies",
+					Version:  versionUnknown,
+					Type:     "pip",
 					Location: "/app/requirements.txt",
 				})
 			}
 		}
 	}
 
-	return packages, nil
+	return packages
 }
 
 // extractPackagesFromRunCommand extracts package names from RUN commands.
@@ -217,7 +216,7 @@ func (g *Generator) extractPackagesFromRunCommand(line string) []Package {
 		for _, pkg := range pkgs {
 			packages = append(packages, Package{
 				Name:    pkg,
-				Version: "unknown",
+				Version: versionUnknown,
 				Type:    "deb",
 			})
 		}
@@ -226,7 +225,7 @@ func (g *Generator) extractPackagesFromRunCommand(line string) []Package {
 		for _, pkg := range pkgs {
 			packages = append(packages, Package{
 				Name:    pkg,
-				Version: "unknown",
+				Version: versionUnknown,
 				Type:    "apk",
 			})
 		}
@@ -235,7 +234,7 @@ func (g *Generator) extractPackagesFromRunCommand(line string) []Package {
 		for _, pkg := range pkgs {
 			packages = append(packages, Package{
 				Name:    pkg,
-				Version: "unknown",
+				Version: versionUnknown,
 				Type:    "rpm",
 			})
 		}
@@ -325,7 +324,7 @@ func (g *Generator) parseManifest(manifestType, content string) ([]Package, erro
 		return nil, fmt.Errorf("parse %s manifest: %w", manifestType, err)
 	}
 
-	var packages []Package
+	packages := make([]Package, 0, len(manifest.Packages))
 	for _, mp := range manifest.Packages {
 		pkg := Package{
 			Name:    mp.Name,
@@ -348,22 +347,22 @@ func generatePURL(pkgType, name, version string) string {
 	var purlType string
 
 	switch pkgType {
-	case "npm":
+	case pkgTypeNPM:
 		purlType = packageurl.TypeNPM
-	case "pip", "pypi":
+	case pkgTypePip, pkgTypePypi:
 		purlType = packageurl.TypePyPi
-	case "go", "golang":
+	case "go", pkgTypeGolang:
 		purlType = packageurl.TypeGolang
-	case "maven":
+	case pkgTypeMaven:
 		purlType = packageurl.TypeMaven
-	case "nuget":
+	case pkgTypeNuget:
 		purlType = packageurl.TypeNuget
-	case "deb":
+	case pkgTypeDeb:
 		purlType = packageurl.TypeDebian
 	case "rpm":
 		purlType = packageurl.TypeRPM
-	case "apk":
-		purlType = "apk" // Alpine packages
+	case pkgTypeApk:
+		purlType = pkgTypeApk // Alpine packages
 	default:
 		purlType = packageurl.TypeGeneric
 	}
@@ -380,7 +379,7 @@ func getFormatVersion(format Format) string {
 	case FormatCycloneDX:
 		return "CycloneDX-1.5"
 	default:
-		return "unknown"
+		return versionUnknown
 	}
 }
 
@@ -404,21 +403,21 @@ func (g *Generator) EnrichWithVulnerabilities(ctx context.Context, sbomID uuid.U
 	scanner := NewVulnerabilityScanner(g.logger)
 
 	var allVulns []Vulnerability
-	for _, pkg := range packages {
+	for i := range packages {
 		// Scan for vulnerabilities
-		vulns, err := scanner.ScanPackage(ctx, pkg)
+		vulns, err := scanner.ScanPackage(ctx, &packages[i])
 		if err != nil {
 			g.logger.Warn("failed to scan package",
-				"package", pkg.Name,
+				"package", packages[i].Name,
 				"error", err,
 			)
 			continue
 		}
 
 		// Associate vulnerabilities with the package
-		for i := range vulns {
-			vulns[i].SBOMID = sbomID
-			vulns[i].PackageID = pkg.ID
+		for j := range vulns {
+			vulns[j].SBOMID = sbomID
+			vulns[j].PackageID = packages[i].ID
 		}
 
 		allVulns = append(allVulns, vulns...)

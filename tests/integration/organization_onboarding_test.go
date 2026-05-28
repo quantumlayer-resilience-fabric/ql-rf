@@ -46,7 +46,7 @@ func TestOrganizationOnboarding_CreateOrganization(t *testing.T) {
 		}
 
 		// Cleanup
-		cleanupOrganization(t, result.Organization.ID)
+		cleanupOrganization(ctx, t, result.Organization.ID)
 	})
 
 	t.Run("create organization without slug generates one", func(t *testing.T) {
@@ -62,7 +62,7 @@ func TestOrganizationOnboarding_CreateOrganization(t *testing.T) {
 		}
 
 		// Cleanup
-		cleanupOrganization(t, result.Organization.ID)
+		cleanupOrganization(ctx, t, result.Organization.ID)
 	})
 
 	t.Run("create organization with professional plan", func(t *testing.T) {
@@ -86,7 +86,7 @@ func TestOrganizationOnboarding_CreateOrganization(t *testing.T) {
 		}
 
 		// Cleanup
-		cleanupOrganization(t, result.Organization.ID)
+		cleanupOrganization(ctx, t, result.Organization.ID)
 	})
 }
 
@@ -130,7 +130,7 @@ func TestOrganizationOnboarding_UserLinking(t *testing.T) {
 		}
 
 		// Cleanup
-		cleanupOrganization(t, result.Organization.ID)
+		cleanupOrganization(ctx, t, result.Organization.ID)
 	})
 }
 
@@ -147,121 +147,54 @@ func TestOrganizationOnboarding_SeedDemoData(t *testing.T) {
 	svc := multitenancy.NewService(testDB)
 
 	t.Run("seed AWS demo data", func(t *testing.T) {
-		// Create org first
-		result, err := svc.CreateOrganization(ctx, multitenancy.CreateOrganizationParams{
-			Name: "AWS Demo Org " + uuid.New().String()[:8],
-		})
-		if err != nil {
-			t.Fatalf("CreateOrganization() error = %v", err)
-		}
-
-		// Seed demo data
-		seedResult, err := svc.SeedDemoData(ctx, result.Organization.ID, multitenancy.SeedDemoDataParams{
-			Platform: "aws",
-		})
-		if err != nil {
-			t.Fatalf("SeedDemoData() error = %v", err)
-		}
-
-		if seedResult.SitesCreated < 3 {
-			t.Errorf("Expected at least 3 sites created for AWS, got %d", seedResult.SitesCreated)
-		}
-
-		if seedResult.ImagesCreated < 5 {
-			t.Errorf("Expected at least 5 images created for AWS, got %d", seedResult.ImagesCreated)
-		}
-
-		if seedResult.AssetsCreated < 8 {
-			t.Errorf("Expected at least 8 assets created for AWS, got %d", seedResult.AssetsCreated)
-		}
-
-		// Cleanup
-		cleanupOrganization(t, result.Organization.ID)
+		seedAndVerifyDemoData(ctx, t, svc, "aws", "AWS Demo Org", 5, 8)
 	})
 
 	t.Run("seed Azure demo data", func(t *testing.T) {
-		// Create org first
-		result, err := svc.CreateOrganization(ctx, multitenancy.CreateOrganizationParams{
-			Name: "Azure Demo Org " + uuid.New().String()[:8],
-		})
-		if err != nil {
-			t.Fatalf("CreateOrganization() error = %v", err)
-		}
-
-		// Seed demo data
-		seedResult, err := svc.SeedDemoData(ctx, result.Organization.ID, multitenancy.SeedDemoDataParams{
-			Platform: "azure",
-		})
-		if err != nil {
-			t.Fatalf("SeedDemoData() error = %v", err)
-		}
-
-		if seedResult.SitesCreated < 3 {
-			t.Errorf("Expected at least 3 sites created for Azure, got %d", seedResult.SitesCreated)
-		}
-
-		if seedResult.ImagesCreated < 4 {
-			t.Errorf("Expected at least 4 images created for Azure, got %d", seedResult.ImagesCreated)
-		}
-
-		// Cleanup
-		cleanupOrganization(t, result.Organization.ID)
+		seedAndVerifyDemoData(ctx, t, svc, "azure", "Azure Demo Org", 4, 0)
 	})
 
 	t.Run("seed GCP demo data", func(t *testing.T) {
-		// Create org first
-		result, err := svc.CreateOrganization(ctx, multitenancy.CreateOrganizationParams{
-			Name: "GCP Demo Org " + uuid.New().String()[:8],
-		})
-		if err != nil {
-			t.Fatalf("CreateOrganization() error = %v", err)
-		}
-
-		// Seed demo data
-		seedResult, err := svc.SeedDemoData(ctx, result.Organization.ID, multitenancy.SeedDemoDataParams{
-			Platform: "gcp",
-		})
-		if err != nil {
-			t.Fatalf("SeedDemoData() error = %v", err)
-		}
-
-		if seedResult.SitesCreated < 3 {
-			t.Errorf("Expected at least 3 sites created for GCP, got %d", seedResult.SitesCreated)
-		}
-
-		if seedResult.ImagesCreated < 4 {
-			t.Errorf("Expected at least 4 images created for GCP, got %d", seedResult.ImagesCreated)
-		}
-
-		// Cleanup
-		cleanupOrganization(t, result.Organization.ID)
+		seedAndVerifyDemoData(ctx, t, svc, "gcp", "GCP Demo Org", 4, 0)
 	})
 
 	t.Run("empty platform defaults to AWS", func(t *testing.T) {
-		// Create org first
-		result, err := svc.CreateOrganization(ctx, multitenancy.CreateOrganizationParams{
-			Name: "Default Platform Org " + uuid.New().String()[:8],
-		})
-		if err != nil {
-			t.Fatalf("CreateOrganization() error = %v", err)
-		}
-
-		// Seed demo data with empty platform
-		seedResult, err := svc.SeedDemoData(ctx, result.Organization.ID, multitenancy.SeedDemoDataParams{
-			Platform: "", // Should default to AWS
-		})
-		if err != nil {
-			t.Fatalf("SeedDemoData() error = %v", err)
-		}
-
-		// Should have AWS-style counts
-		if seedResult.SitesCreated < 3 {
-			t.Errorf("Expected at least 3 sites (AWS default), got %d", seedResult.SitesCreated)
-		}
-
-		// Cleanup
-		cleanupOrganization(t, result.Organization.ID)
+		seedAndVerifyDemoData(ctx, t, svc, "", "Default Platform Org", 0, 0)
 	})
+}
+
+// seedAndVerifyDemoData is a helper that creates an org, seeds demo data, verifies counts, and cleans up.
+// minSites is always 3. minImages, minAssets == 0 means "skip that check".
+func seedAndVerifyDemoData(ctx context.Context, t *testing.T, svc *multitenancy.Service, platform, orgPrefix string, minImages, minAssets int) {
+	t.Helper()
+
+	const minSites = 3
+
+	result, err := svc.CreateOrganization(ctx, multitenancy.CreateOrganizationParams{
+		Name: orgPrefix + " " + uuid.New().String()[:8],
+	})
+	if err != nil {
+		t.Fatalf("CreateOrganization() error = %v", err)
+	}
+
+	seedResult, err := svc.SeedDemoData(ctx, result.Organization.ID, multitenancy.SeedDemoDataParams{
+		Platform: platform,
+	})
+	if err != nil {
+		t.Fatalf("SeedDemoData() error = %v", err)
+	}
+
+	if seedResult.SitesCreated < minSites {
+		t.Errorf("Expected at least %d sites created for platform %q, got %d", minSites, platform, seedResult.SitesCreated)
+	}
+	if minImages > 0 && seedResult.ImagesCreated < minImages {
+		t.Errorf("Expected at least %d images created for platform %q, got %d", minImages, platform, seedResult.ImagesCreated)
+	}
+	if minAssets > 0 && seedResult.AssetsCreated < minAssets {
+		t.Errorf("Expected at least %d assets created for platform %q, got %d", minAssets, platform, seedResult.AssetsCreated)
+	}
+
+	cleanupOrganization(ctx, t, result.Organization.ID)
 }
 
 // =============================================================================
@@ -339,7 +272,7 @@ func TestOrganizationOnboarding_FullFlow(t *testing.T) {
 		t.Logf("Subscription status: %s", sub.Status)
 
 		// Cleanup
-		cleanupOrganization(t, orgID)
+		cleanupOrganization(ctx, t, orgID)
 	})
 }
 
@@ -389,7 +322,7 @@ func TestOrganizationOnboarding_QuotaStatus(t *testing.T) {
 		}
 
 		// Cleanup
-		cleanupOrganization(t, result.Organization.ID)
+		cleanupOrganization(ctx, t, result.Organization.ID)
 	})
 }
 
@@ -441,17 +374,17 @@ func TestOrganizationOnboarding_EdgeCases(t *testing.T) {
 // Helpers
 // =============================================================================
 
-func cleanupOrganization(t *testing.T, orgID uuid.UUID) {
+func cleanupOrganization(ctx context.Context, t *testing.T, orgID uuid.UUID) {
 	if testDB == nil {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	cleanCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	// Delete organization - all dependent tables have ON DELETE CASCADE
 	// so they will be cleaned up automatically
-	_, err := testDB.ExecContext(ctx, "DELETE FROM organizations WHERE id = $1", orgID)
+	_, err := testDB.ExecContext(cleanCtx, "DELETE FROM organizations WHERE id = $1", orgID)
 	if err != nil {
 		t.Logf("Cleanup organization %s: %v", orgID, err)
 	}

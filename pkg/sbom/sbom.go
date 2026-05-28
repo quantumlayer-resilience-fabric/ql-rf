@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -75,20 +76,13 @@ func (s *Service) Create(ctx context.Context, sbom *SBOM) error {
 	return nil
 }
 
-// Get retrieves an SBOM by ID.
-func (s *Service) Get(ctx context.Context, id uuid.UUID) (*SBOM, error) {
-	query := `
-		SELECT
-			id, image_id, org_id, format, version, content,
-			package_count, vuln_count, generated_at, scanner, created_at, updated_at
-		FROM sboms
-		WHERE id = $1
-	`
-
+// scanSBOM scans a single row into an SBOM and unmarshals the content JSON.
+// notFoundMsg is the error message to use when the row is not found.
+func (s *Service) scanSBOM(row *sql.Row, queryErrMsg, notFoundMsg string) (*SBOM, error) {
 	var sbom SBOM
 	var contentJSON []byte
 
-	err := s.db.QueryRowContext(ctx, query, id).Scan(
+	err := row.Scan(
 		&sbom.ID,
 		&sbom.ImageID,
 		&sbom.OrgID,
@@ -102,11 +96,11 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*SBOM, error) {
 		&sbom.CreatedAt,
 		&sbom.UpdatedAt,
 	)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("sbom not found")
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("%s", notFoundMsg)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("query sbom: %w", err)
+		return nil, fmt.Errorf("%s: %w", queryErrMsg, err)
 	}
 
 	if err := json.Unmarshal(contentJSON, &sbom.Content); err != nil {
@@ -114,6 +108,19 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*SBOM, error) {
 	}
 
 	return &sbom, nil
+}
+
+// Get retrieves an SBOM by ID.
+func (s *Service) Get(ctx context.Context, id uuid.UUID) (*SBOM, error) {
+	query := `
+		SELECT
+			id, image_id, org_id, format, version, content,
+			package_count, vuln_count, generated_at, scanner, created_at, updated_at
+		FROM sboms
+		WHERE id = $1
+	`
+	row := s.db.QueryRowContext(ctx, query, id)
+	return s.scanSBOM(row, "query sbom", "sbom not found")
 }
 
 // GetByImageID retrieves the most recent SBOM for an image.
@@ -127,36 +134,8 @@ func (s *Service) GetByImageID(ctx context.Context, imageID uuid.UUID) (*SBOM, e
 		ORDER BY generated_at DESC
 		LIMIT 1
 	`
-
-	var sbom SBOM
-	var contentJSON []byte
-
-	err := s.db.QueryRowContext(ctx, query, imageID).Scan(
-		&sbom.ID,
-		&sbom.ImageID,
-		&sbom.OrgID,
-		&sbom.Format,
-		&sbom.Version,
-		&contentJSON,
-		&sbom.PackageCount,
-		&sbom.VulnCount,
-		&sbom.GeneratedAt,
-		&sbom.Scanner,
-		&sbom.CreatedAt,
-		&sbom.UpdatedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("no sbom found for image")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("query sbom by image: %w", err)
-	}
-
-	if err := json.Unmarshal(contentJSON, &sbom.Content); err != nil {
-		return nil, fmt.Errorf("unmarshal sbom content: %w", err)
-	}
-
-	return &sbom, nil
+	row := s.db.QueryRowContext(ctx, query, imageID)
+	return s.scanSBOM(row, "query sbom by image", "no sbom found for image")
 }
 
 // List retrieves SBOMs for an organization with pagination.
@@ -302,7 +281,11 @@ func (s *Service) CreatePackageBatch(ctx context.Context, packages []Package) er
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+			s.logger.Error("failed to roll back transaction", "error", rbErr)
+		}
+	}()
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO sbom_packages (
@@ -371,7 +354,7 @@ func (s *Service) GetPackages(ctx context.Context, sbomID uuid.UUID) ([]Package,
 	}
 	defer rows.Close()
 
-	var packages []Package
+	packages := make([]Package, 0)
 	for rows.Next() {
 		var pkg Package
 		if err := rows.Scan(
@@ -453,7 +436,11 @@ func (s *Service) CreateVulnerabilityBatch(ctx context.Context, vulns []Vulnerab
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+			s.logger.Error("failed to roll back transaction", "error", rbErr)
+		}
+	}()
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO sbom_vulnerabilities (
@@ -539,7 +526,6 @@ func (s *Service) GetVulnerabilities(ctx context.Context, sbomID uuid.UUID, filt
 		if filter.HasExploit != nil {
 			query += fmt.Sprintf(" AND exploit_available = $%d", argIdx)
 			args = append(args, *filter.HasExploit)
-			argIdx++
 		}
 		if filter.FixAvailable != nil {
 			if *filter.FixAvailable {
@@ -558,7 +544,7 @@ func (s *Service) GetVulnerabilities(ctx context.Context, sbomID uuid.UUID, filt
 	}
 	defer rows.Close()
 
-	var vulns []Vulnerability
+	vulns := make([]Vulnerability, 0)
 	for rows.Next() {
 		var vuln Vulnerability
 		var refsJSON []byte

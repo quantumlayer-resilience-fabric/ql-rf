@@ -59,20 +59,11 @@ func TestTimeRangeHelpers(t *testing.T) {
 func TestCostRecord(t *testing.T) {
 	orgID := uuid.New()
 	record := CostRecord{
-		OrgID:        orgID,
-		ResourceID:   "i-1234567890",
-		ResourceType: "ec2_instance",
-		ResourceName: "web-server-01",
-		Cloud:        "aws",
-		Service:      "ec2",
-		Region:       "us-east-1",
-		Cost:         125.50,
-		Currency:     "USD",
-		UsageHours:   720,
+		OrgID: orgID,
+		Cost:  125.50,
 		Tags: map[string]string{
 			"Environment": "production",
 		},
-		RecordedAt: time.Now(),
 	}
 
 	if record.OrgID != orgID {
@@ -89,19 +80,10 @@ func TestCostRecord(t *testing.T) {
 }
 
 func TestCostRecommendation(t *testing.T) {
-	orgID := uuid.New()
 	rec := CostRecommendation{
-		OrgID:            orgID,
 		Type:             string(RecommendationRightsizing),
-		ResourceID:       "i-1234567890",
-		ResourceType:     "ec2_instance",
-		Platform:         "aws",
 		CurrentCost:      125.50,
 		PotentialSavings: 37.65,
-		Currency:         "USD",
-		Action:           "Downsize instance",
-		Priority:         string(PriorityHigh),
-		Status:           string(StatusPending),
 	}
 
 	if rec.Type != string(RecommendationRightsizing) {
@@ -119,19 +101,10 @@ func TestCostRecommendation(t *testing.T) {
 }
 
 func TestCostBudget(t *testing.T) {
-	orgID := uuid.New()
 	budget := CostBudget{
-		OrgID:          orgID,
-		Name:           "Monthly AWS Budget",
 		Amount:         5000.00,
-		Currency:       "USD",
 		Period:         string(PeriodMonthly),
-		Scope:          string(ScopeCloud),
-		ScopeValue:     "aws",
 		AlertThreshold: 80.0,
-		StartDate:      time.Now(),
-		Active:         true,
-		CreatedBy:      "user_123",
 	}
 
 	if budget.Amount <= 0 {
@@ -149,23 +122,10 @@ func TestCostBudget(t *testing.T) {
 
 func TestCostSummary(t *testing.T) {
 	summary := CostSummary{
-		OrgID:       uuid.New(),
-		TotalCost:   1250.50,
-		Currency:    "USD",
-		Period:      "monthly",
-		StartDate:   time.Now().AddDate(0, -1, 0),
-		EndDate:     time.Now(),
+		TotalCost: 1250.50,
 		ByCloud: map[string]float64{
 			"aws":   750.00,
 			"azure": 500.50,
-		},
-		ByService: map[string]float64{
-			"ec2": 450.00,
-			"rds": 300.00,
-		},
-		BySite: map[string]float64{
-			"us-east-1": 800.00,
-			"eu-west-1": 450.50,
 		},
 		TrendChange: 5.5,
 	}
@@ -186,13 +146,8 @@ func TestCostSummary(t *testing.T) {
 
 func TestResourceCost(t *testing.T) {
 	rc := ResourceCost{
-		ResourceID:   "i-1234567890",
-		ResourceType: "ec2_instance",
-		ResourceName: "web-server-01",
-		Platform:     "aws",
-		Cost:         125.50,
-		Currency:     "USD",
-		UsageHours:   720,
+		Cost:       125.50,
+		UsageHours: 720,
 	}
 
 	if rc.Cost <= 0 {

@@ -13,10 +13,10 @@ type Asset struct {
 	OrgID        uuid.UUID       `json:"org_id" db:"org_id"`
 	EnvID        uuid.UUID       `json:"env_id,omitempty" db:"env_id"`
 	Platform     Platform        `json:"platform" db:"platform"`
-	Account      string          `json:"account,omitempty" db:"account"`   // AWS account ID, Azure subscription, etc.
+	Account      string          `json:"account,omitempty" db:"account"` // AWS account ID, Azure subscription, etc.
 	Region       string          `json:"region,omitempty" db:"region"`
-	Site         string          `json:"site,omitempty" db:"site"`         // Logical site name (e.g., "dc-london")
-	InstanceID   string          `json:"instance_id" db:"instance_id"`     // Platform-specific ID
+	Site         string          `json:"site,omitempty" db:"site"`     // Logical site name (e.g., "dc-london")
+	InstanceID   string          `json:"instance_id" db:"instance_id"` // Platform-specific ID
 	Name         string          `json:"name,omitempty" db:"name"`
 	ImageRef     string          `json:"image_ref,omitempty" db:"image_ref"` // AMI ID, template name, etc.
 	ImageVersion string          `json:"image_version,omitempty" db:"image_version"`

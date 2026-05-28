@@ -3,6 +3,8 @@ package multitenancy
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -51,10 +53,12 @@ func (m *Middleware) RateLimiter() func(http.Handler) http.Handler {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", "60")
 				w.WriteHeader(http.StatusTooManyRequests)
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				if err := json.NewEncoder(w).Encode(map[string]interface{}{
 					"error":   "rate_limit_exceeded",
 					"message": "API rate limit exceeded. Please retry after some time.",
-				})
+				}); err != nil {
+					slog.Error("failed to encode rate limit response", "error", err)
+				}
 				return
 			}
 
@@ -82,11 +86,13 @@ func (m *Middleware) RequireQuota(resourceType QuotaType) func(http.Handler) htt
 			if !allowed {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusPaymentRequired)
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				if err := json.NewEncoder(w).Encode(map[string]interface{}{
 					"error":         "quota_exceeded",
 					"message":       "Resource quota exceeded. Please upgrade your plan.",
 					"resource_type": string(resourceType),
-				})
+				}); err != nil {
+					slog.Error("failed to encode quota response", "error", err)
+				}
 				return
 			}
 
@@ -114,11 +120,13 @@ func (m *Middleware) RequireFeature(feature string) func(http.Handler) http.Hand
 			if !enabled {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusPaymentRequired)
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				if err := json.NewEncoder(w).Encode(map[string]interface{}{
 					"error":   "feature_not_available",
 					"message": "This feature is not available in your current plan. Please upgrade.",
 					"feature": feature,
-				})
+				}); err != nil {
+					slog.Error("failed to encode feature response", "error", err)
+				}
 				return
 			}
 
@@ -164,14 +172,24 @@ func (m *Middleware) SetTenantContext(getUserID func(context.Context) string) fu
 				return
 			}
 
+			ctx := r.Context()
 			userID := ""
 			if getUserID != nil {
-				userID = getUserID(r.Context())
+				userID = getUserID(ctx)
 			}
 
-			// Set tenant context in database session (for RLS)
-			_ = m.service.SetTenantContext(r.Context(), orgID, userID)
-			defer m.service.ClearTenantContext(r.Context())
+			// Set tenant context in database session (for RLS). This MUST succeed:
+			// if it fails, queries would run without tenant isolation, so fail closed.
+			if err := m.service.SetTenantContext(ctx, orgID, userID); err != nil {
+				slog.Error("failed to set tenant context", "org_id", orgID, "error", err)
+				http.Error(w, "failed to establish tenant context", http.StatusInternalServerError)
+				return
+			}
+			defer func() {
+				if err := m.service.ClearTenantContext(ctx); err != nil {
+					slog.Error("failed to clear tenant context", "org_id", orgID, "error", err)
+				}
+			}()
 
 			next.ServeHTTP(w, r)
 		})
@@ -226,8 +244,8 @@ func (e *QuotaExceededError) Error() string {
 
 // IsQuotaExceeded checks if an error is a quota exceeded error.
 func IsQuotaExceeded(err error) bool {
-	_, ok := err.(*QuotaExceededError)
-	return ok
+	var target *QuotaExceededError
+	return errors.As(err, &target)
 }
 
 // FeatureNotEnabledError represents a feature not enabled error.
@@ -241,6 +259,6 @@ func (e *FeatureNotEnabledError) Error() string {
 
 // IsFeatureNotEnabled checks if an error is a feature not enabled error.
 func IsFeatureNotEnabled(err error) bool {
-	_, ok := err.(*FeatureNotEnabledError)
-	return ok
+	var target *FeatureNotEnabledError
+	return errors.As(err, &target)
 }

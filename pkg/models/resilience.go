@@ -22,19 +22,19 @@ type ResilienceSite struct {
 
 // DRPair represents a disaster recovery site pair.
 type DRPair struct {
-	ID                uuid.UUID      `json:"id" db:"id"`
-	OrgID             uuid.UUID      `json:"orgId" db:"org_id"`
-	Name              string         `json:"name" db:"name"`
-	PrimarySiteID     uuid.UUID      `json:"primarySiteId" db:"primary_site_id"`
-	DRSiteID          uuid.UUID      `json:"drSiteId" db:"dr_site_id"`
-	Status            string         `json:"status" db:"status"`                     // healthy, warning, critical, syncing
-	ReplicationStatus string         `json:"replicationStatus" db:"replication_status"` // in-sync, lagging, failed
-	RPO               string         `json:"rpo,omitempty" db:"rpo"`
-	RTO               string         `json:"rto,omitempty" db:"rto"`
-	LastFailoverTest  *time.Time     `json:"lastFailoverTest,omitempty" db:"last_failover_test"`
-	LastSyncAt        *time.Time     `json:"lastSyncAt,omitempty" db:"last_sync_at"`
-	CreatedAt         time.Time      `json:"createdAt" db:"created_at"`
-	UpdatedAt         time.Time      `json:"updatedAt" db:"updated_at"`
+	ID                uuid.UUID  `json:"id" db:"id"`
+	OrgID             uuid.UUID  `json:"orgId" db:"org_id"`
+	Name              string     `json:"name" db:"name"`
+	PrimarySiteID     uuid.UUID  `json:"primarySiteId" db:"primary_site_id"`
+	DRSiteID          uuid.UUID  `json:"drSiteId" db:"dr_site_id"`
+	Status            string     `json:"status" db:"status"`                        // healthy, warning, critical, syncing
+	ReplicationStatus string     `json:"replicationStatus" db:"replication_status"` // in-sync, lagging, failed
+	RPO               string     `json:"rpo,omitempty" db:"rpo"`
+	RTO               string     `json:"rto,omitempty" db:"rto"`
+	LastFailoverTest  *time.Time `json:"lastFailoverTest,omitempty" db:"last_failover_test"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty" db:"last_sync_at"`
+	CreatedAt         time.Time  `json:"createdAt" db:"created_at"`
+	UpdatedAt         time.Time  `json:"updatedAt" db:"updated_at"`
 
 	// Loaded relationships
 	PrimarySite ResilienceSite `json:"primarySite"`
@@ -64,9 +64,9 @@ const (
 
 // ResilienceSummary represents the overall resilience/DR summary.
 type ResilienceSummary struct {
-	DRReadiness      float64          `json:"drReadiness"`      // Percentage of sites with DR pairs
-	RPOCompliance    float64          `json:"rpoCompliance"`    // Percentage meeting RPO
-	RTOCompliance    float64          `json:"rtoCompliance"`    // Percentage meeting RTO
+	DRReadiness      float64          `json:"drReadiness"`   // Percentage of sites with DR pairs
+	RPOCompliance    float64          `json:"rpoCompliance"` // Percentage meeting RPO
+	RTOCompliance    float64          `json:"rtoCompliance"` // Percentage meeting RTO
 	LastFailoverTest *time.Time       `json:"lastFailoverTest,omitempty"`
 	TotalPairs       int              `json:"totalPairs"`
 	HealthyPairs     int              `json:"healthyPairs"`

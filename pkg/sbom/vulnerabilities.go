@@ -12,6 +12,14 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	severityCritical = "critical"
+	severityHigh     = "high"
+	severityMedium   = "medium"
+	severityLow      = "low"
+	severityUnknown  = "unknown"
+)
+
 // VulnerabilityScanner scans packages for known vulnerabilities.
 type VulnerabilityScanner struct {
 	logger *slog.Logger
@@ -33,7 +41,7 @@ func NewVulnerabilityScanner(logger *slog.Logger) *VulnerabilityScanner {
 }
 
 // ScanPackage scans a package for vulnerabilities using public vulnerability databases.
-func (s *VulnerabilityScanner) ScanPackage(ctx context.Context, pkg Package) ([]Vulnerability, error) {
+func (s *VulnerabilityScanner) ScanPackage(ctx context.Context, pkg *Package) ([]Vulnerability, error) {
 	var vulns []Vulnerability
 
 	// Try OSV (Open Source Vulnerabilities) database first
@@ -96,7 +104,7 @@ type osvVulnerability struct {
 }
 
 // queryOSV queries the OSV database for vulnerabilities.
-func (s *VulnerabilityScanner) queryOSV(ctx context.Context, pkg Package) ([]Vulnerability, error) {
+func (s *VulnerabilityScanner) queryOSV(ctx context.Context, pkg *Package) ([]Vulnerability, error) {
 	ecosystem := mapPackageTypeToOSVEcosystem(pkg.Type)
 	if ecosystem == "" {
 		// Not supported by OSV
@@ -144,90 +152,99 @@ func (s *VulnerabilityScanner) queryOSV(ctx context.Context, pkg Package) ([]Vul
 	}
 
 	// Convert to our Vulnerability type
-	var vulns []Vulnerability
-	for _, osv := range result.Vulns {
-		vuln := Vulnerability{
-			CVEID:       osv.ID,
-			Description: osv.Summary,
-			DataSource:  "OSV",
-		}
-
-		// Extract severity and CVSS
-		for _, sev := range osv.Severity {
-			if sev.Type == "CVSS_V3" {
-				vuln.CVSSVector = sev.Score
-				// Parse CVSS score from vector
-				score := parseCVSSScore(sev.Score)
-				if score > 0 {
-					vuln.CVSSScore = &score
-					vuln.Severity = cvssScoreToSeverity(score)
-				}
-			}
-		}
-
-		// If no CVSS, set severity based on details
-		if vuln.Severity == "" {
-			vuln.Severity = "unknown"
-		}
-
-		// Extract fixed version
-		for _, affected := range osv.Affected {
-			for _, r := range affected.Ranges {
-				for _, event := range r.Events {
-					if event.Fixed != "" {
-						vuln.FixedVersion = event.Fixed
-						break
-					}
-				}
-			}
-		}
-
-		// Extract references
-		for _, ref := range osv.References {
-			vuln.References = append(vuln.References, ref.URL)
-		}
-
-		// Parse dates
-		if osv.Published != "" {
-			if t, err := time.Parse(time.RFC3339, osv.Published); err == nil {
-				vuln.PublishedDate = &t
-			}
-		}
-		if osv.Modified != "" {
-			if t, err := time.Parse(time.RFC3339, osv.Modified); err == nil {
-				vuln.ModifiedDate = &t
-			}
-		}
-
-		// Check for known exploits (simplified - would need exploit database)
-		vuln.ExploitAvailable = strings.Contains(strings.ToLower(osv.Details), "exploit")
-
-		vulns = append(vulns, vuln)
+	vulns := make([]Vulnerability, 0, len(result.Vulns))
+	for i := range result.Vulns {
+		vulns = append(vulns, convertOSVVuln(&result.Vulns[i]))
 	}
 
 	return vulns, nil
 }
 
+// convertOSVVuln converts an OSV vulnerability to our internal Vulnerability type.
+func convertOSVVuln(osv *osvVulnerability) Vulnerability {
+	vuln := Vulnerability{
+		CVEID:       osv.ID,
+		Description: osv.Summary,
+		DataSource:  "OSV",
+	}
+
+	// Extract severity and CVSS
+	for _, sev := range osv.Severity {
+		if sev.Type == "CVSS_V3" {
+			vuln.CVSSVector = sev.Score
+			score := parseCVSSScore(sev.Score)
+			if score > 0 {
+				vuln.CVSSScore = &score
+				vuln.Severity = cvssScoreToSeverity(score)
+			}
+		}
+	}
+
+	// If no CVSS, set severity based on details
+	if vuln.Severity == "" {
+		vuln.Severity = severityUnknown
+	}
+
+	// Extract fixed version
+	vuln.FixedVersion = extractFixedVersion(osv)
+
+	// Extract references
+	for _, ref := range osv.References {
+		vuln.References = append(vuln.References, ref.URL)
+	}
+
+	// Parse dates
+	if osv.Published != "" {
+		if t, err := time.Parse(time.RFC3339, osv.Published); err == nil {
+			vuln.PublishedDate = &t
+		}
+	}
+	if osv.Modified != "" {
+		if t, err := time.Parse(time.RFC3339, osv.Modified); err == nil {
+			vuln.ModifiedDate = &t
+		}
+	}
+
+	// Check for known exploits (simplified - would need exploit database)
+	vuln.ExploitAvailable = strings.Contains(strings.ToLower(osv.Details), "exploit")
+
+	return vuln
+}
+
+// extractFixedVersion extracts the first fixed version from OSV affected ranges.
+func extractFixedVersion(osv *osvVulnerability) string {
+	for _, affected := range osv.Affected {
+		for _, r := range affected.Ranges {
+			for _, event := range r.Events {
+				if event.Fixed != "" {
+					return event.Fixed
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // mapPackageTypeToOSVEcosystem maps package types to OSV ecosystems.
 func mapPackageTypeToOSVEcosystem(pkgType string) string {
 	switch pkgType {
-	case "npm":
-		return "npm"
-	case "pip", "pypi":
+	case pkgTypeNPM:
+		return pkgTypeNPM
+	case pkgTypePip, pkgTypePypi:
 		return "PyPI"
-	case "go", "golang":
+	case "go", pkgTypeGolang:
 		return "Go"
-	case "maven":
+	case pkgTypeMaven:
 		return "Maven"
-	case "nuget":
+	case pkgTypeNuget:
 		return "NuGet"
 	case "ruby", "gem":
 		return "RubyGems"
 	case "cargo", "rust":
 		return "crates.io"
-	case "deb":
+	case pkgTypeDeb:
 		return "Debian"
-	case "apk":
+	case pkgTypeApk:
 		return "Alpine"
 	default:
 		return ""
@@ -258,20 +275,20 @@ func parseCVSSScore(vector string) float64 {
 func cvssScoreToSeverity(score float64) string {
 	switch {
 	case score >= 9.0:
-		return "critical"
+		return severityCritical
 	case score >= 7.0:
-		return "high"
+		return severityHigh
 	case score >= 4.0:
-		return "medium"
+		return severityMedium
 	case score > 0.0:
-		return "low"
+		return severityLow
 	default:
-		return "unknown"
+		return severityUnknown
 	}
 }
 
 // EnrichVulnerabilityData enriches vulnerability data with additional context.
-func (s *VulnerabilityScanner) EnrichVulnerabilityData(ctx context.Context, vuln *Vulnerability) error {
+func (s *VulnerabilityScanner) EnrichVulnerabilityData(_ context.Context, vuln *Vulnerability) error {
 	// Could add enrichment from:
 	// - EPSS (Exploit Prediction Scoring System)
 	// - KEV (Known Exploited Vulnerabilities) catalog
@@ -293,62 +310,71 @@ func (s *Service) GetVulnerabilityStats(ctx context.Context, sbomID uuid.UUID) (
 		return nil, fmt.Errorf("get vulnerabilities: %w", err)
 	}
 
-	stats := map[string]interface{}{
-		"total":              len(vulns),
-		"critical":           0,
-		"high":               0,
-		"medium":             0,
-		"low":                0,
-		"unknown":            0,
-		"with_exploits":      0,
-		"with_fixes":         0,
-		"avg_cvss_score":     0.0,
-		"highest_cvss_score": 0.0,
-	}
+	var (
+		cntCritical     int
+		cntHigh         int
+		cntMedium       int
+		cntLow          int
+		cntUnknown      int
+		cntWithExploits int
+		cntWithFixes    int
+		totalScore      float64
+		highestCVSS     float64
+		countWithScore  int
+	)
 
-	totalScore := 0.0
-	countWithScore := 0
-
-	for _, vuln := range vulns {
+	for i := range vulns {
 		// Count by severity
-		switch vuln.Severity {
-		case "critical":
-			stats["critical"] = stats["critical"].(int) + 1
-		case "high":
-			stats["high"] = stats["high"].(int) + 1
-		case "medium":
-			stats["medium"] = stats["medium"].(int) + 1
-		case "low":
-			stats["low"] = stats["low"].(int) + 1
+		switch vulns[i].Severity {
+		case severityCritical:
+			cntCritical++
+		case severityHigh:
+			cntHigh++
+		case severityMedium:
+			cntMedium++
+		case severityLow:
+			cntLow++
 		default:
-			stats["unknown"] = stats["unknown"].(int) + 1
+			cntUnknown++
 		}
 
 		// Count exploits
-		if vuln.ExploitAvailable {
-			stats["with_exploits"] = stats["with_exploits"].(int) + 1
+		if vulns[i].ExploitAvailable {
+			cntWithExploits++
 		}
 
 		// Count fixes
-		if vuln.FixedVersion != "" {
-			stats["with_fixes"] = stats["with_fixes"].(int) + 1
+		if vulns[i].FixedVersion != "" {
+			cntWithFixes++
 		}
 
 		// Calculate CVSS stats
-		if vuln.CVSSScore != nil {
-			score := *vuln.CVSSScore
+		if vulns[i].CVSSScore != nil {
+			score := *vulns[i].CVSSScore
 			totalScore += score
 			countWithScore++
 
-			if score > stats["highest_cvss_score"].(float64) {
-				stats["highest_cvss_score"] = score
+			if score > highestCVSS {
+				highestCVSS = score
 			}
 		}
 	}
 
+	avgCVSS := 0.0
 	if countWithScore > 0 {
-		stats["avg_cvss_score"] = totalScore / float64(countWithScore)
+		avgCVSS = totalScore / float64(countWithScore)
 	}
 
-	return stats, nil
+	return map[string]interface{}{
+		"total":              len(vulns),
+		severityCritical:     cntCritical,
+		severityHigh:         cntHigh,
+		severityMedium:       cntMedium,
+		severityLow:          cntLow,
+		severityUnknown:      cntUnknown,
+		"with_exploits":      cntWithExploits,
+		"with_fixes":         cntWithFixes,
+		"avg_cvss_score":     avgCVSS,
+		"highest_cvss_score": highestCVSS,
+	}, nil
 }

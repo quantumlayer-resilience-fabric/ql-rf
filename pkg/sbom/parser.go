@@ -17,15 +17,15 @@ func NewParser() *Parser {
 // Parse parses a package manifest based on type.
 func (p *Parser) Parse(manifestType, content string) (*PackageManifest, error) {
 	switch manifestType {
-	case "npm", "package.json":
+	case pkgTypeNPM, "package.json":
 		return p.parseNPM(content)
-	case "pip", "requirements.txt":
+	case pkgTypePip, "requirements.txt":
 		return p.parsePip(content)
 	case "go", "go.mod":
 		return p.parseGoMod(content)
-	case "maven", "pom.xml":
+	case pkgTypeMaven, "pom.xml":
 		return p.parseMaven(content)
-	case "nuget", "packages.config":
+	case pkgTypeNuget, "packages.config":
 		return p.parseNuGet(content)
 	case "gemfile", "ruby":
 		return p.parseGemfile(content)
@@ -50,7 +50,7 @@ func (p *Parser) parseNPM(content string) (*PackageManifest, error) {
 	}
 
 	manifest := &PackageManifest{
-		Type: "npm",
+		Type: pkgTypeNPM,
 		Metadata: map[string]string{
 			"name":    data.Name,
 			"version": data.Version,
@@ -81,7 +81,7 @@ func (p *Parser) parseNPM(content string) (*PackageManifest, error) {
 // parsePip parses requirements.txt files.
 func (p *Parser) parsePip(content string) (*PackageManifest, error) {
 	manifest := &PackageManifest{
-		Type: "pip",
+		Type: pkgTypePip,
 	}
 
 	lines := strings.Split(content, "\n")
@@ -109,7 +109,7 @@ func (p *Parser) parsePip(content string) (*PackageManifest, error) {
 			}
 		} else {
 			name = line
-			version = "unknown"
+			version = versionUnknown
 		}
 
 		manifest.Packages = append(manifest.Packages, ManifestPackage{
@@ -177,7 +177,7 @@ func (p *Parser) parseGoMod(content string) (*PackageManifest, error) {
 // parseMaven parses pom.xml files (simplified).
 func (p *Parser) parseMaven(content string) (*PackageManifest, error) {
 	manifest := &PackageManifest{
-		Type: "maven",
+		Type: pkgTypeMaven,
 	}
 
 	// Simple XML parsing for <dependency> blocks
@@ -225,7 +225,7 @@ func (p *Parser) parseMaven(content string) (*PackageManifest, error) {
 // parseNuGet parses packages.config files (simplified).
 func (p *Parser) parseNuGet(content string) (*PackageManifest, error) {
 	manifest := &PackageManifest{
-		Type: "nuget",
+		Type: pkgTypeNuget,
 	}
 
 	// Simple XML parsing for <package> elements

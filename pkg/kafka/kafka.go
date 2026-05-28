@@ -65,7 +65,7 @@ func NewProducer(cfg config.KafkaConfig) (*Producer, error) {
 }
 
 // Publish publishes a message to the given topic.
-func (p *Producer) Publish(ctx context.Context, topic string, key string, value any) error {
+func (p *Producer) Publish(_ context.Context, topic, key string, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
@@ -209,7 +209,7 @@ func (c *Consumer) Close() error {
 }
 
 // Health checks the Kafka connection health.
-func (p *Producer) Health(ctx context.Context, brokers []string) error {
+func (p *Producer) Health(_ context.Context, brokers []string) error {
 	config := sarama.NewConfig()
 	config.Net.DialTimeout = 5 * time.Second
 
@@ -217,8 +217,9 @@ func (p *Producer) Health(ctx context.Context, brokers []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to Kafka: %w", err)
 	}
-	defer client.Close()
-
+	if closeErr := client.Close(); closeErr != nil {
+		return fmt.Errorf("failed to close kafka health client: %w", closeErr)
+	}
 	return nil
 }
 

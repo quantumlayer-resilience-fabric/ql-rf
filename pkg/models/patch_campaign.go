@@ -14,42 +14,42 @@ import (
 
 // PatchCampaign represents a multi-phase patch rollout campaign.
 type PatchCampaign struct {
-	ID                          uuid.UUID       `json:"id" db:"id"`
-	OrgID                       uuid.UUID       `json:"orgId" db:"org_id"`
-	Name                        string          `json:"name" db:"name"`
-	Description                 *string         `json:"description,omitempty" db:"description"`
-	CampaignType                string          `json:"campaignType" db:"campaign_type"`                               // cve_response, scheduled, emergency, compliance
-	CVEAlertIDs                 pq.StringArray  `json:"cveAlertIds" db:"cve_alert_ids"`
-	Status                      string          `json:"status" db:"status"`
-	RequiresApproval            bool            `json:"requiresApproval" db:"requires_approval"`
-	ApprovalRequestID           *uuid.UUID      `json:"approvalRequestId,omitempty" db:"approval_request_id"`
-	ApprovedBy                  *string         `json:"approvedBy,omitempty" db:"approved_by"`
-	ApprovedAt                  *time.Time      `json:"approvedAt,omitempty" db:"approved_at"`
-	RejectionReason             *string         `json:"rejectionReason,omitempty" db:"rejection_reason"`
-	ScheduledStartAt            *time.Time      `json:"scheduledStartAt,omitempty" db:"scheduled_start_at"`
-	ScheduledEndAt              *time.Time      `json:"scheduledEndAt,omitempty" db:"scheduled_end_at"`
-	MaintenanceWindowID         *uuid.UUID      `json:"maintenanceWindowId,omitempty" db:"maintenance_window_id"`
-	TotalAssets                 int             `json:"totalAssets" db:"total_assets"`
-	PendingAssets               int             `json:"pendingAssets" db:"pending_assets"`
-	InProgressAssets            int             `json:"inProgressAssets" db:"in_progress_assets"`
-	CompletedAssets             int             `json:"completedAssets" db:"completed_assets"`
-	FailedAssets                int             `json:"failedAssets" db:"failed_assets"`
-	SkippedAssets               int             `json:"skippedAssets" db:"skipped_assets"`
-	RolloutStrategy             string          `json:"rolloutStrategy" db:"rollout_strategy"`
-	CanaryPercentage            *int            `json:"canaryPercentage,omitempty" db:"canary_percentage"`
-	WavePercentage              *int            `json:"wavePercentage,omitempty" db:"wave_percentage"`
-	FailureThresholdPercentage  *int            `json:"failureThresholdPercentage,omitempty" db:"failure_threshold_percentage"`
-	HealthCheckEnabled          bool            `json:"healthCheckEnabled" db:"health_check_enabled"`
-	HealthCheckTimeoutSeconds   *int            `json:"healthCheckTimeoutSeconds,omitempty" db:"health_check_timeout_seconds"`
-	HealthCheckIntervalSeconds  *int            `json:"healthCheckIntervalSeconds,omitempty" db:"health_check_interval_seconds"`
-	AutoRollbackEnabled         bool            `json:"autoRollbackEnabled" db:"auto_rollback_enabled"`
-	RollbackOnFailurePercentage *int            `json:"rollbackOnFailurePercentage,omitempty" db:"rollback_on_failure_percentage"`
-	StartedAt                   *time.Time      `json:"startedAt,omitempty" db:"started_at"`
-	CompletedAt                 *time.Time      `json:"completedAt,omitempty" db:"completed_at"`
-	AITaskID                    *uuid.UUID      `json:"aiTaskId,omitempty" db:"ai_task_id"`
-	CreatedBy                   string          `json:"createdBy" db:"created_by"`
-	CreatedAt                   time.Time       `json:"createdAt" db:"created_at"`
-	UpdatedAt                   time.Time       `json:"updatedAt" db:"updated_at"`
+	ID                          uuid.UUID      `json:"id" db:"id"`
+	OrgID                       uuid.UUID      `json:"orgId" db:"org_id"`
+	Name                        string         `json:"name" db:"name"`
+	Description                 *string        `json:"description,omitempty" db:"description"`
+	CampaignType                string         `json:"campaignType" db:"campaign_type"` // cve_response, scheduled, emergency, compliance
+	CVEAlertIDs                 pq.StringArray `json:"cveAlertIds" db:"cve_alert_ids"`
+	Status                      string         `json:"status" db:"status"`
+	RequiresApproval            bool           `json:"requiresApproval" db:"requires_approval"`
+	ApprovalRequestID           *uuid.UUID     `json:"approvalRequestId,omitempty" db:"approval_request_id"`
+	ApprovedBy                  *string        `json:"approvedBy,omitempty" db:"approved_by"`
+	ApprovedAt                  *time.Time     `json:"approvedAt,omitempty" db:"approved_at"`
+	RejectionReason             *string        `json:"rejectionReason,omitempty" db:"rejection_reason"`
+	ScheduledStartAt            *time.Time     `json:"scheduledStartAt,omitempty" db:"scheduled_start_at"`
+	ScheduledEndAt              *time.Time     `json:"scheduledEndAt,omitempty" db:"scheduled_end_at"`
+	MaintenanceWindowID         *uuid.UUID     `json:"maintenanceWindowId,omitempty" db:"maintenance_window_id"`
+	TotalAssets                 int            `json:"totalAssets" db:"total_assets"`
+	PendingAssets               int            `json:"pendingAssets" db:"pending_assets"`
+	InProgressAssets            int            `json:"inProgressAssets" db:"in_progress_assets"`
+	CompletedAssets             int            `json:"completedAssets" db:"completed_assets"`
+	FailedAssets                int            `json:"failedAssets" db:"failed_assets"`
+	SkippedAssets               int            `json:"skippedAssets" db:"skipped_assets"`
+	RolloutStrategy             string         `json:"rolloutStrategy" db:"rollout_strategy"`
+	CanaryPercentage            *int           `json:"canaryPercentage,omitempty" db:"canary_percentage"`
+	WavePercentage              *int           `json:"wavePercentage,omitempty" db:"wave_percentage"`
+	FailureThresholdPercentage  *int           `json:"failureThresholdPercentage,omitempty" db:"failure_threshold_percentage"`
+	HealthCheckEnabled          bool           `json:"healthCheckEnabled" db:"health_check_enabled"`
+	HealthCheckTimeoutSeconds   *int           `json:"healthCheckTimeoutSeconds,omitempty" db:"health_check_timeout_seconds"`
+	HealthCheckIntervalSeconds  *int           `json:"healthCheckIntervalSeconds,omitempty" db:"health_check_interval_seconds"`
+	AutoRollbackEnabled         bool           `json:"autoRollbackEnabled" db:"auto_rollback_enabled"`
+	RollbackOnFailurePercentage *int           `json:"rollbackOnFailurePercentage,omitempty" db:"rollback_on_failure_percentage"`
+	StartedAt                   *time.Time     `json:"startedAt,omitempty" db:"started_at"`
+	CompletedAt                 *time.Time     `json:"completedAt,omitempty" db:"completed_at"`
+	AITaskID                    *uuid.UUID     `json:"aiTaskId,omitempty" db:"ai_task_id"`
+	CreatedBy                   string         `json:"createdBy" db:"created_by"`
+	CreatedAt                   time.Time      `json:"createdAt" db:"created_at"`
+	UpdatedAt                   time.Time      `json:"updatedAt" db:"updated_at"`
 
 	// Enriched fields (not in DB)
 	Phases []PatchCampaignPhase `json:"phases,omitempty" db:"-"`
@@ -97,26 +97,26 @@ const (
 
 // PatchCampaignPhase represents a phase within a campaign.
 type PatchCampaignPhase struct {
-	ID                   uuid.UUID        `json:"id" db:"id"`
-	CampaignID           uuid.UUID        `json:"campaignId" db:"campaign_id"`
-	PhaseNumber          int              `json:"phaseNumber" db:"phase_number"`
-	Name                 string           `json:"name" db:"name"`
-	PhaseType            string           `json:"phaseType" db:"phase_type"`                              // canary, wave, final
-	TargetPercentage     int              `json:"targetPercentage" db:"target_percentage"`
-	TargetAssetIDs       pq.StringArray   `json:"targetAssetIds" db:"target_asset_ids"`
-	TargetCriteria       json.RawMessage  `json:"targetCriteria,omitempty" db:"target_criteria"`
-	Status               string           `json:"status" db:"status"`
-	TotalAssets          int              `json:"totalAssets" db:"total_assets"`
-	CompletedAssets      int              `json:"completedAssets" db:"completed_assets"`
-	FailedAssets         int              `json:"failedAssets" db:"failed_assets"`
-	HealthCheckPassed    *bool            `json:"healthCheckPassed,omitempty" db:"health_check_passed"`
-	HealthCheckResults   json.RawMessage  `json:"healthCheckResults,omitempty" db:"health_check_results"`
-	EstimatedDurationMin *int             `json:"estimatedDurationMinutes,omitempty" db:"estimated_duration_minutes"`
-	ActualDurationMin    *int             `json:"actualDurationMinutes,omitempty" db:"actual_duration_minutes"`
-	StartedAt            *time.Time       `json:"startedAt,omitempty" db:"started_at"`
-	CompletedAt          *time.Time       `json:"completedAt,omitempty" db:"completed_at"`
-	CreatedAt            time.Time        `json:"createdAt" db:"created_at"`
-	UpdatedAt            time.Time        `json:"updatedAt" db:"updated_at"`
+	ID                   uuid.UUID       `json:"id" db:"id"`
+	CampaignID           uuid.UUID       `json:"campaignId" db:"campaign_id"`
+	PhaseNumber          int             `json:"phaseNumber" db:"phase_number"`
+	Name                 string          `json:"name" db:"name"`
+	PhaseType            string          `json:"phaseType" db:"phase_type"` // canary, wave, final
+	TargetPercentage     int             `json:"targetPercentage" db:"target_percentage"`
+	TargetAssetIDs       pq.StringArray  `json:"targetAssetIds" db:"target_asset_ids"`
+	TargetCriteria       json.RawMessage `json:"targetCriteria,omitempty" db:"target_criteria"`
+	Status               string          `json:"status" db:"status"`
+	TotalAssets          int             `json:"totalAssets" db:"total_assets"`
+	CompletedAssets      int             `json:"completedAssets" db:"completed_assets"`
+	FailedAssets         int             `json:"failedAssets" db:"failed_assets"`
+	HealthCheckPassed    *bool           `json:"healthCheckPassed,omitempty" db:"health_check_passed"`
+	HealthCheckResults   json.RawMessage `json:"healthCheckResults,omitempty" db:"health_check_results"`
+	EstimatedDurationMin *int            `json:"estimatedDurationMinutes,omitempty" db:"estimated_duration_minutes"`
+	ActualDurationMin    *int            `json:"actualDurationMinutes,omitempty" db:"actual_duration_minutes"`
+	StartedAt            *time.Time      `json:"startedAt,omitempty" db:"started_at"`
+	CompletedAt          *time.Time      `json:"completedAt,omitempty" db:"completed_at"`
+	CreatedAt            time.Time       `json:"createdAt" db:"created_at"`
+	UpdatedAt            time.Time       `json:"updatedAt" db:"updated_at"`
 
 	// Enriched fields
 	Assets []PatchCampaignAsset `json:"assets,omitempty" db:"-"`
@@ -151,33 +151,33 @@ const (
 
 // PatchCampaignAsset represents the patch status for a single asset.
 type PatchCampaignAsset struct {
-	ID                  uuid.UUID        `json:"id" db:"id"`
-	CampaignID          uuid.UUID        `json:"campaignId" db:"campaign_id"`
-	PhaseID             *uuid.UUID       `json:"phaseId,omitempty" db:"phase_id"`
-	AssetID             uuid.UUID        `json:"assetId" db:"asset_id"`
-	Status              string           `json:"status" db:"status"`
-	Executor            *string          `json:"executor,omitempty" db:"executor"`                      // ssm, azure_update_mgr, gcp_os_config, k8s_rollout
-	ExecutionID         *string          `json:"executionId,omitempty" db:"execution_id"`
-	BeforeVersion       *string          `json:"beforeVersion,omitempty" db:"before_version"`
-	AfterVersion        *string          `json:"afterVersion,omitempty" db:"after_version"`
-	BeforePackages      json.RawMessage  `json:"beforePackages,omitempty" db:"before_packages"`
-	AfterPackages       json.RawMessage  `json:"afterPackages,omitempty" db:"after_packages"`
-	HealthCheckPassed   *bool            `json:"healthCheckPassed,omitempty" db:"health_check_passed"`
-	HealthCheckResults  json.RawMessage  `json:"healthCheckResults,omitempty" db:"health_check_results"`
-	HealthCheckAttempts int              `json:"healthCheckAttempts" db:"health_check_attempts"`
-	ErrorMessage        *string          `json:"errorMessage,omitempty" db:"error_message"`
-	ErrorCode           *string          `json:"errorCode,omitempty" db:"error_code"`
-	RetryCount          int              `json:"retryCount" db:"retry_count"`
-	MaxRetries          int              `json:"maxRetries" db:"max_retries"`
-	RollbackAvailable   bool             `json:"rollbackAvailable" db:"rollback_available"`
-	RollbackSnapshotID  *string          `json:"rollbackSnapshotId,omitempty" db:"rollback_snapshot_id"`
-	RolledBackAt        *time.Time       `json:"rolledBackAt,omitempty" db:"rolled_back_at"`
-	RollbackReason      *string          `json:"rollbackReason,omitempty" db:"rollback_reason"`
-	QueuedAt            *time.Time       `json:"queuedAt,omitempty" db:"queued_at"`
-	StartedAt           *time.Time       `json:"startedAt,omitempty" db:"started_at"`
-	CompletedAt         *time.Time       `json:"completedAt,omitempty" db:"completed_at"`
-	CreatedAt           time.Time        `json:"createdAt" db:"created_at"`
-	UpdatedAt           time.Time        `json:"updatedAt" db:"updated_at"`
+	ID                  uuid.UUID       `json:"id" db:"id"`
+	CampaignID          uuid.UUID       `json:"campaignId" db:"campaign_id"`
+	PhaseID             *uuid.UUID      `json:"phaseId,omitempty" db:"phase_id"`
+	AssetID             uuid.UUID       `json:"assetId" db:"asset_id"`
+	Status              string          `json:"status" db:"status"`
+	Executor            *string         `json:"executor,omitempty" db:"executor"` // ssm, azure_update_mgr, gcp_os_config, k8s_rollout
+	ExecutionID         *string         `json:"executionId,omitempty" db:"execution_id"`
+	BeforeVersion       *string         `json:"beforeVersion,omitempty" db:"before_version"`
+	AfterVersion        *string         `json:"afterVersion,omitempty" db:"after_version"`
+	BeforePackages      json.RawMessage `json:"beforePackages,omitempty" db:"before_packages"`
+	AfterPackages       json.RawMessage `json:"afterPackages,omitempty" db:"after_packages"`
+	HealthCheckPassed   *bool           `json:"healthCheckPassed,omitempty" db:"health_check_passed"`
+	HealthCheckResults  json.RawMessage `json:"healthCheckResults,omitempty" db:"health_check_results"`
+	HealthCheckAttempts int             `json:"healthCheckAttempts" db:"health_check_attempts"`
+	ErrorMessage        *string         `json:"errorMessage,omitempty" db:"error_message"`
+	ErrorCode           *string         `json:"errorCode,omitempty" db:"error_code"`
+	RetryCount          int             `json:"retryCount" db:"retry_count"`
+	MaxRetries          int             `json:"maxRetries" db:"max_retries"`
+	RollbackAvailable   bool            `json:"rollbackAvailable" db:"rollback_available"`
+	RollbackSnapshotID  *string         `json:"rollbackSnapshotId,omitempty" db:"rollback_snapshot_id"`
+	RolledBackAt        *time.Time      `json:"rolledBackAt,omitempty" db:"rolled_back_at"`
+	RollbackReason      *string         `json:"rollbackReason,omitempty" db:"rollback_reason"`
+	QueuedAt            *time.Time      `json:"queuedAt,omitempty" db:"queued_at"`
+	StartedAt           *time.Time      `json:"startedAt,omitempty" db:"started_at"`
+	CompletedAt         *time.Time      `json:"completedAt,omitempty" db:"completed_at"`
+	CreatedAt           time.Time       `json:"createdAt" db:"created_at"`
+	UpdatedAt           time.Time       `json:"updatedAt" db:"updated_at"`
 
 	// Enriched fields
 	Asset *Asset `json:"asset,omitempty" db:"-"`
@@ -216,22 +216,22 @@ const (
 
 // PatchRollback represents a rollback operation.
 type PatchRollback struct {
-	ID                  uuid.UUID        `json:"id" db:"id"`
-	CampaignID          uuid.UUID        `json:"campaignId" db:"campaign_id"`
-	PhaseID             *uuid.UUID       `json:"phaseId,omitempty" db:"phase_id"`
-	TriggerType         string           `json:"triggerType" db:"trigger_type"`                       // automatic, manual, health_check, timeout
-	TriggeredBy         *string          `json:"triggeredBy,omitempty" db:"triggered_by"`
-	TriggerReason       string           `json:"triggerReason" db:"trigger_reason"`
-	RollbackScope       string           `json:"rollbackScope" db:"rollback_scope"`                   // asset, phase, campaign
-	AssetIDs            pq.StringArray   `json:"assetIds" db:"asset_ids"`
-	Status              string           `json:"status" db:"status"`
-	TotalAssets         int              `json:"totalAssets" db:"total_assets"`
-	SuccessfulRollbacks int              `json:"successfulRollbacks" db:"successful_rollbacks"`
-	FailedRollbacks     int              `json:"failedRollbacks" db:"failed_rollbacks"`
-	RollbackResults     json.RawMessage  `json:"rollbackResults,omitempty" db:"rollback_results"`
-	StartedAt           time.Time        `json:"startedAt" db:"started_at"`
-	CompletedAt         *time.Time       `json:"completedAt,omitempty" db:"completed_at"`
-	CreatedAt           time.Time        `json:"createdAt" db:"created_at"`
+	ID                  uuid.UUID       `json:"id" db:"id"`
+	CampaignID          uuid.UUID       `json:"campaignId" db:"campaign_id"`
+	PhaseID             *uuid.UUID      `json:"phaseId,omitempty" db:"phase_id"`
+	TriggerType         string          `json:"triggerType" db:"trigger_type"` // automatic, manual, health_check, timeout
+	TriggeredBy         *string         `json:"triggeredBy,omitempty" db:"triggered_by"`
+	TriggerReason       string          `json:"triggerReason" db:"trigger_reason"`
+	RollbackScope       string          `json:"rollbackScope" db:"rollback_scope"` // asset, phase, campaign
+	AssetIDs            pq.StringArray  `json:"assetIds" db:"asset_ids"`
+	Status              string          `json:"status" db:"status"`
+	TotalAssets         int             `json:"totalAssets" db:"total_assets"`
+	SuccessfulRollbacks int             `json:"successfulRollbacks" db:"successful_rollbacks"`
+	FailedRollbacks     int             `json:"failedRollbacks" db:"failed_rollbacks"`
+	RollbackResults     json.RawMessage `json:"rollbackResults,omitempty" db:"rollback_results"`
+	StartedAt           time.Time       `json:"startedAt" db:"started_at"`
+	CompletedAt         *time.Time      `json:"completedAt,omitempty" db:"completed_at"`
+	CreatedAt           time.Time       `json:"createdAt" db:"created_at"`
 }
 
 // RollbackTriggerType constants.
@@ -269,10 +269,10 @@ const (
 
 // PatchCampaignFilter represents filters for listing campaigns.
 type PatchCampaignFilter struct {
-	Status       string     `json:"status,omitempty"`
-	CampaignType string     `json:"campaignType,omitempty"`
-	CreatedBy    string     `json:"createdBy,omitempty"`
-	StartedAfter *time.Time `json:"startedAfter,omitempty"`
+	Status        string     `json:"status,omitempty"`
+	CampaignType  string     `json:"campaignType,omitempty"`
+	CreatedBy     string     `json:"createdBy,omitempty"`
+	StartedAfter  *time.Time `json:"startedAfter,omitempty"`
 	StartedBefore *time.Time `json:"startedBefore,omitempty"`
 }
 
@@ -287,29 +287,29 @@ type PatchCampaignListResponse struct {
 
 // CreatePatchCampaignRequest represents a request to create a campaign.
 type CreatePatchCampaignRequest struct {
-	Name                       string       `json:"name" validate:"required,min=1,max=255"`
-	Description                *string      `json:"description,omitempty"`
-	CampaignType               string       `json:"campaignType" validate:"required,oneof=cve_response scheduled emergency compliance"`
-	CVEAlertIDs                []uuid.UUID  `json:"cveAlertIds,omitempty"`
-	RolloutStrategy            string       `json:"rolloutStrategy" validate:"required,oneof=immediate canary blue_green rolling"`
-	CanaryPercentage           *int         `json:"canaryPercentage,omitempty"`
-	WavePercentage             *int         `json:"wavePercentage,omitempty"`
-	FailureThresholdPercentage *int         `json:"failureThresholdPercentage,omitempty"`
-	HealthCheckEnabled         bool         `json:"healthCheckEnabled"`
-	AutoRollbackEnabled        bool         `json:"autoRollbackEnabled"`
-	RequiresApproval           bool         `json:"requiresApproval"`
-	ScheduledStartAt           *time.Time   `json:"scheduledStartAt,omitempty"`
-	TargetAssetIDs             []uuid.UUID  `json:"targetAssetIds,omitempty"`
+	Name                       string          `json:"name" validate:"required,min=1,max=255"`
+	Description                *string         `json:"description,omitempty"`
+	CampaignType               string          `json:"campaignType" validate:"required,oneof=cve_response scheduled emergency compliance"`
+	CVEAlertIDs                []uuid.UUID     `json:"cveAlertIds,omitempty"`
+	RolloutStrategy            string          `json:"rolloutStrategy" validate:"required,oneof=immediate canary blue_green rolling"`
+	CanaryPercentage           *int            `json:"canaryPercentage,omitempty"`
+	WavePercentage             *int            `json:"wavePercentage,omitempty"`
+	FailureThresholdPercentage *int            `json:"failureThresholdPercentage,omitempty"`
+	HealthCheckEnabled         bool            `json:"healthCheckEnabled"`
+	AutoRollbackEnabled        bool            `json:"autoRollbackEnabled"`
+	RequiresApproval           bool            `json:"requiresApproval"`
+	ScheduledStartAt           *time.Time      `json:"scheduledStartAt,omitempty"`
+	TargetAssetIDs             []uuid.UUID     `json:"targetAssetIds,omitempty"`
 	TargetCriteria             *TargetCriteria `json:"targetCriteria,omitempty"`
 }
 
 // TargetCriteria defines criteria for selecting assets.
 type TargetCriteria struct {
-	Platforms    []string `json:"platforms,omitempty"`
-	Regions      []string `json:"regions,omitempty"`
-	Environments []string `json:"environments,omitempty"`
-	Tags         map[string]string `json:"tags,omitempty"`
-	ExcludeAssetIDs []uuid.UUID `json:"excludeAssetIds,omitempty"`
+	Platforms       []string          `json:"platforms,omitempty"`
+	Regions         []string          `json:"regions,omitempty"`
+	Environments    []string          `json:"environments,omitempty"`
+	Tags            map[string]string `json:"tags,omitempty"`
+	ExcludeAssetIDs []uuid.UUID       `json:"excludeAssetIds,omitempty"`
 }
 
 // UpdatePatchCampaignStatusRequest represents a request to update campaign status.
@@ -320,37 +320,37 @@ type UpdatePatchCampaignStatusRequest struct {
 
 // TriggerRollbackRequest represents a request to trigger a rollback.
 type TriggerRollbackRequest struct {
-	Scope       string      `json:"scope" validate:"required,oneof=asset phase campaign"`
-	Reason      string      `json:"reason" validate:"required,min=1,max=500"`
-	AssetIDs    []uuid.UUID `json:"assetIds,omitempty"`
-	PhaseID     *uuid.UUID  `json:"phaseId,omitempty"`
+	Scope    string      `json:"scope" validate:"required,oneof=asset phase campaign"`
+	Reason   string      `json:"reason" validate:"required,min=1,max=500"`
+	AssetIDs []uuid.UUID `json:"assetIds,omitempty"`
+	PhaseID  *uuid.UUID  `json:"phaseId,omitempty"`
 }
 
 // PatchCampaignProgress represents campaign progress details.
 type PatchCampaignProgress struct {
-	CampaignID          uuid.UUID `json:"campaignId"`
-	Status              string    `json:"status"`
-	TotalAssets         int       `json:"totalAssets"`
-	CompletedAssets     int       `json:"completedAssets"`
-	FailedAssets        int       `json:"failedAssets"`
-	SkippedAssets       int       `json:"skippedAssets"`
-	CompletionPercentage float64  `json:"completionPercentage"`
-	FailurePercentage    float64  `json:"failurePercentage"`
-	TotalPhases         int       `json:"totalPhases"`
-	CompletedPhases     int       `json:"completedPhases"`
-	CurrentPhase        *string   `json:"currentPhase,omitempty"`
-	EstimatedCompletion *time.Time `json:"estimatedCompletion,omitempty"`
+	CampaignID           uuid.UUID  `json:"campaignId"`
+	Status               string     `json:"status"`
+	TotalAssets          int        `json:"totalAssets"`
+	CompletedAssets      int        `json:"completedAssets"`
+	FailedAssets         int        `json:"failedAssets"`
+	SkippedAssets        int        `json:"skippedAssets"`
+	CompletionPercentage float64    `json:"completionPercentage"`
+	FailurePercentage    float64    `json:"failurePercentage"`
+	TotalPhases          int        `json:"totalPhases"`
+	CompletedPhases      int        `json:"completedPhases"`
+	CurrentPhase         *string    `json:"currentPhase,omitempty"`
+	EstimatedCompletion  *time.Time `json:"estimatedCompletion,omitempty"`
 }
 
 // PatchCampaignSummary represents aggregated campaign statistics.
 type PatchCampaignSummary struct {
-	TotalCampaigns    int `json:"totalCampaigns"`
-	ActiveCampaigns   int `json:"activeCampaigns"`
-	CompletedCampaigns int `json:"completedCampaigns"`
-	FailedCampaigns   int `json:"failedCampaigns"`
-	TotalAssetsPatched int `json:"totalAssetsPatched"`
-	TotalRollbacks    int `json:"totalRollbacks"`
-	SuccessRate       float64 `json:"successRate"`
+	TotalCampaigns     int     `json:"totalCampaigns"`
+	ActiveCampaigns    int     `json:"activeCampaigns"`
+	CompletedCampaigns int     `json:"completedCampaigns"`
+	FailedCampaigns    int     `json:"failedCampaigns"`
+	TotalAssetsPatched int     `json:"totalAssetsPatched"`
+	TotalRollbacks     int     `json:"totalRollbacks"`
+	SuccessRate        float64 `json:"successRate"`
 }
 
 // =============================================================================
@@ -359,16 +359,16 @@ type PatchCampaignSummary struct {
 
 // HealthCheckConfig represents health check configuration.
 type HealthCheckConfig struct {
-	Enabled         bool     `json:"enabled"`
-	TimeoutSeconds  int      `json:"timeoutSeconds"`
-	IntervalSeconds int      `json:"intervalSeconds"`
-	RetryCount      int      `json:"retryCount"`
+	Enabled         bool          `json:"enabled"`
+	TimeoutSeconds  int           `json:"timeoutSeconds"`
+	IntervalSeconds int           `json:"intervalSeconds"`
+	RetryCount      int           `json:"retryCount"`
 	Checks          []HealthCheck `json:"checks"`
 }
 
 // HealthCheck represents a single health check.
 type HealthCheck struct {
-	Type     string            `json:"type"`     // http, tcp, command, ssm_status, azure_status, k8s_ready
+	Type     string            `json:"type"` // http, tcp, command, ssm_status, azure_status, k8s_ready
 	Name     string            `json:"name"`
 	Target   string            `json:"target"`   // URL, port, command, etc.
 	Expected string            `json:"expected"` // Expected result
@@ -377,11 +377,11 @@ type HealthCheck struct {
 
 // HealthCheckResult represents the result of a health check.
 type HealthCheckResult struct {
-	CheckName   string    `json:"checkName"`
-	CheckType   string    `json:"checkType"`
-	Passed      bool      `json:"passed"`
-	Message     string    `json:"message"`
-	Duration    int       `json:"durationMs"`
-	Timestamp   time.Time `json:"timestamp"`
-	Details     map[string]interface{} `json:"details,omitempty"`
+	CheckName string                 `json:"checkName"`
+	CheckType string                 `json:"checkType"`
+	Passed    bool                   `json:"passed"`
+	Message   string                 `json:"message"`
+	Duration  int                    `json:"durationMs"`
+	Timestamp time.Time              `json:"timestamp"`
+	Details   map[string]interface{} `json:"details,omitempty"`
 }

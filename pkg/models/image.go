@@ -8,18 +8,18 @@ import (
 
 // Image represents a golden image in the registry.
 type Image struct {
-	ID        uuid.UUID `json:"id" db:"id"`
-	OrgID     uuid.UUID `json:"org_id" db:"org_id"`
-	Family    string    `json:"family" db:"family"`       // e.g., "ql-base-linux"
-	Version   string    `json:"version" db:"version"`     // e.g., "1.6.4"
-	OSName    string    `json:"os_name" db:"os_name"`     // e.g., "ubuntu"
-	OSVersion string    `json:"os_version" db:"os_version"` // e.g., "22.04"
-	CISLevel  int       `json:"cis_level,omitempty" db:"cis_level"` // 1 or 2
-	SBOMUrl   string    `json:"sbom_url,omitempty" db:"sbom_url"`
-	Signed    bool      `json:"signed" db:"signed"`
+	ID        uuid.UUID   `json:"id" db:"id"`
+	OrgID     uuid.UUID   `json:"org_id" db:"org_id"`
+	Family    string      `json:"family" db:"family"`                 // e.g., "ql-base-linux"
+	Version   string      `json:"version" db:"version"`               // e.g., "1.6.4"
+	OSName    string      `json:"os_name" db:"os_name"`               // e.g., "ubuntu"
+	OSVersion string      `json:"os_version" db:"os_version"`         // e.g., "22.04"
+	CISLevel  int         `json:"cis_level,omitempty" db:"cis_level"` // 1 or 2
+	SBOMUrl   string      `json:"sbom_url,omitempty" db:"sbom_url"`
+	Signed    bool        `json:"signed" db:"signed"`
 	Status    ImageStatus `json:"status" db:"status"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	CreatedAt time.Time   `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at" db:"updated_at"`
 
 	// Loaded relationships
 	Coordinates []ImageCoordinate `json:"coordinates,omitempty"`
@@ -29,9 +29,9 @@ type Image struct {
 type ImageStatus string
 
 const (
-	ImageStatusDraft     ImageStatus = "draft"
-	ImageStatusDev       ImageStatus = "dev"
-	ImageStatusStaging   ImageStatus = "staging"
+	ImageStatusDraft      ImageStatus = "draft"
+	ImageStatusDev        ImageStatus = "dev"
+	ImageStatusStaging    ImageStatus = "staging"
 	ImageStatusProduction ImageStatus = "production"
 	ImageStatusDeprecated ImageStatus = "deprecated"
 )
@@ -60,11 +60,11 @@ type ImageCoordinate struct {
 type Platform string
 
 const (
-	PlatformAWS      Platform = "aws"
-	PlatformAzure    Platform = "azure"
-	PlatformGCP      Platform = "gcp"
-	PlatformVSphere  Platform = "vsphere"
-	PlatformK8s      Platform = "k8s"
+	PlatformAWS       Platform = "aws"
+	PlatformAzure     Platform = "azure"
+	PlatformGCP       Platform = "gcp"
+	PlatformVSphere   Platform = "vsphere"
+	PlatformK8s       Platform = "k8s"
 	PlatformBareMetal Platform = "baremetal"
 )
 

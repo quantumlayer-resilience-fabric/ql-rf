@@ -15,20 +15,20 @@ type Config struct {
 	Env      string `mapstructure:"env"`
 	LogLevel string `mapstructure:"log_level"`
 
-	API           APIConfig           `mapstructure:"api"`
-	Database      DatabaseConfig      `mapstructure:"database"`
-	Redis         RedisConfig         `mapstructure:"redis"`
-	Kafka         KafkaConfig         `mapstructure:"kafka"`
-	Clerk         ClerkConfig         `mapstructure:"clerk"`
-	Connectors    ConnectorsConfig    `mapstructure:"connectors"`
-	Drift         DriftConfig         `mapstructure:"drift"`
-	Metrics       MetricsConfig       `mapstructure:"metrics"`
-	Orchestrator  OrchestratorConfig  `mapstructure:"orchestrator"`
-	LLM           LLMConfig           `mapstructure:"llm"`
-	Temporal      TemporalConfig      `mapstructure:"temporal"`
-	OPA           OPAConfig           `mapstructure:"opa"`
-	Notifications NotificationConfig  `mapstructure:"notifications"`
-	CVE           CVEConfig           `mapstructure:"cve"`
+	API           APIConfig          `mapstructure:"api"`
+	Database      DatabaseConfig     `mapstructure:"database"`
+	Redis         RedisConfig        `mapstructure:"redis"`
+	Kafka         KafkaConfig        `mapstructure:"kafka"`
+	Clerk         ClerkConfig        `mapstructure:"clerk"`
+	Connectors    ConnectorsConfig   `mapstructure:"connectors"`
+	Drift         DriftConfig        `mapstructure:"drift"`
+	Metrics       MetricsConfig      `mapstructure:"metrics"`
+	Orchestrator  OrchestratorConfig `mapstructure:"orchestrator"`
+	LLM           LLMConfig          `mapstructure:"llm"`
+	Temporal      TemporalConfig     `mapstructure:"temporal"`
+	OPA           OPAConfig          `mapstructure:"opa"`
+	Notifications NotificationConfig `mapstructure:"notifications"`
+	CVE           CVEConfig          `mapstructure:"cve"`
 }
 
 // APIConfig holds API server configuration.
@@ -167,10 +167,10 @@ type OrchestratorConfig struct {
 
 // LLMConfig holds LLM provider configuration.
 type LLMConfig struct {
-	Provider    string  `mapstructure:"provider"`     // anthropic, azure_openai, openai
-	APIKey      string  `mapstructure:"api_key"`      // API key for the provider
-	Model       string  `mapstructure:"model"`        // Model name (e.g., claude-3-5-sonnet-20241022)
-	MaxTokens   int     `mapstructure:"max_tokens"`   // Maximum tokens for completion
+	Provider    string  `mapstructure:"provider"`    // anthropic, azure_openai, openai
+	APIKey      string  `mapstructure:"api_key"`     // API key for the provider
+	Model       string  `mapstructure:"model"`       // Model name (e.g., claude-3-5-sonnet-20241022)
+	MaxTokens   int     `mapstructure:"max_tokens"`  // Maximum tokens for completion
 	Temperature float64 `mapstructure:"temperature"` // Temperature for sampling (0.0-2.0)
 
 	// Azure OpenAI specific
@@ -197,8 +197,8 @@ type TemporalConfig struct {
 	TaskQueue string `mapstructure:"task_queue"` // Task queue name for workers
 
 	// Worker configuration
-	WorkerCount           int `mapstructure:"worker_count"`            // Number of workflow workers
-	MaxConcurrentWorkflows int `mapstructure:"max_concurrent_workflows"` // Max concurrent workflow executions
+	WorkerCount             int `mapstructure:"worker_count"`              // Number of workflow workers
+	MaxConcurrentWorkflows  int `mapstructure:"max_concurrent_workflows"`  // Max concurrent workflow executions
 	MaxConcurrentActivities int `mapstructure:"max_concurrent_activities"` // Max concurrent activity executions
 
 	// TLS (for Temporal Cloud)
@@ -276,8 +276,8 @@ type CVEConfig struct {
 
 	// Kafka topics for CVE events
 	Topics struct {
-		CVEDiscovered string `mapstructure:"cve_discovered"`
-		CVEMatchFound string `mapstructure:"cve_match_found"`
+		CVEDiscovered   string `mapstructure:"cve_discovered"`
+		CVEMatchFound   string `mapstructure:"cve_match_found"`
 		CVEAlertCreated string `mapstructure:"cve_alert_created"`
 	} `mapstructure:"topics"`
 }

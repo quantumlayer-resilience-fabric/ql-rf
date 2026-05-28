@@ -1,11 +1,12 @@
 // Package collectors provides cloud-specific cost data collection.
-package collectors
+package collectors //nolint:dupl // AWS/Azure/GCP collectors are intentionally parallel scaffolds; they diverge as each provider's real cost API lands, so deduping now is premature abstraction.
 
 import (
 	"context"
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/quantumlayerhq/ql-rf/pkg/finops"
 )
 
@@ -21,7 +22,7 @@ func NewAWSCostCollector() *AWSCostCollector {
 }
 
 // CollectCosts retrieves cost data from AWS Cost Explorer.
-func (c *AWSCostCollector) CollectCosts(ctx context.Context, orgID uuid.UUID, startDate, endDate time.Time) ([]finops.CostRecord, error) {
+func (c *AWSCostCollector) CollectCosts(_ context.Context, orgID uuid.UUID, _, _ time.Time) ([]finops.CostRecord, error) {
 	// TODO: Implement actual AWS Cost Explorer integration
 	// This is a mock implementation for demonstration
 
@@ -85,7 +86,7 @@ func (c *AWSCostCollector) CollectCosts(ctx context.Context, orgID uuid.UUID, st
 }
 
 // GenerateRecommendations generates cost optimization recommendations for AWS resources.
-func (c *AWSCostCollector) GenerateRecommendations(ctx context.Context, orgID uuid.UUID) ([]finops.CostRecommendation, error) {
+func (c *AWSCostCollector) GenerateRecommendations(_ context.Context, orgID uuid.UUID) ([]finops.CostRecommendation, error) {
 	// TODO: Implement actual AWS recommendation logic using:
 	// - AWS Compute Optimizer
 	// - AWS Trusted Advisor
@@ -146,26 +147,26 @@ func (c *AWSCostCollector) GenerateRecommendations(ctx context.Context, orgID uu
 }
 
 // GetServiceCosts retrieves costs broken down by AWS service.
-func (c *AWSCostCollector) GetServiceCosts(ctx context.Context, orgID uuid.UUID, startDate, endDate time.Time) (map[string]float64, error) {
+func (c *AWSCostCollector) GetServiceCosts(_ context.Context, _ uuid.UUID, _, _ time.Time) (map[string]float64, error) {
 	// TODO: Implement actual AWS Cost Explorer service breakdown
 
 	serviceCosts := map[string]float64{
-		"ec2":              450.75,
-		"rds":              240.00,
-		"s3":               125.50,
-		"cloudfront":       89.25,
-		"lambda":           35.80,
-		"dynamodb":         67.90,
-		"elastic-cache":    145.00,
-		"cloudwatch":       12.50,
-		"route53":          8.30,
+		"ec2":           450.75,
+		"rds":           240.00,
+		"s3":            125.50,
+		"cloudfront":    89.25,
+		"lambda":        35.80,
+		"dynamodb":      67.90,
+		"elastic-cache": 145.00,
+		"cloudwatch":    12.50,
+		"route53":       8.30,
 	}
 
 	return serviceCosts, nil
 }
 
 // ValidateCredentials validates AWS credentials and permissions.
-func (c *AWSCostCollector) ValidateCredentials(ctx context.Context) error {
+func (c *AWSCostCollector) ValidateCredentials(_ context.Context) error {
 	// TODO: Implement actual AWS credential validation
 	// Check for Cost Explorer API access
 
@@ -173,7 +174,7 @@ func (c *AWSCostCollector) ValidateCredentials(ctx context.Context) error {
 }
 
 // EstimateMonthlyCost estimates monthly cost based on current usage patterns.
-func (c *AWSCostCollector) EstimateMonthlyCost(ctx context.Context, orgID uuid.UUID) (*finops.CostForecast, error) {
+func (c *AWSCostCollector) EstimateMonthlyCost(_ context.Context, orgID uuid.UUID) (*finops.CostForecast, error) {
 	// TODO: Implement actual forecasting using historical data and ML models
 
 	forecast := &finops.CostForecast{
@@ -201,7 +202,7 @@ func (c *AWSCostCollector) EstimateMonthlyCost(ctx context.Context, orgID uuid.U
 }
 
 // AnalyzeIdleResources identifies idle or underutilized resources.
-func (c *AWSCostCollector) AnalyzeIdleResources(ctx context.Context, orgID uuid.UUID) ([]finops.CostRecommendation, error) {
+func (c *AWSCostCollector) AnalyzeIdleResources(_ context.Context, _ uuid.UUID) ([]finops.CostRecommendation, error) {
 	// TODO: Implement actual idle resource detection using CloudWatch metrics
 	// Check for:
 	// - EC2 instances with low CPU usage

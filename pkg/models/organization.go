@@ -44,15 +44,15 @@ const (
 
 // User represents a user in the system.
 type User struct {
-	ID           uuid.UUID `json:"id" db:"id"`
-	ExternalID   string    `json:"external_id" db:"external_id"` // Clerk user ID
-	Email        string    `json:"email" db:"email"`
-	Name         string    `json:"name" db:"name"`
-	Role         Role      `json:"role" db:"role"`
-	OrgID        uuid.UUID `json:"org_id" db:"org_id"`
-	LastLoginAt  time.Time `json:"last_login_at,omitempty" db:"last_login_at"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+	ID          uuid.UUID `json:"id" db:"id"`
+	ExternalID  string    `json:"external_id" db:"external_id"` // Clerk user ID
+	Email       string    `json:"email" db:"email"`
+	Name        string    `json:"name" db:"name"`
+	Role        Role      `json:"role" db:"role"`
+	OrgID       uuid.UUID `json:"org_id" db:"org_id"`
+	LastLoginAt time.Time `json:"last_login_at,omitempty" db:"last_login_at"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // Role represents a user's role in the system.
@@ -95,8 +95,8 @@ var RolePermissions = map[Role][]Permission{
 		PermExecuteRollout,
 		PermManageImages,
 		PermApplyPatches,
-		PermExecuteAITasks,  // Can execute (use) AI tasks
-		PermApproveAITasks,  // Can approve AI-generated plans
+		PermExecuteAITasks, // Can execute (use) AI tasks
+		PermApproveAITasks, // Can approve AI-generated plans
 	},
 	RoleAdmin: {
 		PermReadDashboard,
@@ -112,8 +112,8 @@ var RolePermissions = map[Role][]Permission{
 		PermManageRBAC,
 		PermConfigureIntegrations,
 		PermApproveExceptions,
-		PermExecuteAITasks,  // Can execute (use) AI tasks
-		PermApproveAITasks,  // Can approve AI-generated plans
+		PermExecuteAITasks, // Can execute (use) AI tasks
+		PermApproveAITasks, // Can approve AI-generated plans
 	},
 }
 

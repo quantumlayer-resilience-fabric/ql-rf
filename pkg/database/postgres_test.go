@@ -3,18 +3,16 @@ package database
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/quantumlayerhq/ql-rf/pkg/config"
 )
 
-// TestConfigValidation tests configuration validation scenarios
+// TestConfigValidation tests configuration validation scenarios.
 func TestConfigValidation(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -25,8 +23,8 @@ func TestConfigValidation(t *testing.T) {
 			name: "empty URL should fail",
 			cfg: config.DatabaseConfig{
 				URL:             "",
-				MaxOpenConns:   10,
-				MaxIdleConns:   5,
+				MaxOpenConns:    10,
+				MaxIdleConns:    5,
 				ConnMaxLifetime: time.Hour,
 			},
 			shouldErr: true,
@@ -35,8 +33,8 @@ func TestConfigValidation(t *testing.T) {
 			name: "invalid URL should fail",
 			cfg: config.DatabaseConfig{
 				URL:             "not-a-valid-url",
-				MaxOpenConns:   10,
-				MaxIdleConns:   5,
+				MaxOpenConns:    10,
+				MaxIdleConns:    5,
 				ConnMaxLifetime: time.Hour,
 			},
 			shouldErr: true,
@@ -59,16 +57,16 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
-// TestDBClose tests closing behavior
+// TestDBClose tests closing behavior.
 func TestDBClose(t *testing.T) {
-	t.Run("close nil pool", func(t *testing.T) {
+	t.Run("close nil pool", func(_ *testing.T) {
 		db := &DB{Pool: nil}
 		// Should not panic
 		db.Close()
 	})
 }
 
-// TestTenantConnOrgID tests TenantConn returns correct org ID
+// TestTenantConnOrgID tests TenantConn returns correct org ID.
 func TestTenantConnOrgID(t *testing.T) {
 	orgID := uuid.New()
 	tc := &TenantConn{
@@ -80,92 +78,18 @@ func TestTenantConnOrgID(t *testing.T) {
 	}
 }
 
-// TestTenantConnRelease tests release behavior
+// TestTenantConnRelease tests release behavior.
 func TestTenantConnRelease(t *testing.T) {
-	t.Run("release nil conn", func(t *testing.T) {
+	t.Run("release nil conn", func(_ *testing.T) {
 		tc := &TenantConn{conn: nil}
 		// Should not panic
 		tc.Release()
 	})
 }
 
-// mockRow implements pgx.Row for testing
-type mockRow struct {
-	scanErr error
-	values  []interface{}
-}
-
-func (m *mockRow) Scan(dest ...interface{}) error {
-	if m.scanErr != nil {
-		return m.scanErr
-	}
-	// Copy values to destinations
-	for i, d := range dest {
-		if i < len(m.values) {
-			switch v := d.(type) {
-			case *string:
-				if s, ok := m.values[i].(string); ok {
-					*v = s
-				}
-			case *int:
-				if n, ok := m.values[i].(int); ok {
-					*v = n
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// mockRows implements pgx.Rows for testing
-type mockRows struct {
-	current int
-	data    [][]interface{}
-	err     error
-	closed  bool
-}
-
-func (m *mockRows) Close()                        { m.closed = true }
-func (m *mockRows) Err() error                    { return m.err }
-func (m *mockRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
-func (m *mockRows) FieldDescriptions() []pgconn.FieldDescription {
-	return nil
-}
-func (m *mockRows) Next() bool {
-	if m.current < len(m.data) {
-		m.current++
-		return true
-	}
-	return false
-}
-func (m *mockRows) Scan(dest ...interface{}) error {
-	if m.current == 0 || m.current > len(m.data) {
-		return errors.New("no row")
-	}
-	row := m.data[m.current-1]
-	for i, d := range dest {
-		if i < len(row) {
-			switch v := d.(type) {
-			case *string:
-				if s, ok := row[i].(string); ok {
-					*v = s
-				}
-			case *int:
-				if n, ok := row[i].(int); ok {
-					*v = n
-				}
-			}
-		}
-	}
-	return nil
-}
-func (m *mockRows) Values() ([]interface{}, error)  { return m.data[m.current-1], nil }
-func (m *mockRows) RawValues() [][]byte             { return nil }
-func (m *mockRows) Conn() *pgx.Conn                 { return nil }
-
-// TestWithTxRollbackOnError tests that WithTx properly rolls back on function errors
+// TestWithTxBehavior tests that WithTx properly rolls back on function errors.
 func TestWithTxBehavior(t *testing.T) {
-	t.Run("panic recovery behavior", func(t *testing.T) {
+	t.Run("panic recovery behavior", func(_ *testing.T) {
 		// This is a logic test - in real usage, WithTx would recover from panics
 		// and roll back the transaction. We can verify the structure is correct.
 
@@ -179,16 +103,16 @@ func TestWithTxBehavior(t *testing.T) {
 	})
 }
 
-// TestPoolStatsTypes verifies the Stats method returns expected type
-func TestPoolStatsTypes(t *testing.T) {
+// TestPoolStatsTypes verifies the Stats method returns expected type.
+func TestPoolStatsTypes(_ *testing.T) {
 	// DB.Stats() should return *pgxpool.Stat
 	// We can verify this at compile time by ensuring the method exists
 	db := &DB{}
 	_ = db.Stats // This will fail at compile time if the method doesn't exist
 }
 
-// TestContextTimeoutInHealth tests that Health uses proper timeout
-func TestHealthContextTimeout(t *testing.T) {
+// TestHealthContextTimeout tests that Health uses proper timeout.
+func TestHealthContextTimeout(_ *testing.T) {
 	// Verify that Health creates a context with timeout
 	// This is more of a structural verification
 
@@ -200,8 +124,8 @@ func TestHealthContextTimeout(t *testing.T) {
 	// Since we can't easily mock the pool, we verify by reading the code
 }
 
-// TestTransactionHelperMethods verifies transaction helper signatures
-func TestTransactionHelperMethods(t *testing.T) {
+// TestTransactionHelperMethods verifies transaction helper signatures.
+func TestTransactionHelperMethods(_ *testing.T) {
 	// Verify that BeginTx and WithTx exist and have correct signatures
 	var db *DB
 
@@ -210,8 +134,8 @@ func TestTransactionHelperMethods(t *testing.T) {
 	var _ func(context.Context, func(pgx.Tx) error) error = db.WithTx
 }
 
-// TestTenantConnMethods verifies TenantConn has required methods
-func TestTenantConnMethods(t *testing.T) {
+// TestTenantConnMethods verifies TenantConn has required methods.
+func TestTenantConnMethods(_ *testing.T) {
 	var tc *TenantConn
 
 	// Verify method signatures exist (compile-time check)
@@ -227,8 +151,8 @@ func TestTenantConnMethods(t *testing.T) {
 // Benchmark tests for connection pool operations would go here
 // but require actual database connections
 
-// TestDBMethodsExist verifies core DB methods exist
-func TestDBMethodsExist(t *testing.T) {
+// TestDBMethodsExist verifies core DB methods exist.
+func TestDBMethodsExist(_ *testing.T) {
 	var db *DB
 
 	// Compile-time signature verification
