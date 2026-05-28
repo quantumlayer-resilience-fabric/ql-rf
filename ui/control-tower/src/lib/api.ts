@@ -1526,8 +1526,9 @@ export const api = {
     listPlans: () =>
       apiFetch<{ plans: SubscriptionPlan[] }>("/organization/plans"),
 
-    // Seed demo data
-    seedDemo: (platform: "aws" | "azure" | "gcp") =>
+    // Seed demo data. Backend accepts any platform and falls back to AWS demo
+    // data for non-cloud platforms, so this mirrors the full Platform union.
+    seedDemo: (platform: "aws" | "azure" | "gcp" | "vsphere" | "k8s") =>
       apiFetch<{
         sites_created: number;
         assets_created: number;
