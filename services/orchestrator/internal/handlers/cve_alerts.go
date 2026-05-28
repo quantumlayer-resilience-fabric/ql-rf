@@ -3,12 +3,16 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/middleware"
 )
 
 // =============================================================================
@@ -30,85 +34,85 @@ const (
 type CVEAlertStatus string
 
 const (
-	CVEAlertStatusNew          CVEAlertStatus = "new"
+	CVEAlertStatusNew           CVEAlertStatus = "new"
 	CVEAlertStatusInvestigating CVEAlertStatus = "investigating"
-	CVEAlertStatusConfirmed    CVEAlertStatus = "confirmed"
-	CVEAlertStatusInProgress   CVEAlertStatus = "in_progress"
-	CVEAlertStatusResolved     CVEAlertStatus = "resolved"
-	CVEAlertStatusDismissed    CVEAlertStatus = "dismissed"
-	CVEAlertStatusAutoResolved CVEAlertStatus = "auto_resolved"
+	CVEAlertStatusConfirmed     CVEAlertStatus = "confirmed"
+	CVEAlertStatusInProgress    CVEAlertStatus = "in_progress"
+	CVEAlertStatusResolved      CVEAlertStatus = "resolved"
+	CVEAlertStatusDismissed     CVEAlertStatus = "dismissed"
+	CVEAlertStatusAutoResolved  CVEAlertStatus = "auto_resolved"
 )
 
 // CVECache represents cached CVE details from vulnerability feeds.
 type CVECache struct {
-	ID                string    `json:"id"`
-	CVEID             string    `json:"cve_id"`
-	CVSSV3Score       *float64  `json:"cvss_v3_score,omitempty"`
-	CVSSV3Vector      *string   `json:"cvss_v3_vector,omitempty"`
-	Severity          string    `json:"severity"`
-	EPSSScore         *float64  `json:"epss_score,omitempty"`
-	EPSSPercentile    *float64  `json:"epss_percentile,omitempty"`
-	ExploitAvailable  bool      `json:"exploit_available"`
-	ExploitMaturity   *string   `json:"exploit_maturity,omitempty"`
-	CISAKEVListed     bool      `json:"cisa_kev_listed"`
-	CISAKEVDueDate    *string   `json:"cisa_kev_due_date,omitempty"`
-	CISAKEVRansomware *bool     `json:"cisa_kev_ransomware,omitempty"`
-	Description       *string   `json:"description,omitempty"`
-	PublishedDate     *string   `json:"published_date,omitempty"`
-	ModifiedDate      *string   `json:"modified_date,omitempty"`
-	PrimarySource     string    `json:"primary_source"`
-	ReferenceURLs     []string  `json:"reference_urls,omitempty"`
+	ID                 string   `json:"id"`
+	CVEID              string   `json:"cve_id"`
+	CVSSV3Score        *float64 `json:"cvss_v3_score,omitempty"`
+	CVSSV3Vector       *string  `json:"cvss_v3_vector,omitempty"`
+	Severity           string   `json:"severity"`
+	EPSSScore          *float64 `json:"epss_score,omitempty"`
+	EPSSPercentile     *float64 `json:"epss_percentile,omitempty"`
+	ExploitAvailable   bool     `json:"exploit_available"`
+	ExploitMaturity    *string  `json:"exploit_maturity,omitempty"`
+	CISAKEVListed      bool     `json:"cisa_kev_listed"`
+	CISAKEVDueDate     *string  `json:"cisa_kev_due_date,omitempty"`
+	CISAKEVRansomware  *bool    `json:"cisa_kev_ransomware,omitempty"`
+	Description        *string  `json:"description,omitempty"`
+	PublishedDate      *string  `json:"published_date,omitempty"`
+	ModifiedDate       *string  `json:"modified_date,omitempty"`
+	PrimarySource      string   `json:"primary_source"`
+	ReferenceURLs      []string `json:"reference_urls,omitempty"`
 	RemediationSummary *string  `json:"remediation_summary,omitempty"`
 }
 
 // CVEAlert represents a CVE alert for an organization.
 type CVEAlert struct {
-	ID                    string        `json:"id"`
-	OrgID                 string        `json:"org_id"`
-	CVEID                 string        `json:"cve_id"`
-	CVECacheID            *string       `json:"cve_cache_id,omitempty"`
-	Severity              CVESeverity   `json:"severity"`
-	UrgencyScore          float64       `json:"urgency_score"`
+	ID                    string         `json:"id"`
+	OrgID                 string         `json:"org_id"`
+	CVEID                 string         `json:"cve_id"`
+	CVECacheID            *string        `json:"cve_cache_id,omitempty"`
+	Severity              CVESeverity    `json:"severity"`
+	UrgencyScore          float64        `json:"urgency_score"`
 	Status                CVEAlertStatus `json:"status"`
-	Priority              *string       `json:"priority,omitempty"`
-	SLADueAt              *time.Time    `json:"sla_due_at,omitempty"`
-	SLABreached           bool          `json:"sla_breached"`
-	AffectedImagesCount   int           `json:"affected_images_count"`
-	AffectedAssetsCount   int           `json:"affected_assets_count"`
-	AffectedPackagesCount int           `json:"affected_packages_count"`
-	ProductionAssetsCount int           `json:"production_assets_count"`
-	AssignedTo            *string       `json:"assigned_to,omitempty"`
-	AssignedAt            *time.Time    `json:"assigned_at,omitempty"`
-	ResolutionType        *string       `json:"resolution_type,omitempty"`
-	ResolutionNotes       *string       `json:"resolution_notes,omitempty"`
-	ResolvedBy            *string       `json:"resolved_by,omitempty"`
-	ResolvedAt            *time.Time    `json:"resolved_at,omitempty"`
-	PatchCampaignID       *string       `json:"patch_campaign_id,omitempty"`
-	TicketID              *string       `json:"ticket_id,omitempty"`
-	DetectedAt            time.Time     `json:"detected_at"`
-	FirstSeenAt           time.Time     `json:"first_seen_at"`
-	LastSeenAt            time.Time     `json:"last_seen_at"`
-	CreatedAt             time.Time     `json:"created_at"`
-	UpdatedAt             time.Time     `json:"updated_at"`
-	CVEDetails            *CVECache     `json:"cve_details,omitempty"`
+	Priority              *string        `json:"priority,omitempty"`
+	SLADueAt              *time.Time     `json:"sla_due_at,omitempty"`
+	SLABreached           bool           `json:"sla_breached"`
+	AffectedImagesCount   int            `json:"affected_images_count"`
+	AffectedAssetsCount   int            `json:"affected_assets_count"`
+	AffectedPackagesCount int            `json:"affected_packages_count"`
+	ProductionAssetsCount int            `json:"production_assets_count"`
+	AssignedTo            *string        `json:"assigned_to,omitempty"`
+	AssignedAt            *time.Time     `json:"assigned_at,omitempty"`
+	ResolutionType        *string        `json:"resolution_type,omitempty"`
+	ResolutionNotes       *string        `json:"resolution_notes,omitempty"`
+	ResolvedBy            *string        `json:"resolved_by,omitempty"`
+	ResolvedAt            *time.Time     `json:"resolved_at,omitempty"`
+	PatchCampaignID       *string        `json:"patch_campaign_id,omitempty"`
+	TicketID              *string        `json:"ticket_id,omitempty"`
+	DetectedAt            time.Time      `json:"detected_at"`
+	FirstSeenAt           time.Time      `json:"first_seen_at"`
+	LastSeenAt            time.Time      `json:"last_seen_at"`
+	CreatedAt             time.Time      `json:"created_at"`
+	UpdatedAt             time.Time      `json:"updated_at"`
+	CVEDetails            *CVECache      `json:"cve_details,omitempty"`
 }
 
 // CVEAlertSummary provides aggregate statistics for CVE alerts.
 type CVEAlertSummary struct {
-	TotalAlerts             int     `json:"total_alerts"`
-	NewAlerts               int     `json:"new_alerts"`
-	InProgressAlerts        int     `json:"in_progress_alerts"`
-	ResolvedAlerts          int     `json:"resolved_alerts"`
-	CriticalAlerts          int     `json:"critical_alerts"`
-	HighAlerts              int     `json:"high_alerts"`
-	MediumAlerts            int     `json:"medium_alerts"`
-	LowAlerts               int     `json:"low_alerts"`
-	SLABreachedAlerts       int     `json:"sla_breached_alerts"`
-	ExploitableAlerts       int     `json:"exploitable_alerts"`
-	CISAKEVAlerts           int     `json:"cisa_kev_alerts"`
-	AverageUrgencyScore     float64 `json:"average_urgency_score"`
-	TotalAffectedAssets     int     `json:"total_affected_assets"`
-	ProductionAffectedAssets int    `json:"production_affected_assets"`
+	TotalAlerts              int     `json:"total_alerts"`
+	NewAlerts                int     `json:"new_alerts"`
+	InProgressAlerts         int     `json:"in_progress_alerts"`
+	ResolvedAlerts           int     `json:"resolved_alerts"`
+	CriticalAlerts           int     `json:"critical_alerts"`
+	HighAlerts               int     `json:"high_alerts"`
+	MediumAlerts             int     `json:"medium_alerts"`
+	LowAlerts                int     `json:"low_alerts"`
+	SLABreachedAlerts        int     `json:"sla_breached_alerts"`
+	ExploitableAlerts        int     `json:"exploitable_alerts"`
+	CISAKEVAlerts            int     `json:"cisa_kev_alerts"`
+	AverageUrgencyScore      float64 `json:"average_urgency_score"`
+	TotalAffectedAssets      int     `json:"total_affected_assets"`
+	ProductionAffectedAssets int     `json:"production_affected_assets"`
 }
 
 // CVEAlertListResponse is the response for listing CVE alerts.
@@ -148,83 +152,47 @@ func (h *Handler) RegisterCVEAlertRoutes(r chi.Router) {
 func (h *Handler) listCVEAlerts(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Parse query parameters
-	severity := r.URL.Query().Get("severity")
-	status := r.URL.Query().Get("status")
-	priority := r.URL.Query().Get("priority")
-	cveID := r.URL.Query().Get("cve_id")
-	minUrgencyScore := r.URL.Query().Get("min_urgency_score")
-	slaBreached := r.URL.Query().Get("sla_breached")
-	hasExploit := r.URL.Query().Get("has_exploit")
-	cisaKEVOnly := r.URL.Query().Get("cisa_kev_only")
-	pageStr := r.URL.Query().Get("page")
-	pageSizeStr := r.URL.Query().Get("page_size")
-
 	page := 1
 	pageSize := 50
-	if pageStr != "" {
-		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-			page = p
-		}
+	if p, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && p > 0 {
+		page = p
 	}
-	if pageSizeStr != "" {
-		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 && ps <= 100 {
-			pageSize = ps
-		}
+	if ps, err := strconv.Atoi(r.URL.Query().Get("page_size")); err == nil && ps > 0 && ps <= 100 {
+		pageSize = ps
 	}
 
-	// For development: return mock data
-	// In production, this would query the cve_alerts table
-	_ = ctx
-	_ = severity
-	_ = status
-	_ = priority
-	_ = cveID
-	_ = minUrgencyScore
-	_ = slaBreached
-	_ = hasExploit
-	_ = cisaKEVOnly
-
-	// Generate mock alerts
-	alerts := h.generateMockCVEAlerts()
-
-	// Apply filters if provided
-	filteredAlerts := alerts
-	if severity != "" {
-		filtered := []CVEAlert{}
-		for _, a := range filteredAlerts {
-			if string(a.Severity) == severity {
-				filtered = append(filtered, a)
-			}
-		}
-		filteredAlerts = filtered
-	}
-	if status != "" {
-		filtered := []CVEAlert{}
-		for _, a := range filteredAlerts {
-			if string(a.Status) == status {
-				filtered = append(filtered, a)
-			}
-		}
-		filteredAlerts = filtered
+	orgID := r.URL.Query().Get("org_id")
+	if orgID == "" {
+		orgID = middleware.GetOrgID(ctx)
 	}
 
-	total := len(filteredAlerts)
-	totalPages := (total + pageSize - 1) / pageSize
+	filters := cveAlertFilters{
+		OrgID:           orgID,
+		Severity:        r.URL.Query().Get("severity"),
+		Status:          r.URL.Query().Get("status"),
+		Priority:        r.URL.Query().Get("priority"),
+		CVEID:           r.URL.Query().Get("cve_id"),
+		MinUrgencyScore: r.URL.Query().Get("min_urgency_score"),
+		SLABreached:     r.URL.Query().Get("sla_breached"),
+		HasExploit:      r.URL.Query().Get("has_exploit"),
+		CISAKEVOnly:     r.URL.Query().Get("cisa_kev_only"),
+		Page:            page,
+		PageSize:        pageSize,
+	}
 
-	// Paginate
-	start := (page - 1) * pageSize
-	end := start + pageSize
-	if start > total {
-		start = total
+	alerts, total, err := h.queryCVEAlerts(ctx, filters)
+	if err != nil {
+		h.respondError(w, http.StatusInternalServerError, "failed to list CVE alerts", err)
+		return
 	}
-	if end > total {
-		end = total
+
+	totalPages := 0
+	if pageSize > 0 {
+		totalPages = (total + pageSize - 1) / pageSize
 	}
-	pagedAlerts := filteredAlerts[start:end]
 
 	h.respond(w, http.StatusOK, CVEAlertListResponse{
-		Alerts:     pagedAlerts,
+		Alerts:     alerts,
 		Total:      total,
 		Page:       page,
 		PageSize:   pageSize,
@@ -233,121 +201,110 @@ func (h *Handler) listCVEAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getCVEAlertSummary(w http.ResponseWriter, r *http.Request) {
-	// For development: return mock summary
-	// In production, this would aggregate from cve_alerts table
-	summary := CVEAlertSummary{
-		TotalAlerts:             12,
-		NewAlerts:               4,
-		InProgressAlerts:        3,
-		ResolvedAlerts:          5,
-		CriticalAlerts:          2,
-		HighAlerts:              4,
-		MediumAlerts:            4,
-		LowAlerts:               2,
-		SLABreachedAlerts:       1,
-		ExploitableAlerts:       3,
-		CISAKEVAlerts:           2,
-		AverageUrgencyScore:     68.5,
-		TotalAffectedAssets:     156,
-		ProductionAffectedAssets: 42,
+	ctx := r.Context()
+	orgID := r.URL.Query().Get("org_id")
+	if orgID == "" {
+		orgID = middleware.GetOrgID(ctx)
+	}
+
+	summary, err := h.queryCVEAlertSummary(ctx, orgID)
+	if err != nil {
+		h.respondError(w, http.StatusInternalServerError, "failed to load CVE alert summary", err)
+		return
 	}
 
 	h.respond(w, http.StatusOK, summary)
 }
 
 func (h *Handler) getCVEAlert(w http.ResponseWriter, r *http.Request) {
-	alertID := chi.URLParam(r, "alertID")
+	ctx := r.Context()
+	alertID, err := uuid.Parse(chi.URLParam(r, "alertID"))
+	if err != nil {
+		h.respondError(w, http.StatusBadRequest, "invalid alert id", err)
+		return
+	}
 
-	// For development: return mock alert with blast radius data
-	alert := h.generateMockCVEAlert(alertID)
+	orgID := r.URL.Query().Get("org_id")
+	if orgID == "" {
+		orgID = middleware.GetOrgID(ctx)
+	}
+
+	alert, err := h.queryCVEAlertByID(ctx, alertID, orgID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.respondError(w, http.StatusNotFound, "CVE alert not found", nil)
+			return
+		}
+		h.respondError(w, http.StatusInternalServerError, "failed to load CVE alert", err)
+		return
+	}
 
 	h.respond(w, http.StatusOK, alert)
 }
 
 func (h *Handler) updateCVEAlertStatus(w http.ResponseWriter, r *http.Request) {
-	alertID := chi.URLParam(r, "alertID")
+	ctx := r.Context()
+	alertID, err := uuid.Parse(chi.URLParam(r, "alertID"))
+	if err != nil {
+		h.respondError(w, http.StatusBadRequest, "invalid alert id", err)
+		return
+	}
 
 	var req UpdateCVEAlertStatusRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.respondError(w, http.StatusBadRequest, "invalid request body", err)
 		return
 	}
+	if req.Status == "" {
+		h.respondError(w, http.StatusBadRequest, "status is required", nil)
+		return
+	}
 
-	// For development: return updated mock alert
-	alert := h.generateMockCVEAlert(alertID)
-	alert.Status = req.Status
-	alert.AssignedTo = req.AssignedTo
-	alert.ResolutionNotes = req.ResolutionNotes
-	alert.UpdatedAt = time.Now().UTC()
+	orgID := r.URL.Query().Get("org_id")
+	if orgID == "" {
+		orgID = middleware.GetOrgID(ctx)
+	}
+
+	affected, err := h.execUpdateCVEAlertStatus(ctx, alertID, orgID, req)
+	if err != nil {
+		h.respondError(w, http.StatusInternalServerError, "failed to update CVE alert", err)
+		return
+	}
+	if affected == 0 {
+		h.respondError(w, http.StatusNotFound, "CVE alert not found", nil)
+		return
+	}
+
+	alert, err := h.queryCVEAlertByID(ctx, alertID, orgID)
+	if err != nil {
+		h.respondError(w, http.StatusInternalServerError, "failed to load updated CVE alert", err)
+		return
+	}
 
 	h.respond(w, http.StatusOK, alert)
 }
 
 func (h *Handler) getCVEAlertBlastRadius(w http.ResponseWriter, r *http.Request) {
-	alertID := chi.URLParam(r, "alertID")
+	ctx := r.Context()
+	alertID, err := uuid.Parse(chi.URLParam(r, "alertID"))
+	if err != nil {
+		h.respondError(w, http.StatusBadRequest, "invalid alert id", err)
+		return
+	}
 
-	// For development: return mock blast radius
-	blastRadius := map[string]interface{}{
-		"cve_id":             "CVE-2024-1234",
-		"total_packages":     3,
-		"total_images":       5,
-		"total_assets":       42,
-		"production_assets":  12,
-		"affected_platforms": []string{"aws", "azure"},
-		"affected_regions":   []string{"us-east-1", "us-west-2", "eastus"},
-		"affected_packages": []map[string]interface{}{
-			{
-				"package_id":      uuid.New().String(),
-				"package_name":    "openssl",
-				"package_version": "1.1.1",
-				"package_type":    "deb",
-				"fixed_version":   "1.1.1w",
-			},
-			{
-				"package_id":      uuid.New().String(),
-				"package_name":    "libssl1.1",
-				"package_version": "1.1.1f-1ubuntu2",
-				"package_type":    "deb",
-				"fixed_version":   "1.1.1f-1ubuntu2.21",
-			},
-		},
-		"affected_images": []map[string]interface{}{
-			{
-				"image_id":      uuid.New().String(),
-				"image_family":  "ubuntu-base",
-				"image_version": "22.04.1",
-				"is_direct":     true,
-				"lineage_depth": 0,
-			},
-			{
-				"image_id":      uuid.New().String(),
-				"image_family":  "app-server",
-				"image_version": "1.5.0",
-				"is_direct":     false,
-				"lineage_depth": 1,
-			},
-		},
-		"affected_assets": []map[string]interface{}{
-			{
-				"asset_id":      uuid.New().String(),
-				"asset_name":    "web-server-prod-1",
-				"platform":      "aws",
-				"region":        "us-east-1",
-				"environment":   "production",
-				"is_production": true,
-			},
-			{
-				"asset_id":      uuid.New().String(),
-				"asset_name":    "api-server-staging-1",
-				"platform":      "azure",
-				"region":        "eastus",
-				"environment":   "staging",
-				"is_production": false,
-			},
-		},
-		"urgency_score":  85.5,
-		"calculated_at":  time.Now().UTC(),
-		"alert_id":       alertID,
+	orgID := r.URL.Query().Get("org_id")
+	if orgID == "" {
+		orgID = middleware.GetOrgID(ctx)
+	}
+
+	blastRadius, err := h.queryBlastRadius(ctx, alertID, orgID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.respondError(w, http.StatusNotFound, "CVE alert not found", nil)
+			return
+		}
+		h.respondError(w, http.StatusInternalServerError, "failed to load blast radius", err)
+		return
 	}
 
 	h.respond(w, http.StatusOK, blastRadius)
@@ -357,15 +314,15 @@ func (h *Handler) createPatchCampaignFromAlert(w http.ResponseWriter, r *http.Re
 	alertID := chi.URLParam(r, "alertID")
 
 	var req struct {
-		Name              string   `json:"name"`
-		Description       string   `json:"description,omitempty"`
-		CampaignType      string   `json:"campaign_type"`
-		RolloutStrategy   string   `json:"rollout_strategy"`
-		CanaryPercentage  *int     `json:"canary_percentage,omitempty"`
-		WavePercentage    *int     `json:"wave_percentage,omitempty"`
-		RequiresApproval  *bool    `json:"requires_approval,omitempty"`
-		ScheduledStartAt  *string  `json:"scheduled_start_at,omitempty"`
-		TargetAssetIDs    []string `json:"target_asset_ids,omitempty"`
+		Name             string   `json:"name"`
+		Description      string   `json:"description,omitempty"`
+		CampaignType     string   `json:"campaign_type"`
+		RolloutStrategy  string   `json:"rollout_strategy"`
+		CanaryPercentage *int     `json:"canary_percentage,omitempty"`
+		WavePercentage   *int     `json:"wave_percentage,omitempty"`
+		RequiresApproval *bool    `json:"requires_approval,omitempty"`
+		ScheduledStartAt *string  `json:"scheduled_start_at,omitempty"`
+		TargetAssetIDs   []string `json:"target_asset_ids,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -385,8 +342,13 @@ func (h *Handler) createPatchCampaignFromAlert(w http.ResponseWriter, r *http.Re
 
 // =============================================================================
 // Mock Data Generators
+//
+// LEGACY / UNUSED: the CVE alert endpoints now query the database (see
+// cve_alerts_query.go). These generators are retained for reference and local
+// fixtures only; they are not wired into any handler.
 // =============================================================================
 
+//nolint:unused // retained legacy fixtures; superseded by DB-backed handlers
 func (h *Handler) generateMockCVEAlerts() []CVEAlert {
 	now := time.Now().UTC()
 	alerts := []CVEAlert{}
@@ -582,6 +544,7 @@ func (h *Handler) generateMockCVEAlerts() []CVEAlert {
 	return alerts
 }
 
+//nolint:unused // retained legacy fixture; superseded by DB-backed handlers
 func (h *Handler) generateMockCVEAlert(alertID string) CVEAlert {
 	now := time.Now().UTC()
 	cvssScore := 9.8

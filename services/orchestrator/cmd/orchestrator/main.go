@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,6 +27,7 @@ import (
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/temporal/worker"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/tools"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/validation"
+	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/vulnmatch"
 )
 
 // Build information (set via ldflags).
@@ -336,6 +339,38 @@ func run() error {
 		}()
 	}
 
+	// Start the vulnerability matcher (opt-in background scanner).
+	// Core logic lives in vulnmatch.Service.ScanAndAlert (a RunOnce entrypoint);
+	// this goroutine is only a ticker loop around it, so the same logic can later
+	// be driven by a dedicated worker or a Temporal cron without changes.
+	if vulnScanEnabled(cfg.Env) {
+		interval := vulnScanInterval(log)
+		vulnSvc := vulnmatch.NewService(db.Pool, log.Logger)
+		log.Info("starting vulnerability scanner", "interval", interval.String())
+		go func() {
+			runScan := func() {
+				scanCtx, scanCancel := context.WithTimeout(ctx, 10*time.Minute)
+				defer scanCancel()
+				if _, err := vulnSvc.ScanAndAlert(scanCtx); err != nil {
+					log.Error("vulnerability scan failed", "error", err)
+				}
+			}
+			runScan() // initial pass on startup
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					runScan()
+				}
+			}
+		}()
+	} else {
+		log.Info("vulnerability scanner disabled (set RF_VULN_SCAN_ENABLED=true to enable)")
+	}
+
 	// Wait for shutdown signal
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
@@ -370,4 +405,37 @@ func run() error {
 	}
 
 	return nil
+}
+
+// vulnScanEnabled reports whether the background vulnerability scanner should run.
+// It is opt-in: enabled by default only in development; elsewhere it must be
+// explicitly enabled via RF_VULN_SCAN_ENABLED=true. An invalid value falls back
+// to the development default.
+func vulnScanEnabled(env string) bool {
+	v := strings.TrimSpace(os.Getenv("RF_VULN_SCAN_ENABLED"))
+	if v == "" {
+		return env == "development"
+	}
+	enabled, err := strconv.ParseBool(v)
+	if err != nil {
+		return env == "development"
+	}
+	return enabled
+}
+
+// vulnScanInterval returns the scan interval from RF_VULN_SCAN_INTERVAL, falling
+// back to 15m (with a warning) when unset, invalid, or non-positive.
+func vulnScanInterval(log *logger.Logger) time.Duration {
+	const def = 15 * time.Minute
+	v := strings.TrimSpace(os.Getenv("RF_VULN_SCAN_INTERVAL"))
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		log.Warn("invalid RF_VULN_SCAN_INTERVAL; falling back to default",
+			"value", v, "default", def.String())
+		return def
+	}
+	return d
 }
