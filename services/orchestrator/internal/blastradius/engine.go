@@ -347,8 +347,8 @@ func (e *Engine) findAffectedAssets(ctx context.Context, orgID uuid.UUID, images
 			a.name as asset_name,
 			a.platform,
 			a.region,
-			a.environment,
-			CASE WHEN a.environment = 'production' THEN true ELSE false END as is_production,
+			a.tags->>'environment' as environment,
+			CASE WHEN a.tags->>'environment' = 'production' THEN true ELSE false END as is_production,
 			a.image_ref,
 			ic.image_id
 		FROM assets a
