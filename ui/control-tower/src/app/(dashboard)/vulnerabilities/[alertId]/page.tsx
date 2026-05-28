@@ -25,6 +25,7 @@ import {
   type CVEAlertWithBlastRadius,
   type BlastRadiusResult,
   type CVESeverity,
+  type CVEAlertStatus,
 } from "@/hooks/use-cve-alerts";
 import { useSendAIMessage, useAIContext } from "@/hooks/use-ai";
 import {
@@ -90,11 +91,11 @@ export default function CVEAlertDetailPage({
   const aiContext = useAIContext();
   const sendAIMessage = useSendAIMessage();
 
-  const handleStatusChange = async (newStatus: string) => {
+  const handleStatusChange = async (newStatus: CVEAlertStatus) => {
     try {
       await updateStatus.mutateAsync({
         alertId,
-        data: { status: newStatus as any },
+        data: { status: newStatus },
       });
     } catch (error) {
       console.error("Failed to update status:", error);
