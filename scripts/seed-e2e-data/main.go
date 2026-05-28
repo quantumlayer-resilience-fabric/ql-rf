@@ -79,19 +79,17 @@ func run() error {
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	fmt.Printf("seeded E2E fixture: org=%s sites=3 assets=10 images=4 drift_reports=3 alerts=4\n", orgID)
+	fmt.Printf("seeded E2E fixture: org=%s user=dev-user sites=3 assets=10 images=4 drift_reports=3 alerts=4\n", orgID)
 	return nil
 }
 
-// seedFixture inserts the full deterministic fixture inside the given tx. The
-// org is cleared first so each run starts from a clean, identical state.
+// seedFixture inserts the full deterministic fixture inside the given tx.
+// Every insert is ON CONFLICT (id) DO NOTHING with fixed IDs, so the seed is
+// idempotent without deleting — which also avoids tripping the usage-tracking
+// triggers that fire on cascade deletes.
 func seedFixture(ctx context.Context, tx pgx.Tx) error {
-	// Deleting the org cascades to sites/assets/images/drift/alerts.
-	if _, err := tx.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, orgID); err != nil {
-		return fmt.Errorf("clear org: %w", err)
-	}
 	for _, step := range []func(context.Context, pgx.Tx) error{
-		seedOrg, seedSites, seedImages, seedAssets, seedDrift, seedAlerts,
+		seedOrg, seedUser, seedSites, seedImages, seedAssets, seedDrift, seedAlerts,
 	} {
 		if err := step(ctx, tx); err != nil {
 			return err
@@ -104,11 +102,29 @@ func seedOrg(ctx context.Context, tx pgx.Tx) error {
 	// created_at pinned to the past so dev-mode (oldest org) resolves to it.
 	_, err := tx.Exec(ctx, `
 		INSERT INTO organizations (id, name, slug, created_at, updated_at)
-		VALUES ($1, 'QuantumLayer E2E Org', 'quantumlayer-e2e', '2020-01-01T00:00:00Z', NOW())`,
+		VALUES ($1, 'QuantumLayer E2E Org', 'quantumlayer-e2e', '2020-01-01T00:00:00Z', NOW())
+		ON CONFLICT (id) DO NOTHING`,
 		orgID,
 	)
 	if err != nil {
 		return fmt.Errorf("insert org: %w", err)
+	}
+	return nil
+}
+
+// seedUser links the API's dev-mode mock user (external_id "dev-user", see
+// services/api/internal/middleware/auth.go) to the E2E org. Without this,
+// /organization/check returns has_organization=false and the frontend's
+// OrgGuard redirects /overview to /onboarding.
+func seedUser(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO users (id, external_id, email, name, role, org_id)
+		VALUES ('77777777-0000-0000-0000-000000000001', 'dev-user', 'dev@example.com', 'Development User', 'admin', $1)
+		ON CONFLICT (id) DO NOTHING`,
+		orgID,
+	)
+	if err != nil {
+		return fmt.Errorf("insert dev user: %w", err)
 	}
 	return nil
 }
@@ -123,7 +139,8 @@ func seedSites(ctx context.Context, tx pgx.Tx) error {
 	for _, s := range rows {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO sites (id, org_id, name, region, platform, environment)
-			VALUES ($1, $2, $3, $4, $5, $6)`,
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (id) DO NOTHING`,
 			s.id, orgID, s.name, s.region, s.platform, s.env,
 		); err != nil {
 			return fmt.Errorf("insert site %s: %w", s.name, err)
@@ -147,7 +164,8 @@ func seedImages(ctx context.Context, tx pgx.Tx) error {
 	for i, im := range rows {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO images (id, org_id, family, version)
-			VALUES ($1, $2, $3, $4)`,
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (id) DO NOTHING`,
 			fmt.Sprintf("33333333-0000-0000-0000-0000000000%02d", i+1), orgID, im.family, im.version,
 		); err != nil {
 			return fmt.Errorf("insert image %s: %w", im.family, err)
@@ -166,7 +184,8 @@ func seedAssets(ctx context.Context, tx pgx.Tx) error {
 	for i, a := range rows {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO assets (id, org_id, platform, instance_id, name, region, state, tags)
-			VALUES ($1, $2, $3, $4, $5, $6, 'running', $7)`,
+			VALUES ($1, $2, $3, $4, $5, $6, 'running', $7)
+			ON CONFLICT (id) DO NOTHING`,
 			fmt.Sprintf("44444444-0000-0000-0000-0000000000%02d", i+1),
 			orgID, a.platform,
 			fmt.Sprintf("i-e2e-%s-%02d", a.platform, i+1),
@@ -194,7 +213,8 @@ func seedDrift(ctx context.Context, tx pgx.Tx) error {
 	for _, d := range rows {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO drift_reports (id, org_id, platform, site, total_assets, compliant_assets, coverage_pct, status, calculated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			ON CONFLICT (id) DO NOTHING`,
 			d.id, orgID, d.platform, d.site, d.total, d.compliant, d.coverage, d.status, time.Now().Add(-d.ago),
 		); err != nil {
 			return fmt.Errorf("insert drift report %s: %w", d.platform, err)
@@ -214,7 +234,8 @@ func seedAlerts(ctx context.Context, tx pgx.Tx) error {
 	for _, al := range rows {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO alerts (id, org_id, severity, title, source, status)
-			VALUES ($1, $2, $3, $4, $5, 'open')`,
+			VALUES ($1, $2, $3, $4, $5, 'open')
+			ON CONFLICT (id) DO NOTHING`,
 			al.id, orgID, al.severity, al.title, al.source,
 		); err != nil {
 			return fmt.Errorf("insert alert %s: %w", al.title, err)

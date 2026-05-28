@@ -16,11 +16,15 @@ test.describe("Overview Page", () => {
     // Wait for data to load
     await page.waitForLoadState("networkidle");
 
-    // Check metric cards are present
-    await expect(page.getByText("Fleet Size")).toBeVisible();
-    await expect(page.getByText("Drift Score")).toBeVisible();
-    await expect(page.getByText("Compliance")).toBeVisible();
-    await expect(page.getByText("DR Readiness")).toBeVisible();
+    // Scope to the main content area. "Compliance"/"DR Readiness" also appear in
+    // the sidebar nav and the AI Insights widget, so we use exact text and take
+    // the first match (the metric cards render before the insights in the DOM)
+    // to stay unambiguous under Playwright strict mode.
+    const main = page.getByRole("main");
+    await expect(main.getByText("Fleet Size", { exact: true })).toBeVisible();
+    await expect(main.getByText("Drift Score", { exact: true })).toBeVisible();
+    await expect(main.getByText("Compliance", { exact: true }).first()).toBeVisible();
+    await expect(main.getByText("DR Readiness", { exact: true }).first()).toBeVisible();
   });
 
   test("should display AI Insights widget", async ({ page }) => {
