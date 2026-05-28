@@ -191,13 +191,31 @@ jobs:
       # dependencies. The compose `migrate` service applies migrations; the `ui`
       # image is built with NEXT_PUBLIC_API_URL pointing at :8080, and the API
       # runs with RF_DEV_MODE=true so it accepts the Clerk-authenticated session
-      # and resolves the seeded default org. --wait blocks until all are healthy.
+      # and resolves the seeded default org.
+      #
+      # We do NOT `--wait` here: the ui container's wget-based healthcheck is
+      # unreliable in CI even when Next is serving. depends_on still gates ui on
+      # a healthy api/orchestrator; readiness is then probed from the runner.
       - name: Start full stack (docker compose)
         env:
           RF_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           RF_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           RF_LLM_API_KEY: ${{ secrets.RF_LLM_API_KEY }}
-        run: docker compose up -d --build --wait --wait-timeout 600 ui
+        run: docker compose up -d --build ui
+
+      - name: Wait for stack readiness
+        run: |
+          wait_for() {
+            for _ in $(seq 1 60); do
+              if curl -sf -o /dev/null "$1"; then echo "ready: $1"; return 0; fi
+              sleep 5
+            done
+            echo "NOT ready after 5m: $1"
+            return 1
+          }
+          wait_for http://localhost:8080/healthz || { docker compose logs api --no-color --tail=80; exit 1; }
+          wait_for http://localhost:8083/health  || { docker compose logs orchestrator --no-color --tail=80; exit 1; }
+          wait_for http://localhost:3000         || { docker compose logs ui --no-color --tail=80; exit 1; }
 
       - name: Seed deterministic E2E fixture
         env:
