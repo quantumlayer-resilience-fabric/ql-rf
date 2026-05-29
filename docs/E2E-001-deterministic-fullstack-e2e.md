@@ -1,7 +1,28 @@
 # E2E-001: Deterministic Full-Stack E2E Fixture
 
-**Status:** Open (tracked follow-up)
+**Status:** In progress — branch `ci/e2e-001-deterministic-fixture` (overview milestone)
 **Created:** 2026-05-28
+
+## Progress (2026-05-29)
+
+- **Auth mode fixed.** The API ignored `RF_DEV_MODE` (dev mode only kicked in
+  when Clerk was unconfigured). Added a top-level `RF_DEV_MODE` config flag,
+  honored in `services/api/internal/routes/routes.go`, so the API can skip JWT
+  validation while Clerk-configured and resolve a deterministic default org.
+  Production default is unchanged (`dev_mode=false`). Verified locally: with the
+  rebuilt API in dev mode, `GET /api/v1/overview/metrics` returns the seeded
+  org's data (`fleetSize: 10`) instead of 401.
+- **Deterministic seed added.** `scripts/seed-e2e-data` (idempotent, fixed IDs,
+  org `created_at` pinned to the past so dev-mode resolves to it). Seeds the
+  Overview-relevant entities: 1 org, 3 sites (1 DR-paired), 10 assets (5 aws /
+  3 azure / 2 gcp), 4 images, 3 drift reports, 4 alerts.
+- **CI job wired (still advisory).** `frontend-e2e` now `docker compose up`s the
+  full stack, applies migrations (compose `migrate`), runs the seed, waits for
+  health, and runs the overview spec. `continue-on-error` and the ci-complete
+  carve-out remain until the suite is reliably green.
+
+Remaining for the milestone: confirm the overview spec passes in CI against the
+seeded stack. Then expand page-by-page and finally make E2E blocking again.
 
 ## Summary
 
