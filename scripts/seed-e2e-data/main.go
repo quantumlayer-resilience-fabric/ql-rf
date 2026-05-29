@@ -11,11 +11,11 @@
 // Usage: RF_DATABASE_URL=... go run ./scripts/seed-e2e-data
 //
 // Scope: this seeds the entities the Overview, Sites, Drift, Images, Risk,
-// Vulnerabilities, and Certificates pages need (org, project, environments,
-// sites, assets, images, image vulnerabilities, drift reports, alerts, CVE
-// cache + alerts, certificates). Compliance results, SBOM, and InSpec are
-// intentionally deferred until the corresponding page specs are tackled (see
-// docs/E2E-001-deterministic-fullstack-e2e.md).
+// Vulnerabilities, Certificates, and Compliance pages need (org, project,
+// environments, sites, assets, images, image vulnerabilities, drift reports,
+// alerts, CVE cache + alerts, certificates, compliance frameworks + controls +
+// results). SBOM and InSpec are intentionally deferred until the corresponding
+// page specs are tackled (see docs/E2E-001-deterministic-fullstack-e2e.md).
 package main
 
 import (
@@ -112,7 +112,7 @@ func run() error {
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5\n", orgID)
+	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=6\n", orgID)
 	return nil
 }
 
@@ -124,7 +124,7 @@ func seedFixture(ctx context.Context, tx pgx.Tx) error {
 	for _, step := range []func(context.Context, pgx.Tx) error{
 		seedOrg, seedUser, seedProjectAndEnvironments, seedSites, seedImages,
 		seedAssets, seedVulnerabilities, seedDrift, seedAlerts, seedCVEAlerts,
-		seedCertificates,
+		seedCertificates, seedCompliance,
 	} {
 		if err := step(ctx, tx); err != nil {
 			return err
@@ -505,3 +505,72 @@ func seedCertificates(ctx context.Context, tx pgx.Tx) error {
 	}
 	return nil
 }
+
+// seedCompliance seeds the Compliance page (API). The service's
+// GetComplianceSummary computes overall/CIS/SLSA scores by joining
+// compliance_frameworks -> compliance_controls -> compliance_results, so the
+// seed sets up two frameworks with controls + per-control results:
+//
+//	CIS Benchmark : 5 controls, 3 passing + 2 failing -> 60.0% (failing status)
+//	SLSA          : 1 control, 1 passing, level 3    -> 100.0% (passing)
+//
+// Resulting summary: overall 80.0%, cis 60.0%, slsa level 3, sigstore 0% (no
+// image_compliance rows seeded), 2 failing controls (1 high + 1 medium).
+func seedCompliance(ctx context.Context, tx pgx.Tx) error {
+	frameworks := []struct {
+		id, name, description string
+		level                 *int
+	}{
+		{"eeeeeeee-0000-0000-0000-000000000001", "CIS Benchmark", "Center for Internet Security Benchmarks", nil},
+		{"eeeeeeee-0000-0000-0000-000000000002", "SLSA", "Supply-chain Levels for Software Artifacts", ptrInt(3)},
+	}
+	for _, f := range frameworks {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO compliance_frameworks (id, org_id, name, description, level, enabled)
+			VALUES ($1, $2, $3, $4, $5, true)
+			ON CONFLICT (org_id, name) DO NOTHING`,
+			f.id, orgID, f.name, f.description, f.level,
+		); err != nil {
+			return fmt.Errorf("insert framework %s: %w", f.name, err)
+		}
+	}
+
+	const cisFrameworkID = "eeeeeeee-0000-0000-0000-000000000001"
+	const slsaFrameworkID = "eeeeeeee-0000-0000-0000-000000000002"
+	controls := []struct {
+		id, frameworkID, controlID, title, severity, recommendation, resultStatus string
+		affectedAssets                                                            int
+		score                                                                     float64
+	}{
+		{"eeeeeeee-1000-0000-0000-000000000001", cisFrameworkID, "CIS-1.1", "Ensure SSH root login is disabled", "high", "Set PermitRootLogin no in /etc/ssh/sshd_config.", "failing", 3, 0},
+		{"eeeeeeee-1000-0000-0000-000000000002", cisFrameworkID, "CIS-1.2", "Ensure password expiration is configured", "medium", "Set PASS_MAX_DAYS to 90 in /etc/login.defs.", "failing", 2, 0},
+		{"eeeeeeee-1000-0000-0000-000000000003", cisFrameworkID, "CIS-2.1", "Ensure auditd is enabled and running", "medium", "Enable the auditd service.", "passing", 0, 100},
+		{"eeeeeeee-1000-0000-0000-000000000004", cisFrameworkID, "CIS-2.2", "Ensure firewalld is active", "medium", "systemctl enable --now firewalld.", "passing", 0, 100},
+		{"eeeeeeee-1000-0000-0000-000000000005", cisFrameworkID, "CIS-3.1", "Ensure system is up to date", "low", "Run package updates.", "passing", 0, 100},
+		{"eeeeeeee-1000-0000-0000-000000000006", slsaFrameworkID, "SLSA-L3", "Source and build platform meet SLSA Level 3", "high", "Use a hardened build platform.", "passing", 0, 100},
+	}
+	for i := range controls {
+		c := &controls[i]
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO compliance_controls (id, framework_id, control_id, title, severity, recommendation)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (framework_id, control_id) DO NOTHING`,
+			c.id, c.frameworkID, c.controlID, c.title, c.severity, c.recommendation,
+		); err != nil {
+			return fmt.Errorf("insert control %s: %w", c.controlID, err)
+		}
+		resultID := "eeeeeeee-2000-0000-0000-0000000000" + c.id[len(c.id)-2:]
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO compliance_results (id, org_id, framework_id, control_id, status, affected_assets, score)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (id) DO UPDATE SET
+				status = EXCLUDED.status, affected_assets = EXCLUDED.affected_assets, score = EXCLUDED.score`,
+			resultID, orgID, c.frameworkID, c.id, c.resultStatus, c.affectedAssets, c.score,
+		); err != nil {
+			return fmt.Errorf("insert result for %s: %w", c.controlID, err)
+		}
+	}
+	return nil
+}
+
+func ptrInt(v int) *int { return &v }

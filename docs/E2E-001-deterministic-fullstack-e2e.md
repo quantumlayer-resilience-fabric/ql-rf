@@ -260,3 +260,30 @@ drift + images + risk + vulnerabilities + certificates (30 specs).
 The Alerts and Rotations tabs, certificate usage/blast-radius (detail), and
 rotation execution are deferred — this PR covers the certificate inventory
 surface only.
+
+## E2E-009: Compliance page (2026-05-29)
+
+The Compliance page hits a single endpoint (`/api/v1/compliance/summary`) that
+joins `compliance_frameworks → compliance_controls → compliance_results`, so the
+seed inserts the minimum needed to make the whole page render meaningfully:
+
+| Framework | Controls (passing/failing) | Score | Status |
+|-----------|---------------------------|-------|--------|
+| CIS Benchmark | 5 (3 passing / 2 failing) | 60.0% | failing |
+| SLSA (level 3) | 1 (1 passing) | 100.0% | passing |
+
+Summary (verified against `/compliance/summary`): **overall 80.0%, CIS 60.0%,
+SLSA Level 3, Sigstore 0.0% (no `image_compliance` rows seeded), 2 failing
+controls** (1 high `CIS-1.1` + 1 medium `CIS-1.2`). `e2e/compliance.spec.ts`
+(rewritten from the mock-based version) asserts the header/description, the 4
+metric cards (via unique data-derived values — 60.0% appears in both the CIS
+card and CIS framework card, so the spec uses 80.0% / Level 3 as the unique
+markers), the seeded framework names + statuses on the Frameworks tab, and the
+"2 Compliance Gaps Detected" AI insight. The CI blocking run now covers
+overview + sites + drift + images + risk + vulnerabilities + certificates +
+compliance (34 specs).
+
+Image compliance backing rows, control mappings, assessment runs,
+exemptions/evidence upload, and the audit-log/export controls are deferred —
+this PR covers the compliance dashboard surface only. **Next:** SBOM, then AI
+Copilot / approval flow.
