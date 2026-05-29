@@ -187,3 +187,25 @@ type SBOMListResponse struct {
 	PageSize   int           `json:"page_size"`
 	TotalPages int           `json:"total_pages"`
 }
+
+// LicenseInfo describes one license aggregated across all packages of an
+// organization. JSON tags are camelCase to match the existing
+// ui/control-tower/src/lib/api-sbom.ts LicenseSummary contract: the
+// /sbom/licenses/summary endpoint is new, so no legacy snake_case consumer
+// constrains the shape.
+type LicenseInfo struct {
+	Name     string   `json:"name"`
+	Count    int      `json:"count"`
+	Packages []string `json:"packages"`
+	Category string   `json:"category"` // permissive | copyleft | proprietary | unknown
+}
+
+// LicenseSummary aggregates package licenses across all SBOMs owned by an
+// organization. Backs the SBOM page's License Compliance card and Licenses tab
+// distribution chart.
+type LicenseSummary struct {
+	Licenses           []LicenseInfo `json:"licenses"`
+	TotalPackages      int           `json:"totalPackages"`
+	UnlicensedPackages int           `json:"unlicensedPackages"`
+	RiskScore          float64       `json:"riskScore"` // 0-100, higher = riskier
+}

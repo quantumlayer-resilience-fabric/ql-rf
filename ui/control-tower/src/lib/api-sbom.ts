@@ -206,6 +206,150 @@ async function apiFetch<T>(
 // SBOM API functions
 // =============================================================================
 
+// =============================================================================
+// Backend response shapes (snake_case from pkg/sbom) and snake -> camel
+// transforms. The list/detail/vulnerability endpoints predate the camelCase
+// hook types, so we transform here rather than churning the Go json tags.
+// =============================================================================
+
+interface BackendSBOMSummary {
+  id: string;
+  image_id: string;
+  format: "spdx" | "cyclonedx";
+  package_count: number;
+  vuln_count: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  generated_at: string;
+}
+
+interface BackendPackage {
+  id: string;
+  sbom_id: string;
+  name: string;
+  version: string;
+  type: Package["type"];
+  purl?: string;
+  cpe?: string;
+  license?: string;
+  supplier?: string;
+  checksum?: string;
+  source_url?: string;
+  location?: string;
+  created_at: string;
+}
+
+interface BackendVulnerability {
+  id: string;
+  sbom_id: string;
+  package_id: string;
+  cve_id: string;
+  severity: Vulnerability["severity"];
+  cvss_score?: number;
+  cvss_vector?: string;
+  description?: string;
+  fixed_version?: string;
+  published_date?: string;
+  modified_date?: string;
+  references?: string[];
+  data_source?: string;
+  exploit_available?: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface BackendSBOM {
+  id: string;
+  image_id: string;
+  org_id: string;
+  format: "spdx" | "cyclonedx";
+  version: string;
+  content?: Record<string, unknown>;
+  package_count: number;
+  vuln_count: number;
+  scanner?: string;
+  generated_at: string;
+  created_at: string;
+  updated_at: string;
+  packages?: BackendPackage[];
+  vulnerabilities?: BackendVulnerability[];
+}
+
+function transformPackage(p: BackendPackage): Package {
+  return {
+    id: p.id,
+    sbomId: p.sbom_id,
+    name: p.name,
+    version: p.version,
+    type: p.type,
+    purl: p.purl,
+    cpe: p.cpe,
+    license: p.license,
+    supplier: p.supplier,
+    checksum: p.checksum,
+    sourceUrl: p.source_url,
+    location: p.location,
+    createdAt: p.created_at,
+  };
+}
+
+function transformVulnerability(v: BackendVulnerability): Vulnerability {
+  return {
+    id: v.id,
+    sbomId: v.sbom_id,
+    packageId: v.package_id,
+    cveId: v.cve_id,
+    severity: v.severity,
+    cvssScore: v.cvss_score,
+    cvssVector: v.cvss_vector,
+    description: v.description,
+    fixedVersion: v.fixed_version,
+    publishedDate: v.published_date,
+    modifiedDate: v.modified_date,
+    references: v.references,
+    dataSource: v.data_source,
+    exploitAvailable: v.exploit_available,
+    createdAt: v.created_at,
+    updatedAt: v.updated_at,
+  };
+}
+
+function transformSBOM(s: BackendSBOM): SBOM {
+  return {
+    id: s.id,
+    imageId: s.image_id,
+    orgId: s.org_id,
+    format: s.format,
+    version: s.version,
+    content: s.content,
+    packageCount: s.package_count,
+    vulnCount: s.vuln_count,
+    scanner: s.scanner,
+    generatedAt: s.generated_at,
+    createdAt: s.created_at,
+    updatedAt: s.updated_at,
+    packages: s.packages?.map(transformPackage),
+    vulnerabilities: s.vulnerabilities?.map(transformVulnerability),
+  };
+}
+
+function transformSBOMSummary(s: BackendSBOMSummary): SBOMSummary {
+  return {
+    id: s.id,
+    imageId: s.image_id,
+    format: s.format,
+    packageCount: s.package_count,
+    vulnCount: s.vuln_count,
+    critical: s.critical,
+    high: s.high,
+    medium: s.medium,
+    low: s.low,
+    generatedAt: s.generated_at,
+  };
+}
+
 export async function getSBOMs(params?: {
   page?: number;
   pageSize?: number;
@@ -215,7 +359,21 @@ export async function getSBOMs(params?: {
   if (params?.pageSize) searchParams.set("page_size", String(params.pageSize));
   const query = searchParams.toString();
 
-  return apiFetch<SBOMListResponse>(`/sbom${query ? `?${query}` : ""}`);
+  interface BackendListResponse {
+    sboms: BackendSBOMSummary[];
+    total: number;
+    page: number;
+    page_size: number;
+    total_pages: number;
+  }
+  const r = await apiFetch<BackendListResponse>(`/sbom${query ? `?${query}` : ""}`);
+  return {
+    sboms: (r.sboms || []).map(transformSBOMSummary),
+    total: r.total,
+    page: r.page,
+    pageSize: r.page_size,
+    totalPages: r.total_pages,
+  };
 }
 
 export async function getSBOM(
@@ -230,7 +388,8 @@ export async function getSBOM(
   if (params?.includeVulns) searchParams.set("include_vulns", "true");
   const query = searchParams.toString();
 
-  return apiFetch<SBOM>(`/sbom/${id}${query ? `?${query}` : ""}`);
+  const r = await apiFetch<BackendSBOM>(`/sbom/${id}${query ? `?${query}` : ""}`);
+  return transformSBOM(r);
 }
 
 export async function getImageSBOM(
@@ -245,7 +404,8 @@ export async function getImageSBOM(
   if (params?.includeVulns) searchParams.set("include_vulns", "true");
   const query = searchParams.toString();
 
-  return apiFetch<SBOM>(`/images/${imageId}/sbom${query ? `?${query}` : ""}`);
+  const r = await apiFetch<BackendSBOM>(`/images/${imageId}/sbom${query ? `?${query}` : ""}`);
+  return transformSBOM(r);
 }
 
 export async function generateSBOM(
@@ -290,20 +450,43 @@ export async function getSBOMVulnerabilities(
   if (params?.fixAvailable !== undefined) searchParams.set("fix_available", String(params.fixAvailable));
   const query = searchParams.toString();
 
-  return apiFetch<VulnerabilityListResponse>(
+  interface BackendVulnListResponse {
+    sbom_id: string;
+    vulnerabilities: BackendVulnerability[];
+    count: number;
+    stats: {
+      critical: number;
+      high: number;
+      medium: number;
+      low: number;
+      unknown: number;
+      fix_available: number;
+      exploit_available: number;
+    };
+  }
+  const r = await apiFetch<BackendVulnListResponse>(
     `/sbom/${sbomId}/vulnerabilities${query ? `?${query}` : ""}`
   );
+  return {
+    sbomId: r.sbom_id,
+    vulnerabilities: (r.vulnerabilities || []).map(transformVulnerability),
+    count: r.count,
+    stats: {
+      critical: r.stats.critical,
+      high: r.stats.high,
+      medium: r.stats.medium,
+      low: r.stats.low,
+      unknown: r.stats.unknown,
+      fixAvailable: r.stats.fix_available,
+      exploitAvailable: r.stats.exploit_available,
+    },
+  };
 }
 
+// The backend already serves /sbom/licenses/summary in camelCase
+// (pkg/sbom.LicenseSummary), so no transform is required.
 export async function getLicenseSummary(): Promise<LicenseSummary> {
-  // This endpoint doesn't exist in the OpenAPI spec yet, but we'll add it later
-  // For now, return mock data
-  return {
-    licenses: [],
-    totalPackages: 0,
-    unlicensedPackages: 0,
-    riskScore: 0,
-  };
+  return apiFetch<LicenseSummary>("/sbom/licenses/summary");
 }
 
 export async function getSBOMComponents(params?: {

@@ -594,3 +594,73 @@ func nullString(s string) interface{} {
 	}
 	return s
 }
+
+// GetLicenseSummary aggregates package licenses across all SBOMs owned by an
+// organization. Unlicensed packages (NULL or empty `license`) are bucketed
+// under the "Unknown" name; the risk score is the percentage of unlicensed
+// packages, so a fully-licensed inventory scores 0.
+func (s *Service) GetLicenseSummary(ctx context.Context, orgID uuid.UUID) (*LicenseSummary, error) {
+	const query = `
+		SELECT
+			COALESCE(NULLIF(p.license, ''), '') AS license_name,
+			COUNT(*)::int AS cnt,
+			array_agg(p.name ORDER BY p.name) AS packages
+		FROM sbom_packages p
+		JOIN sboms s ON s.id = p.sbom_id
+		WHERE s.org_id = $1
+		GROUP BY 1
+		ORDER BY cnt DESC, license_name`
+	rows, err := s.db.QueryContext(ctx, query, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("query license summary: %w", err)
+	}
+	defer rows.Close()
+
+	summary := &LicenseSummary{Licenses: []LicenseInfo{}}
+	for rows.Next() {
+		var (
+			licenseName string
+			cnt         int
+			packages    pq.StringArray
+		)
+		if err := rows.Scan(&licenseName, &cnt, &packages); err != nil {
+			return nil, fmt.Errorf("scan license row: %w", err)
+		}
+		name := licenseName
+		if name == "" {
+			name = "Unknown"
+			summary.UnlicensedPackages += cnt
+		}
+		summary.TotalPackages += cnt
+		summary.Licenses = append(summary.Licenses, LicenseInfo{
+			Name:     name,
+			Count:    cnt,
+			Packages: []string(packages),
+			Category: classifyLicense(name),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate license rows: %w", err)
+	}
+
+	if summary.TotalPackages > 0 {
+		summary.RiskScore = float64(summary.UnlicensedPackages) / float64(summary.TotalPackages) * 100
+	}
+	return summary, nil
+}
+
+// classifyLicense maps an SPDX-ish license identifier to a coarse category.
+// Anything we do not recognize — including the "Unknown" bucket for unlicensed
+// packages — falls through to "unknown".
+func classifyLicense(name string) string {
+	switch name {
+	case "MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "ISC", "Zlib", "OpenSSL":
+		return "permissive"
+	case "GPL-2.0", "GPL-3.0", "LGPL-2.1", "LGPL-3.0", "AGPL-3.0", "MPL-2.0":
+		return "copyleft"
+	case "Proprietary", "Commercial":
+		return "proprietary"
+	default:
+		return "unknown"
+	}
+}
