@@ -10,11 +10,12 @@
 //
 // Usage: RF_DATABASE_URL=... go run ./scripts/seed-e2e-data
 //
-// Scope: this seeds the entities the Overview, Sites, Drift, Images, and Risk
-// pages need (org, project, environments, sites, assets, images, image
-// vulnerabilities, drift reports, alerts). CVE alerts, compliance results, and
-// certificates are intentionally deferred until the corresponding page specs
-// are tackled (see docs/E2E-001-deterministic-fullstack-e2e.md).
+// Scope: this seeds the entities the Overview, Sites, Drift, Images, Risk, and
+// Vulnerabilities pages need (org, project, environments, sites, assets,
+// images, image vulnerabilities, drift reports, alerts, CVE cache + alerts).
+// Compliance results and certificates are intentionally deferred until the
+// corresponding page specs are tackled (see
+// docs/E2E-001-deterministic-fullstack-e2e.md).
 package main
 
 import (
@@ -50,6 +51,14 @@ const (
 	envProd    = "99999999-0000-0000-0000-000000000001"
 	envStaging = "99999999-0000-0000-0000-000000000002"
 	envDev     = "99999999-0000-0000-0000-000000000003"
+
+	// The orchestrator (which serves CVE alerts) hardcodes this org id in dev
+	// mode — see services/orchestrator/internal/middleware/auth.go — rather than
+	// resolving the oldest org like the API. So CVE data must be seeded under
+	// THIS org to be visible on the Vulnerabilities page. Its created_at is kept
+	// recent so the API's dev-mode lookupDefaultOrg still selects the 2020 E2E
+	// org for every other page.
+	orchestratorDevOrgID = "00000000-0000-0000-0000-000000000001"
 )
 
 func main() {
@@ -92,7 +101,7 @@ func run() error {
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4\n", orgID)
+	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5\n", orgID)
 	return nil
 }
 
@@ -103,7 +112,7 @@ func run() error {
 func seedFixture(ctx context.Context, tx pgx.Tx) error {
 	for _, step := range []func(context.Context, pgx.Tx) error{
 		seedOrg, seedUser, seedProjectAndEnvironments, seedSites, seedImages,
-		seedAssets, seedVulnerabilities, seedDrift, seedAlerts,
+		seedAssets, seedVulnerabilities, seedDrift, seedAlerts, seedCVEAlerts,
 	} {
 		if err := step(ctx, tx); err != nil {
 			return err
@@ -358,6 +367,79 @@ func seedAlerts(ctx context.Context, tx pgx.Tx) error {
 			al.id, orgID, al.severity, al.title, al.source,
 		); err != nil {
 			return fmt.Errorf("insert alert %s: %w", al.title, err)
+		}
+	}
+	return nil
+}
+
+// seedCVEAlerts seeds the Vulnerability Response Center (orchestrator) data:
+// a cve_cache entry plus a cve_alert per CVE. The list/summary endpoints read
+// the denormalized *_count columns on cve_alerts and LEFT JOIN cve_cache for
+// severity/KEV/exploit details (see cve_alerts_query.go), so the dashboard
+// renders entirely from these two tables. cve_alert_affected_items (the
+// per-item blast-radius evidence on the detail page) is intentionally deferred,
+// like image lineage. Data lives under orchestratorDevOrgID, the org the
+// orchestrator resolves in dev mode.
+//
+// Resulting summary: 5 alerts, 2 critical + 2 high, 2 CISA KEV, 3 exploitable,
+// 1 SLA-breached, 15 affected assets (6 production).
+func seedCVEAlerts(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO organizations (id, name, slug, created_at, updated_at)
+		VALUES ($1, 'QuantumLayer E2E Orchestrator Org', 'quantumlayer-e2e-orchestrator', '2025-01-01T00:00:00Z', NOW())
+		ON CONFLICT (id) DO NOTHING`,
+		orchestratorDevOrgID,
+	); err != nil {
+		return fmt.Errorf("insert orchestrator dev org: %w", err)
+	}
+
+	rows := []struct {
+		cacheID, alertID, cveID           string
+		severity, priority, status        string
+		description                       string
+		cvss                              float64
+		kev, exploit, slaBreached         bool
+		urgency, pkgs, imgs, assets, prod int
+	}{
+		{"bbbbbbbb-0000-0000-0000-000000000001", "cccccccc-0000-0000-0000-000000000001", "CVE-2024-3094",
+			"critical", "p1", "new", "Malicious backdoor planted in xz/liblzma compression library.",
+			10.0, true, true, true, 98, 3, 2, 5, 3},
+		{"bbbbbbbb-0000-0000-0000-000000000002", "cccccccc-0000-0000-0000-000000000002", "CVE-2021-44228",
+			"critical", "p1", "investigating", "Log4Shell: remote code execution in Apache Log4j 2 via JNDI lookup.",
+			10.0, true, true, false, 95, 2, 1, 4, 2},
+		{"bbbbbbbb-0000-0000-0000-000000000003", "cccccccc-0000-0000-0000-000000000003", "CVE-2024-21626",
+			"high", "p2", "new", "runc container escape via leaked file descriptor.",
+			8.6, false, true, false, 72, 1, 1, 2, 1},
+		{"bbbbbbbb-0000-0000-0000-000000000004", "cccccccc-0000-0000-0000-000000000004", "CVE-2023-44487",
+			"high", "p2", "new", "HTTP/2 Rapid Reset denial-of-service amplification.",
+			7.5, false, false, false, 65, 1, 1, 3, 0},
+		{"bbbbbbbb-0000-0000-0000-000000000005", "cccccccc-0000-0000-0000-000000000005", "CVE-2024-6387",
+			"medium", "p3", "resolved", "regreSSHion: OpenSSH signal handler race condition.",
+			5.9, false, false, false, 45, 1, 1, 1, 0},
+	}
+	for _, c := range rows {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO cve_cache (id, cve_id, cvss_v3_score, severity, exploit_available, cisa_kev_listed, description, primary_source)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 'nvd')
+			ON CONFLICT (cve_id) DO NOTHING`,
+			c.cacheID, c.cveID, c.cvss, c.severity, c.exploit, c.kev, c.description,
+		); err != nil {
+			return fmt.Errorf("insert cve_cache %s: %w", c.cveID, err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO cve_alerts (
+				id, org_id, cve_id, cve_cache_id, severity, urgency_score, status, priority, sla_breached,
+				affected_images_count, affected_assets_count, affected_packages_count, production_assets_count)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			ON CONFLICT (org_id, cve_id) DO UPDATE SET
+				severity = EXCLUDED.severity, urgency_score = EXCLUDED.urgency_score, status = EXCLUDED.status,
+				priority = EXCLUDED.priority, sla_breached = EXCLUDED.sla_breached,
+				affected_images_count = EXCLUDED.affected_images_count, affected_assets_count = EXCLUDED.affected_assets_count,
+				affected_packages_count = EXCLUDED.affected_packages_count, production_assets_count = EXCLUDED.production_assets_count`,
+			c.alertID, orchestratorDevOrgID, c.cveID, c.cacheID, c.severity, c.urgency, c.status, c.priority, c.slaBreached,
+			c.imgs, c.assets, c.pkgs, c.prod,
+		); err != nil {
+			return fmt.Errorf("insert cve_alert %s: %w", c.cveID, err)
 		}
 	}
 	return nil

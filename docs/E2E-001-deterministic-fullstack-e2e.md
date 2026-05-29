@@ -172,3 +172,44 @@ critical). The CI job now runs `overview` + `sites` + `drift` + `images` +
 `risk`; E2E remains **advisory**.
 
 **Next:** E2E-006 CVE / Vulnerability.
+
+## E2E-006: Vulnerabilities page (2026-05-29)
+
+Sixth page on the deterministic foundation. The Vulnerability Response Center is
+served by the **orchestrator** (:8083), not the API — and in dev mode the
+orchestrator hardcodes `org_id = 00000000-0000-0000-0000-000000000001` (see
+`services/orchestrator/internal/middleware/auth.go`) rather than resolving the
+oldest org like the API. So the seed adds that org (with a recent `created_at`
+so the API's `lookupDefaultOrg` still picks the 2020 E2E org for every other
+page) and seeds CVE data under it.
+
+The list/summary endpoints (`cve_alerts_query.go`) read the **denormalized
+`*_count` columns on `cve_alerts`** and LEFT JOIN `cve_cache` for
+severity/KEV/exploit details, so the dashboard renders entirely from those two
+tables. The seed inserts 5 `cve_cache` + `cve_alerts`:
+
+| CVE | Severity | Urgency | Indicators |
+|-----|----------|---------|------------|
+| CVE-2024-3094 | critical | 98 | CISA KEV, exploit, SLA-breached |
+| CVE-2021-44228 | critical | 95 | CISA KEV, exploit |
+| CVE-2024-21626 | high | 72 | exploit |
+| CVE-2023-44487 | high | 65 | — |
+| CVE-2024-6387 | medium | 45 | resolved |
+
+Summary: **5 total, 2 critical + 2 high, 2 CISA KEV, 3 exploitable, 1
+SLA-breached, 15 affected assets (6 production)** — verified against
+`/api/v1/cve-alerts` + `/summary` on :8083 before writing assertions.
+
+`e2e/vulnerabilities.spec.ts` (rewritten from the mock-based version) asserts
+the header/description, the four metric cards, the seeded critical/high CVEs
+(severity + KEV indicator) in the alerts table, the CISA-KEV AI insight + SLA
+warning, and the seeded tab counts. The CI job now runs `overview` + `sites` +
+`drift` + `images` + `risk` + `vulnerabilities`; E2E remains **advisory**.
+
+**Deferred:** the CVE detail / blast-radius page (`/vulnerabilities/[alertId]`,
+reads `cve_alert_affected_items`) and patch-campaign execution, like image
+lineage — this PR covers the list/response-center surface only.
+
+**Next:** with six pages covered, the remaining candidates are Compliance,
+SBOM, InSpec, Certificates, Resilience, Costs, and the AI Copilot — plus
+flipping E2E from advisory to **blocking** once the suite is proven stable.
