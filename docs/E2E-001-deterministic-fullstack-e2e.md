@@ -92,3 +92,22 @@ regions, the Total Sites / Total Assets / DR Pairs metric cards, and that the
 platform filter narrows to the matching site. The CI job now runs
 `overview.spec.ts` + `sites.spec.ts`; E2E remains **advisory** until more pages
 are covered.
+
+## E2E-003: Drift page (2026-05-29)
+
+Third page on the deterministic foundation. The Drift Analysis page computes
+drift **live from assets**, not from the `drift_reports` table: an asset is
+compliant when its `image_ref`/`image_version` match a **production** golden
+image (see `CountCompliantAssets`). The E2E seed was extended so the 4 golden
+images are `status='production'` and each asset references one — 8 compliant, 2
+(one Azure, one GCP) pointing at an unmanaged `legacy-unmanaged@0.0.0`. This
+yields deterministic coverage **AWS 100% / Azure 66.7% / GCP 50%** = 8/10 (80%),
+so `/api/v1/drift/summary` returns a stable `{totalAssets: 10, driftedAssets: 2,
+driftPercentage: 20, criticalDrift: 0}`.
+
+`e2e/drift.spec.ts` (rewritten from the old mock-based version) asserts the page
+header/description, the metric cards (Total Assets = 10, Drift Rate = 20.0%, "2
+assets", Critical Drift, Avg Drift Age), and the data-derived AI insight
+("Drift Pattern Analysis" → "2 assets have drifted from golden images."). The CI
+job now runs `overview.spec.ts` + `sites.spec.ts` + `drift.spec.ts`; E2E remains
+**advisory** until more pages are covered.
