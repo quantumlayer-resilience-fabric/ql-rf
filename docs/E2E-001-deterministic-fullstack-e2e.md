@@ -213,3 +213,19 @@ lineage — this PR covers the list/response-center surface only.
 **Next:** with six pages covered, the remaining candidates are Compliance,
 SBOM, InSpec, Certificates, Resilience, Costs, and the AI Copilot — plus
 flipping E2E from advisory to **blocking** once the suite is proven stable.
+
+## E2E-007: promote Frontend E2E to blocking (2026-05-29)
+
+The seeded full-stack suite (overview, sites, drift, images, risk,
+vulnerabilities — 26 specs) has run green across six page-additions and the
+intervening `main` merges, so it has earned the right to protect `main`. This is
+a CI-policy-only change:
+
+- removed `continue-on-error: true` from the `frontend-e2e` job, so a real spec
+  failure fails the job;
+- added `needs.frontend-e2e.result` to the `ci-complete` required gate, alongside
+  the Go/frontend builds and the security scan.
+
+No fixture, spec, or page-coverage changes — the spec list is unchanged. The
+acceptance criterion #7 above ("the `frontend-e2e` job becomes blocking again")
+is now satisfied.
