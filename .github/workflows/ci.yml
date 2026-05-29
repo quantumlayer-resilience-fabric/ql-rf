@@ -230,17 +230,18 @@ jobs:
         working-directory: ui/control-tower
         run: npx playwright install --with-deps chromium
 
-      # Milestone E2E-001: prove the overview dashboard spec against the seeded
-      # stack first. Expand to the other pages in follow-up commits. Playwright
-      # runs in CI mode (webServer disabled) and targets the compose UI on :3000.
-      - name: Run Playwright tests (overview milestone)
+      # Seeded-stack specs, expanded one page at a time (E2E-001 overview,
+      # E2E-002 sites). Playwright runs in CI mode (webServer disabled) and
+      # targets the compose UI on :3000. New pages get added to this list as
+      # their specs are hardened.
+      - name: Run Playwright tests (seeded pages)
         working-directory: ui/control-tower
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           E2E_CLERK_USER_USERNAME: ${{ secrets.E2E_CLERK_USER_USERNAME }}
           E2E_CLERK_USER_PASSWORD: ${{ secrets.E2E_CLERK_USER_PASSWORD }}
-        run: npm run test:e2e:chromium -- e2e/overview.spec.ts
+        run: npm run test:e2e:chromium -- e2e/overview.spec.ts e2e/sites.spec.ts
 
       - name: Stack logs on failure
         if: failure()
