@@ -229,3 +229,34 @@ a CI-policy-only change:
 No fixture, spec, or page-coverage changes — the spec list is unchanged. The
 acceptance criterion #7 above ("the `frontend-e2e` job becomes blocking again")
 is now satisfied.
+
+## E2E-008: Certificates page (2026-05-29)
+
+First page added **after** E2E became blocking, so it was validated locally
+against the running stack before pushing. The Certificate Lifecycle Management
+page is served by the API (:8080). The `certificates` table has a BEFORE
+INSERT/UPDATE trigger that derives `days_until_expiry` and `status` from
+`not_after`, so the seed sets `not_after` relative to now (computed at seed
+time — deterministic for the immediately-following test run) and lets the
+trigger classify each cert:
+
+| Common name | Platform | Source | not_after | Status |
+|-------------|----------|--------|-----------|--------|
+| api.quantumlayer.io | aws | acm | ~+825d | active (auto-renew) |
+| app.quantumlayer.io | azure | azure_keyvault | ~+600d | active (auto-renew) |
+| dashboard.quantumlayer.io | gcp | gcp_certificate_manager | ~+15d | expiring_soon |
+| legacy.quantumlayer.io | k8s | k8s_secret | ~+5d | expiring_soon (within 7) |
+| old.quantumlayer.io | vsphere | file | ~-10d | expired |
+
+Summary (verified against `/api/v1/certificates` + `/summary`): **5 total, 2
+active, 2 expiring soon (1 within 7 days), 1 expired, 5 platforms, 2
+auto-renew**. `e2e/certificates.spec.ts` asserts the header/description, the
+metric cards (via their unique data-derived subtitles), the seeded common names
++ status badges in the inventory table, the `Certificates (5)` tab count, and
+the `2 Certificates Need Attention` insight. Exact day counts are not asserted
+(the trigger truncates). The blocking CI run now covers overview + sites +
+drift + images + risk + vulnerabilities + certificates (30 specs).
+
+The Alerts and Rotations tabs, certificate usage/blast-radius (detail), and
+rotation execution are deferred — this PR covers the certificate inventory
+surface only.
