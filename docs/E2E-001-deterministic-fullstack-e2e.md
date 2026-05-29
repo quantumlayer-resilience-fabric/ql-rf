@@ -287,3 +287,44 @@ Image compliance backing rows, control mappings, assessment runs,
 exemptions/evidence upload, and the audit-log/export controls are deferred —
 this PR covers the compliance dashboard surface only. **Next:** SBOM, then AI
 Copilot / approval flow.
+
+## E2E-010: SBOM page (2026-05-29)
+
+The SBOM page reads a list (`/sbom`), fetches the latest SBOM with packages
+(`/sbom/{id}?include_packages=true`), and a vulnerability summary. The
+`/licenses` summary is **hardcoded mock client-side** in `api-sbom.ts`, so
+License Compliance is always "100.0%" regardless of seed.
+
+The seed inserts **1 SPDX SBOM** linked to `golden-ubuntu-22` plus **6 realistic
+deb packages** (`bash`, `ca-certificates`, `libc6`, `openssl`, `systemd`,
+`zlib1g`) with stable names/versions/licenses. No vulnerabilities are seeded.
+
+Resulting page state (verified against `/sbom` and `/sbom/{id}?include_packages=true`):
+
+| Card | Value |
+|------|-------|
+| Total Components | 6 |
+| Vulnerabilities | 0 (subtitle "critical/high of 0 total") |
+| License Compliance | 100.0% |
+| Last Generated | "Never" |
+
+The "Never" is a documented snake/camel mismatch: the API returns `generated_at`
+but the page reads `generatedAt`, so the fallback applies. The spec asserts what
+the page actually shows rather than papering over the bug.
+
+`e2e/sbom.spec.ts` (rewritten from the mock-based version) asserts the
+header/description, the 4 metric cards (with unique data-derived markers
+`100.0%` and `Never`), the tab labels (`Components (6)`, `Vulnerabilities (0)`,
+`Licenses (0)`), and three seeded package names in the default components tab.
+The blocking CI run now covers overview + sites + drift + images + risk +
+vulnerabilities + certificates + compliance + sbom (38 specs).
+
+Local note: with the parallel default (6 workers) some unrelated specs flake
+under contention; with `--workers=1` (CI mode) the suite is fully clean. CI uses
+1 worker so this does not affect main.
+
+The SBOM detail page (`/sbom/[id]`), import/export/download flows, and full
+license analysis (when the backend `/licenses` endpoint is implemented) are
+deferred — this PR covers the SBOM dashboard inventory surface only.
+
+**Next:** AI Copilot / approval flow as the strategic capstone.
