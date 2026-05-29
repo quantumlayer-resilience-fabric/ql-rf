@@ -162,10 +162,12 @@ func seedImages(ctx context.Context, tx pgx.Tx) error {
 		{"golden-rhel-9", "2024.09.0"},
 	}
 	for i, im := range rows {
+		// status='production' so assets matching family+version count as compliant
+		// (see CountCompliantAssets).
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO images (id, org_id, family, version)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (id) DO NOTHING`,
+			INSERT INTO images (id, org_id, family, version, status)
+			VALUES ($1, $2, $3, $4, 'production')
+			ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status`,
 			fmt.Sprintf("33333333-0000-0000-0000-0000000000%02d", i+1), orgID, im.family, im.version,
 		); err != nil {
 			return fmt.Errorf("insert image %s: %w", im.family, err)
@@ -175,26 +177,38 @@ func seedImages(ctx context.Context, tx pgx.Tx) error {
 }
 
 func seedAssets(ctx context.Context, tx pgx.Tx) error {
-	// 5 aws, 3 azure, 2 gcp. Each asset is linked to its platform's site via
-	// site_id and is 'running', so the Sites page shows deterministic per-site
-	// counts (AWS=5, Azure=3, GCP=2; 10 total).
+	// 5 aws, 3 azure, 2 gcp, linked to their platform's site via site_id (Sites
+	// page counts) and to golden images via image_ref/image_version. A compliant
+	// asset matches a production golden image family+version; a drifted one uses
+	// an unmanaged ref. This yields deterministic drift coverage:
+	//   AWS 5/5 = 100%, Azure 2/3 = 66.7%, GCP 1/2 = 50%  (8/10 = 80% overall).
 	siteFor := map[string]string{"aws": siteAWS, "azure": siteAzure, "gcp": siteGCP}
 	regionFor := map[string]string{"aws": "us-east-1", "azure": "eastus", "gcp": "us-central1"}
-	rows := []struct{ platform, env string }{
-		{"aws", "production"}, {"aws", "production"}, {"aws", "production"}, {"aws", "production"}, {"aws", "staging"},
-		{"azure", "production"}, {"azure", "production"}, {"azure", "staging"},
-		{"gcp", "production"}, {"gcp", "staging"},
+	const drifted, driftedVer = "legacy-unmanaged", "0.0.0"
+	rows := []struct{ platform, env, imageRef, imageVer string }{
+		{"aws", "production", "golden-amazonlinux-2023", "2024.11.0"},
+		{"aws", "production", "golden-amazonlinux-2023", "2024.11.0"},
+		{"aws", "production", "golden-amazonlinux-2023", "2024.11.0"},
+		{"aws", "production", "golden-amazonlinux-2023", "2024.11.0"},
+		{"aws", "staging", "golden-amazonlinux-2023", "2024.11.0"},
+		{"azure", "production", "golden-ubuntu-22", "2024.11.0"},
+		{"azure", "production", "golden-ubuntu-22", "2024.11.0"},
+		{"azure", "staging", drifted, driftedVer},
+		{"gcp", "production", "golden-windows-2022", "2024.10.0"},
+		{"gcp", "staging", drifted, driftedVer},
 	}
 	for i, a := range rows {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO assets (id, org_id, site_id, platform, instance_id, name, region, state, tags)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, 'running', $8)
-			ON CONFLICT (id) DO UPDATE SET site_id = EXCLUDED.site_id, state = EXCLUDED.state`,
+			INSERT INTO assets (id, org_id, site_id, platform, instance_id, name, region, state, image_ref, image_version, tags)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 'running', $8, $9, $10)
+			ON CONFLICT (id) DO UPDATE SET
+				site_id = EXCLUDED.site_id, state = EXCLUDED.state,
+				image_ref = EXCLUDED.image_ref, image_version = EXCLUDED.image_version`,
 			fmt.Sprintf("44444444-0000-0000-0000-0000000000%02d", i+1),
 			orgID, siteFor[a.platform], a.platform,
 			fmt.Sprintf("i-e2e-%s-%02d", a.platform, i+1),
 			fmt.Sprintf("e2e-%s-host-%02d", a.platform, i+1),
-			regionFor[a.platform],
+			regionFor[a.platform], a.imageRef, a.imageVer,
 			fmt.Sprintf(`{"environment": %q}`, a.env),
 		); err != nil {
 			return fmt.Errorf("insert asset %d: %w", i+1, err)
