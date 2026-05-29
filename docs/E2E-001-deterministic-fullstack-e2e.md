@@ -76,3 +76,19 @@ images, security scan) is green and remains **blocking**.
 6. Playwright waits on health/readiness before running specs.
 7. The `frontend-e2e` job becomes blocking again (remove `continue-on-error`
    and restore it in the `ci-complete` gate).
+
+## E2E-002: Sites page (2026-05-29)
+
+Second page on the deterministic foundation. **Note:** there is no dedicated
+**Assets page** today — no `/assets` route or sidebar item exists, and the
+`useAssets` hook is unused. So E2E-002 was retargeted to **Sites**, the nearest
+existing infrastructure-inventory surface (a future Assets page is tracked as
+`UI-001` in `docs/BACKLOG.md`).
+
+The E2E seed now links assets to their site via `site_id`, giving deterministic
+per-site counts: **AWS US-East-1 = 5, Azure East US = 3, GCP US-Central1 = 2**
+(DR-paired AWS↔Azure). `e2e/sites.spec.ts` asserts the seeded site names +
+regions, the Total Sites / Total Assets / DR Pairs metric cards, and that the
+platform filter narrows to the matching site. The CI job now runs
+`overview.spec.ts` + `sites.spec.ts`; E2E remains **advisory** until more pages
+are covered.

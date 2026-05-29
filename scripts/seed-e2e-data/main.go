@@ -175,7 +175,11 @@ func seedImages(ctx context.Context, tx pgx.Tx) error {
 }
 
 func seedAssets(ctx context.Context, tx pgx.Tx) error {
-	// 5 aws, 3 azure, 2 gcp -> deterministic platform distribution.
+	// 5 aws, 3 azure, 2 gcp. Each asset is linked to its platform's site via
+	// site_id and is 'running', so the Sites page shows deterministic per-site
+	// counts (AWS=5, Azure=3, GCP=2; 10 total).
+	siteFor := map[string]string{"aws": siteAWS, "azure": siteAzure, "gcp": siteGCP}
+	regionFor := map[string]string{"aws": "us-east-1", "azure": "eastus", "gcp": "us-central1"}
 	rows := []struct{ platform, env string }{
 		{"aws", "production"}, {"aws", "production"}, {"aws", "production"}, {"aws", "production"}, {"aws", "staging"},
 		{"azure", "production"}, {"azure", "production"}, {"azure", "staging"},
@@ -183,14 +187,14 @@ func seedAssets(ctx context.Context, tx pgx.Tx) error {
 	}
 	for i, a := range rows {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO assets (id, org_id, platform, instance_id, name, region, state, tags)
-			VALUES ($1, $2, $3, $4, $5, $6, 'running', $7)
-			ON CONFLICT (id) DO NOTHING`,
+			INSERT INTO assets (id, org_id, site_id, platform, instance_id, name, region, state, tags)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 'running', $8)
+			ON CONFLICT (id) DO UPDATE SET site_id = EXCLUDED.site_id, state = EXCLUDED.state`,
 			fmt.Sprintf("44444444-0000-0000-0000-0000000000%02d", i+1),
-			orgID, a.platform,
+			orgID, siteFor[a.platform], a.platform,
 			fmt.Sprintf("i-e2e-%s-%02d", a.platform, i+1),
 			fmt.Sprintf("e2e-%s-host-%02d", a.platform, i+1),
-			"us-east-1",
+			regionFor[a.platform],
 			fmt.Sprintf(`{"environment": %q}`, a.env),
 		); err != nil {
 			return fmt.Errorf("insert asset %d: %w", i+1, err)
