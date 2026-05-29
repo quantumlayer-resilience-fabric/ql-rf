@@ -111,3 +111,29 @@ assets", Critical Drift, Avg Drift Age), and the data-derived AI insight
 ("Drift Pattern Analysis" → "2 assets have drifted from golden images."). The CI
 job now runs `overview.spec.ts` + `sites.spec.ts` + `drift.spec.ts`; E2E remains
 **advisory** until more pages are covered.
+
+## E2E-004: Images page (2026-05-29)
+
+Fourth page on the deterministic foundation, reusing the golden-image fixture
+that E2E-003 already depends on (no fixture expansion needed). The seed's 4
+production golden images (one per family) are grouped by the API client into 4
+single-version families:
+
+| Family | Latest version | Status |
+|--------|----------------|--------|
+| `golden-amazonlinux-2023` | v2024.11.0 | production |
+| `golden-rhel-9` | v2024.09.0 | production |
+| `golden-ubuntu-22` | v2024.11.0 | production |
+| `golden-windows-2022` | v2024.10.0 | production |
+
+So the page shows **Image Families = 4, Active Versions = 4, 0 pending, 0
+deprecated**. `e2e/images.spec.ts` (rewritten from the old mock-based version)
+asserts the header/description, the metric cards, all four seeded family names +
+version codes + production status, and that filtering by **Deprecated** (none
+seeded) shows the empty state. The CI job now runs `overview.spec.ts` +
+`sites.spec.ts` + `drift.spec.ts` + `images.spec.ts`; E2E remains **advisory**
+until more pages are covered.
+
+**Next:** E2E-005 Risk, then E2E-006 CVE / Vulnerability (both likely need
+fixture expansion). Image *lineage* deep coverage is deferred (E2E-004B/E2E-007)
+— this PR covers the inventory surface only.
