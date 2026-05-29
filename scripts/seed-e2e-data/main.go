@@ -11,11 +11,12 @@
 // Usage: RF_DATABASE_URL=... go run ./scripts/seed-e2e-data
 //
 // Scope: this seeds the entities the Overview, Sites, Drift, Images, Risk,
-// Vulnerabilities, Certificates, and Compliance pages need (org, project,
+// Vulnerabilities, Certificates, Compliance, and SBOM pages need (org, project,
 // environments, sites, assets, images, image vulnerabilities, drift reports,
 // alerts, CVE cache + alerts, certificates, compliance frameworks + controls +
-// results). SBOM and InSpec are intentionally deferred until the corresponding
-// page specs are tackled (see docs/E2E-001-deterministic-fullstack-e2e.md).
+// results, sboms + packages). InSpec, FinOps, and AI Copilot are intentionally
+// deferred until the corresponding page specs are tackled (see
+// docs/E2E-001-deterministic-fullstack-e2e.md).
 package main
 
 import (
@@ -112,7 +113,7 @@ func run() error {
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=6\n", orgID)
+	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=6 sboms=1 sbom_packages=6\n", orgID)
 	return nil
 }
 
@@ -124,7 +125,7 @@ func seedFixture(ctx context.Context, tx pgx.Tx) error {
 	for _, step := range []func(context.Context, pgx.Tx) error{
 		seedOrg, seedUser, seedProjectAndEnvironments, seedSites, seedImages,
 		seedAssets, seedVulnerabilities, seedDrift, seedAlerts, seedCVEAlerts,
-		seedCertificates, seedCompliance,
+		seedCertificates, seedCompliance, seedSBOM,
 	} {
 		if err := step(ctx, tx); err != nil {
 			return err
@@ -574,3 +575,44 @@ func seedCompliance(ctx context.Context, tx pgx.Tx) error {
 }
 
 func ptrInt(v int) *int { return &v }
+
+// seedSBOM seeds one SPDX SBOM linked to the existing golden-ubuntu-22 image
+// plus six realistic deb packages so the SBOM page renders meaningful inventory
+// data. The page reads the SBOM list and the latest SBOM's packages
+// (/sbom/{id}?include_packages=true) — no vulnerabilities are seeded, so the
+// Vulnerabilities tab shows 0 and the AI-insight card stays hidden. License
+// compliance is computed client-side from a mocked /licenses summary (always
+// 100.0%), independent of seeded license values.
+func seedSBOM(ctx context.Context, tx pgx.Tx) error {
+	const sbomID = "ffffffff-0000-0000-0000-000000000001"
+	const imageUbuntu = "33333333-0000-0000-0000-000000000001" // golden-ubuntu-22
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO sboms (id, image_id, org_id, format, version, content, package_count, scanner)
+		VALUES ($1, $2, $3, 'spdx', 'SPDX-2.3', '{}'::jsonb, 6, 'ql-rf-e2e')
+		ON CONFLICT (id) DO UPDATE SET package_count = EXCLUDED.package_count`,
+		sbomID, imageUbuntu, orgID,
+	); err != nil {
+		return fmt.Errorf("insert sbom: %w", err)
+	}
+
+	packages := []struct{ id, name, version, license string }{
+		{"ffffffff-1000-0000-0000-000000000001", "ca-certificates", "20210119ubuntu0.20.04.1", "MPL-2.0"},
+		{"ffffffff-1000-0000-0000-000000000002", "openssl", "1.1.1f-1ubuntu2.19", "OpenSSL"},
+		{"ffffffff-1000-0000-0000-000000000003", "libc6", "2.31-0ubuntu9.9", "LGPL-2.1"},
+		{"ffffffff-1000-0000-0000-000000000004", "bash", "5.0-6ubuntu1.2", "GPL-3.0"},
+		{"ffffffff-1000-0000-0000-000000000005", "zlib1g", "1:1.2.11.dfsg-2ubuntu1.5", "Zlib"},
+		{"ffffffff-1000-0000-0000-000000000006", "systemd", "245.4-4ubuntu3.21", "LGPL-2.1"},
+	}
+	for i := range packages {
+		p := &packages[i]
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO sbom_packages (id, sbom_id, name, version, type, license)
+			VALUES ($1, $2, $3, $4, 'deb', $5)
+			ON CONFLICT (id) DO NOTHING`,
+			p.id, sbomID, p.name, p.version, p.license,
+		); err != nil {
+			return fmt.Errorf("insert sbom_package %s: %w", p.name, err)
+		}
+	}
+	return nil
+}
