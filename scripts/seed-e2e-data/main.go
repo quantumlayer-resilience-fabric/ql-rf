@@ -10,11 +10,11 @@
 //
 // Usage: RF_DATABASE_URL=... go run ./scripts/seed-e2e-data
 //
-// Scope: this seeds the entities the Overview, Sites, Drift, Images, Risk, and
-// Vulnerabilities pages need (org, project, environments, sites, assets,
-// images, image vulnerabilities, drift reports, alerts, CVE cache + alerts).
-// Compliance results and certificates are intentionally deferred until the
-// corresponding page specs are tackled (see
+// Scope: this seeds the entities the Overview, Sites, Drift, Images, Risk,
+// Vulnerabilities, and Certificates pages need (org, project, environments,
+// sites, assets, images, image vulnerabilities, drift reports, alerts, CVE
+// cache + alerts, certificates). Compliance results, SBOM, and InSpec are
+// intentionally deferred until the corresponding page specs are tackled (see
 // docs/E2E-001-deterministic-fullstack-e2e.md).
 package main
 
@@ -59,6 +59,17 @@ const (
 	// recent so the API's dev-mode lookupDefaultOrg still selects the 2020 E2E
 	// org for every other page.
 	orchestratorDevOrgID = "00000000-0000-0000-0000-000000000001"
+
+	// Day offsets (relative to now) for seeded certificate not_after dates. The
+	// certificates table's BEFORE INSERT/UPDATE trigger derives days_until_expiry
+	// and status from not_after, so these offsets deterministically yield: active
+	// (long expiry), expiring_soon, expiring within 7 days, and expired.
+	certActiveDays     = 825
+	certActiveAltDays  = 600
+	certExpiringDays   = 15
+	certExpiring7Days  = 5
+	certExpiredDays    = -10
+	certRenewThreshold = 30
 )
 
 func main() {
@@ -101,7 +112,7 @@ func run() error {
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5\n", orgID)
+	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5\n", orgID)
 	return nil
 }
 
@@ -113,6 +124,7 @@ func seedFixture(ctx context.Context, tx pgx.Tx) error {
 	for _, step := range []func(context.Context, pgx.Tx) error{
 		seedOrg, seedUser, seedProjectAndEnvironments, seedSites, seedImages,
 		seedAssets, seedVulnerabilities, seedDrift, seedAlerts, seedCVEAlerts,
+		seedCertificates,
 	} {
 		if err := step(ctx, tx); err != nil {
 			return err
@@ -441,6 +453,54 @@ func seedCVEAlerts(ctx context.Context, tx pgx.Tx) error {
 			c.imgs, c.assets, c.pkgs, c.prod,
 		); err != nil {
 			return fmt.Errorf("insert cve_alert %s: %w", c.cveID, err)
+		}
+	}
+	return nil
+}
+
+// seedCertificates seeds the Certificate Lifecycle Management page (API). The
+// certificates table has a BEFORE INSERT/UPDATE trigger that derives
+// days_until_expiry and status from not_after, so we set not_after relative to
+// now (computed at seed time, deterministic for the immediately-following test
+// run) and let the trigger classify each cert. This yields a summary of:
+// 5 total, 2 active, 2 expiring_soon (1 within 7 days), 1 expired, across 5
+// platforms, 2 auto-renew. Non-pointer scan fields (issuer_*, key_*, source_ref)
+// are set explicitly so the row scans cleanly.
+func seedCertificates(ctx context.Context, tx pgx.Tx) error {
+	now := time.Now()
+	rows := []struct {
+		id, cn, platform, source string
+		offsetDays               int
+		autoRenew                bool
+	}{
+		{"dddddddd-0000-0000-0000-000000000001", "api.quantumlayer.io", "aws", "acm", certActiveDays, true},
+		{"dddddddd-0000-0000-0000-000000000002", "app.quantumlayer.io", "azure", "azure_keyvault", certActiveAltDays, true},
+		{"dddddddd-0000-0000-0000-000000000003", "dashboard.quantumlayer.io", "gcp", "gcp_certificate_manager", certExpiringDays, false},
+		{"dddddddd-0000-0000-0000-000000000004", "legacy.quantumlayer.io", "k8s", "k8s_secret", certExpiring7Days, false},
+		{"dddddddd-0000-0000-0000-000000000005", "old.quantumlayer.io", "vsphere", "file", certExpiredDays, false},
+	}
+	for i := range rows {
+		c := &rows[i]
+		notAfter := now.AddDate(0, 0, c.offsetDays)
+		notBefore := now.AddDate(0, 0, -90)
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO certificates (
+				id, org_id, fingerprint, common_name, subject_alt_names,
+				issuer_common_name, issuer_organization, not_before, not_after,
+				key_algorithm, key_size, signature_algorithm,
+				source, source_ref, platform, auto_renew, renewal_threshold_days)
+			VALUES ($1, $2, $3, $4, $5, 'QuantumLayer E2E CA', 'QuantumLayer', $6, $7,
+				'RSA', 2048, 'SHA256-RSA', $8, $9, $10, $11, $12)
+			ON CONFLICT (id) DO UPDATE SET
+				not_after = EXCLUDED.not_after, auto_renew = EXCLUDED.auto_renew,
+				platform = EXCLUDED.platform, source = EXCLUDED.source`,
+			c.id, orgID,
+			fmt.Sprintf("e2e-cert-fp-%s", c.id[len(c.id)-2:]),
+			c.cn, []string{},
+			notBefore, notAfter,
+			c.source, fmt.Sprintf("e2e-cert-ref-%s", c.cn), c.platform, c.autoRenew, certRenewThreshold,
+		); err != nil {
+			return fmt.Errorf("insert certificate %s: %w", c.cn, err)
 		}
 	}
 	return nil
