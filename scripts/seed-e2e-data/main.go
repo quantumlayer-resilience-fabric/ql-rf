@@ -417,7 +417,8 @@ func seedCVEAlerts(ctx context.Context, tx pgx.Tx) error {
 			"medium", "p3", "resolved", "regreSSHion: OpenSSH signal handler race condition.",
 			5.9, false, false, false, 45, 1, 1, 1, 0},
 	}
-	for _, c := range rows {
+	for i := range rows {
+		c := &rows[i] // pointer avoids copying the large struct each iteration
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO cve_cache (id, cve_id, cvss_v3_score, severity, exploit_available, cisa_kev_listed, description, primary_source)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, 'nvd')
