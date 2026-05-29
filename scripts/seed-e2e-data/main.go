@@ -10,10 +10,11 @@
 //
 // Usage: RF_DATABASE_URL=... go run ./scripts/seed-e2e-data
 //
-// Scope: this currently seeds the entities the Overview dashboard needs (org,
-// sites, assets, images, drift reports, alerts). Risk items, CVE alerts,
-// compliance results, and certificates are intentionally deferred until the
-// corresponding page specs are tackled (see docs/E2E-001-deterministic-fullstack-e2e.md).
+// Scope: this seeds the entities the Overview, Sites, Drift, Images, and Risk
+// pages need (org, project, environments, sites, assets, images, image
+// vulnerabilities, drift reports, alerts). CVE alerts, compliance results, and
+// certificates are intentionally deferred until the corresponding page specs
+// are tackled (see docs/E2E-001-deterministic-fullstack-e2e.md).
 package main
 
 import (
@@ -37,6 +38,18 @@ const (
 	siteAWS   = "22222222-0000-0000-0000-000000000001"
 	siteAzure = "22222222-0000-0000-0000-000000000002"
 	siteGCP   = "22222222-0000-0000-0000-000000000003"
+
+	// Golden image IDs (see seedImages: family order ubuntu, amazonlinux,
+	// windows, rhel -> suffixes 01..04). Referenced by seedVulnerabilities.
+	imageWindows = "33333333-0000-0000-0000-000000000003"
+	imageRHEL    = "33333333-0000-0000-0000-000000000004"
+
+	// Project + environments drive the risk service's environment multiplier
+	// (production 1.5x, staging 1.0x) via assets.env_id.
+	projectID  = "88888888-0000-0000-0000-000000000001"
+	envProd    = "99999999-0000-0000-0000-000000000001"
+	envStaging = "99999999-0000-0000-0000-000000000002"
+	envDev     = "99999999-0000-0000-0000-000000000003"
 )
 
 func main() {
@@ -79,7 +92,7 @@ func run() error {
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	fmt.Printf("seeded E2E fixture: org=%s user=dev-user sites=3 assets=10 images=4 drift_reports=3 alerts=4\n", orgID)
+	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4\n", orgID)
 	return nil
 }
 
@@ -89,10 +102,42 @@ func run() error {
 // triggers that fire on cascade deletes.
 func seedFixture(ctx context.Context, tx pgx.Tx) error {
 	for _, step := range []func(context.Context, pgx.Tx) error{
-		seedOrg, seedUser, seedSites, seedImages, seedAssets, seedDrift, seedAlerts,
+		seedOrg, seedUser, seedProjectAndEnvironments, seedSites, seedImages,
+		seedAssets, seedVulnerabilities, seedDrift, seedAlerts,
 	} {
 		if err := step(ctx, tx); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// seedProjectAndEnvironments creates one project with production/staging/
+// development environments. Assets reference these via env_id so the risk
+// service applies the production environment multiplier (see
+// models.EnvironmentRiskMultiplier). Must run before seedAssets (FK).
+func seedProjectAndEnvironments(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO projects (id, org_id, name, slug)
+		VALUES ($1, $2, 'QuantumLayer E2E Project', 'quantumlayer-e2e')
+		ON CONFLICT (org_id, slug) DO NOTHING`,
+		projectID, orgID,
+	); err != nil {
+		return fmt.Errorf("insert project: %w", err)
+	}
+	envs := []struct{ id, name string }{
+		{envProd, "production"},
+		{envStaging, "staging"},
+		{envDev, "development"},
+	}
+	for _, e := range envs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO environments (id, project_id, name)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (project_id, name) DO NOTHING`,
+			e.id, projectID, e.name,
+		); err != nil {
+			return fmt.Errorf("insert environment %s: %w", e.name, err)
 		}
 	}
 	return nil
@@ -180,38 +225,94 @@ func seedAssets(ctx context.Context, tx pgx.Tx) error {
 	// 5 aws, 3 azure, 2 gcp, linked to their platform's site via site_id (Sites
 	// page counts) and to golden images via image_ref/image_version. A compliant
 	// asset matches a production golden image family+version; a drifted one uses
-	// an unmanaged ref. This yields deterministic drift coverage:
-	//   AWS 5/5 = 100%, Azure 2/3 = 66.7%, GCP 1/2 = 50%  (8/10 = 80% overall).
+	// an unmanaged ref. 8 compliant / 2 drifted = 20% drift (Drift page).
+	//
+	// Image families are also chosen to isolate risk: the high/medium-risk
+	// assets are the SOLE users of golden-rhel-9 and golden-windows-2022
+	// respectively, so the vulnerabilities seeded on those images (see
+	// seedVulnerabilities) raise exactly one asset each. Combined with the
+	// production environment multiplier this yields: 1 high, 1 medium, 8 low
+	// (Risk page). env drives both env_id (risk multiplier) and the tag.
+	//
+	// All assets are in the production environment on purpose: the Drift page's
+	// criticalDrift counts drifted assets in environments whose coverage falls
+	// into the "critical" band. Keeping all 10 in one 80%-coverage group (8
+	// compliant / 2 drifted) leaves it at "warning", so criticalDrift stays 0
+	// and the Drift spec's "Drift Pattern Analysis" insight is preserved.
 	siteFor := map[string]string{"aws": siteAWS, "azure": siteAzure, "gcp": siteGCP}
 	regionFor := map[string]string{"aws": "us-east-1", "azure": "eastus", "gcp": "us-central1"}
+	envID := map[string]string{"production": envProd, "staging": envStaging, "development": envDev}
 	const drifted, driftedVer = "legacy-unmanaged", "0.0.0"
-	rows := []struct{ platform, env, imageRef, imageVer string }{
-		{"aws", "production", "golden-amazonlinux-2023", "2024.11.0"},
-		{"aws", "production", "golden-amazonlinux-2023", "2024.11.0"},
-		{"aws", "production", "golden-amazonlinux-2023", "2024.11.0"},
-		{"aws", "production", "golden-amazonlinux-2023", "2024.11.0"},
-		{"aws", "staging", "golden-amazonlinux-2023", "2024.11.0"},
-		{"azure", "production", "golden-ubuntu-22", "2024.11.0"},
-		{"azure", "production", "golden-ubuntu-22", "2024.11.0"},
-		{"azure", "staging", drifted, driftedVer},
-		{"gcp", "production", "golden-windows-2022", "2024.10.0"},
-		{"gcp", "staging", drifted, driftedVer},
+	rows := []struct{ platform, env, imageRef, imageVer, name string }{
+		{"aws", "production", "golden-rhel-9", "2024.09.0", "e2e-aws-risk-high"},
+		{"aws", "production", "golden-amazonlinux-2023", "2024.11.0", "e2e-aws-host-02"},
+		{"aws", "production", "golden-amazonlinux-2023", "2024.11.0", "e2e-aws-host-03"},
+		{"aws", "production", "golden-amazonlinux-2023", "2024.11.0", "e2e-aws-host-04"},
+		{"aws", "production", "golden-amazonlinux-2023", "2024.11.0", "e2e-aws-host-05"},
+		{"azure", "production", "golden-windows-2022", "2024.10.0", "e2e-azure-risk-medium"},
+		{"azure", "production", "golden-ubuntu-22", "2024.11.0", "e2e-azure-host-07"},
+		{"azure", "production", drifted, driftedVer, "e2e-azure-host-08"},
+		{"gcp", "production", "golden-ubuntu-22", "2024.11.0", "e2e-gcp-host-09"},
+		{"gcp", "production", drifted, driftedVer, "e2e-gcp-host-10"},
 	}
 	for i, a := range rows {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO assets (id, org_id, site_id, platform, instance_id, name, region, state, image_ref, image_version, tags)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, 'running', $8, $9, $10)
+			INSERT INTO assets (id, org_id, env_id, site_id, platform, instance_id, name, region, state, image_ref, image_version, tags)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running', $9, $10, $11)
 			ON CONFLICT (id) DO UPDATE SET
-				site_id = EXCLUDED.site_id, state = EXCLUDED.state,
-				image_ref = EXCLUDED.image_ref, image_version = EXCLUDED.image_version`,
+				env_id = EXCLUDED.env_id, site_id = EXCLUDED.site_id, name = EXCLUDED.name,
+				state = EXCLUDED.state, image_ref = EXCLUDED.image_ref, image_version = EXCLUDED.image_version`,
 			fmt.Sprintf("44444444-0000-0000-0000-0000000000%02d", i+1),
-			orgID, siteFor[a.platform], a.platform,
+			orgID, envID[a.env], siteFor[a.platform], a.platform,
 			fmt.Sprintf("i-e2e-%s-%02d", a.platform, i+1),
-			fmt.Sprintf("e2e-%s-host-%02d", a.platform, i+1),
-			regionFor[a.platform], a.imageRef, a.imageVer,
+			a.name, regionFor[a.platform], a.imageRef, a.imageVer,
 			fmt.Sprintf(`{"environment": %q}`, a.env),
 		); err != nil {
 			return fmt.Errorf("insert asset %d: %w", i+1, err)
+		}
+	}
+	return nil
+}
+
+// seedVulnerabilities attaches open image_vulnerabilities to two golden images
+// so the risk service produces deterministic scores. Vulnerabilities are keyed
+// to an image family, so every asset on that family inherits them — the asset
+// fixture deliberately puts a single asset on each of these families.
+//
+//	golden-rhel-9    : 4 critical + 16 high = 20 open  -> sole asset scores HIGH
+//	golden-windows-2022 : 4 critical          = 4 open  -> sole asset scores MEDIUM
+//
+// (Reaching the CRITICAL band would require the drift/compliance factors, which
+// are coupled to the Drift page's drifted count, so we deliberately stop at
+// HIGH to keep the Drift fixture invariant intact.)
+func seedVulnerabilities(ctx context.Context, tx pgx.Tx) error {
+	specs := []struct {
+		imageID         string
+		critical, total int
+		base            int // id/cve offset, keeps ids unique across images
+	}{
+		{imageRHEL, 4, 20, 0},
+		{imageWindows, 4, 4, 100},
+	}
+	for _, s := range specs {
+		for n := 0; n < s.total; n++ {
+			severity := "high"
+			if n < s.critical {
+				severity = "critical"
+			}
+			seq := s.base + n
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO image_vulnerabilities (id, image_id, cve_id, severity, package_name, status)
+				VALUES ($1, $2, $3, $4, $5, 'open')
+				ON CONFLICT (id) DO NOTHING`,
+				fmt.Sprintf("aaaaaaaa-0000-0000-0000-%012d", seq),
+				s.imageID,
+				fmt.Sprintf("CVE-2024-%05d", seq),
+				severity,
+				fmt.Sprintf("pkg-%d", seq),
+			); err != nil {
+				return fmt.Errorf("insert vulnerability %d for %s: %w", seq, s.imageID, err)
+			}
 		}
 	}
 	return nil

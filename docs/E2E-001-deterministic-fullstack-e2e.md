@@ -137,3 +137,38 @@ until more pages are covered.
 **Next:** E2E-005 Risk, then E2E-006 CVE / Vulnerability (both likely need
 fixture expansion). Image *lineage* deep coverage is deferred (E2E-004B/E2E-007)
 — this PR covers the inventory surface only.
+
+## E2E-005: Risk page (2026-05-29)
+
+Fifth page on the deterministic foundation, and the first to require real
+fixture expansion. The risk service scores each asset from drift age, open
+vulnerabilities, critical vulnerabilities, compliance, and an **environment
+multiplier** (production 1.5x). The seed now adds:
+
+- a **project + environments** (production/staging/development) and sets every
+  asset's `env_id` to **production** (so the 1.5x multiplier applies);
+- **image_vulnerabilities** on two golden images, each used by exactly one asset
+  so the score is isolated:
+  - `golden-rhel-9`: 4 critical + 16 high (20 open) → `e2e-aws-risk-high` scores **68 (HIGH)**
+  - `golden-windows-2022`: 4 critical (4 open) → `e2e-azure-risk-medium` scores **44 (MEDIUM)**
+
+This produces a stable distribution: **0 critical, 1 high, 1 medium, 8 low**,
+verified directly against `/api/v1/risk/summary` before writing assertions.
+
+**Why no critical-risk asset:** a non-drifted asset caps at 67.5 (= high) even
+with maxed vulnerabilities and the production multiplier. Reaching the critical
+band (≥80) needs the drift/compliance factors, which are coupled to the Drift
+page's drifted count — so seeding a critical-risk asset would break the E2E-003
+drift invariant. We keep all assets in one production environment for the same
+reason: it leaves the drift coverage as a single 80% ("warning") group so
+`criticalDrift` stays 0 and the Drift spec's "Drift Pattern Analysis" insight is
+unchanged. Drift (8 compliant / 2 drifted) and Images (4 families) invariants
+are preserved.
+
+`e2e/risk.spec.ts` asserts the header/description, the five summary cards, the
+seeded high/medium assets (by name + level badge + critical-CVE factor) in the
+top-risks table, and the level-badge distribution (1 high, 1 medium, 0
+critical). The CI job now runs `overview` + `sites` + `drift` + `images` +
+`risk`; E2E remains **advisory**.
+
+**Next:** E2E-006 CVE / Vulnerability.
