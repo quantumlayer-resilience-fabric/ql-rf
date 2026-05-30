@@ -129,6 +129,7 @@ func (h *Handler) Router() http.Handler {
 			r.Get("/executions/{executionID}", h.getExecution)
 			r.Get("/agents", h.listAgents)
 			r.Get("/tools", h.listTools)
+			r.Get("/fleet/status", h.getFleetStatus)
 
 			// Task execution - requires execute:ai-tasks permission
 			r.Group(func(r chi.Router) {
@@ -1090,8 +1091,8 @@ func (h *Handler) respondError(w http.ResponseWriter, status int, message string
 	w.WriteHeader(status)
 
 	response := map[string]interface{}{
-		"error":   message,
-		"status":  status,
+		"error":  message,
+		"status": status,
 	}
 	if err != nil && h.cfg.Env != "production" {
 		response["details"] = err.Error()

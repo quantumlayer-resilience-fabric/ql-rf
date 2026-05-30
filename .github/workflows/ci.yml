@@ -230,10 +230,10 @@ jobs:
 
       # Seeded-stack specs, expanded one page at a time (E2E-001 overview,
       # E2E-002 sites, E2E-003 drift, E2E-004 images, E2E-005 risk, E2E-006
-      # vulnerabilities, E2E-008 certificates, E2E-009 compliance, E2E-010 sbom).
-      # Playwright runs in CI mode (webServer disabled) and targets the compose
-      # UI on :3000. New pages get added to this list as their specs are
-      # hardened.
+      # vulnerabilities, E2E-008 certificates, E2E-009 compliance, E2E-010 sbom,
+      # E2E-011 Mission Control). Playwright runs in CI mode (webServer
+      # disabled) and targets the compose UI on :3000. New pages get added to
+      # this list as their specs are hardened.
       - name: Run Playwright tests (seeded pages)
         working-directory: ui/control-tower
         env:
@@ -241,7 +241,7 @@ jobs:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           E2E_CLERK_USER_USERNAME: ${{ secrets.E2E_CLERK_USER_USERNAME }}
           E2E_CLERK_USER_PASSWORD: ${{ secrets.E2E_CLERK_USER_PASSWORD }}
-        run: npm run test:e2e:chromium -- e2e/overview.spec.ts e2e/sites.spec.ts e2e/drift.spec.ts e2e/images.spec.ts e2e/risk.spec.ts e2e/vulnerabilities.spec.ts e2e/certificates.spec.ts e2e/compliance.spec.ts e2e/sbom.spec.ts
+        run: npm run test:e2e:chromium -- e2e/overview.spec.ts e2e/sites.spec.ts e2e/drift.spec.ts e2e/images.spec.ts e2e/risk.spec.ts e2e/vulnerabilities.spec.ts e2e/certificates.spec.ts e2e/compliance.spec.ts e2e/sbom.spec.ts e2e/ai-mission-control.spec.ts
 
       - name: Stack logs on failure
         if: failure()

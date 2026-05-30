@@ -1,468 +1,589 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+// Mission Control — AI-001 Phase A.
+// See docs/E2E-011-ai-mission-control.md for the strategic rationale and the
+// "will NOT do" boundary. Phase A is read-only: status bar, agent roster,
+// activity stream, pending decisions, autonomy panel (display only), and a
+// collapsed conversation dock. No live LLM, no cloud execution, no approval
+// mutation, no Temporal mutation, no streaming.
+
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@clerk/nextjs";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { StatusBadge } from "@/components/status/status-badge";
-import { GradientText } from "@/components/brand/gradient-text";
-import { TaskApprovalCard } from "@/components/ai/task-approval-card";
-import { PendingTaskCard } from "@/components/ai/pending-task-card";
-import { useSendAIMessage, useAIContext, useProactiveInsights, usePendingTasks, AITask } from "@/hooks/use-ai";
-import Link from "next/link";
-import ReactMarkdown from "react-markdown";
-import {
-  Sparkles,
-  Send,
-  Bot,
-  User,
-  Lightbulb,
-  TrendingDown,
-  Shield,
-  RefreshCw,
-  ChevronRight,
-  Copy,
-  ThumbsUp,
-  ThumbsDown,
-  Loader2,
-  History,
-  Zap,
-  AlertCircle,
-  ClipboardList,
-} from "lucide-react";
+import { ChevronRight, Lock, Bot, Activity, Send } from "lucide-react";
 
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: Date;
-  task?: AITask;
+// -----------------------------------------------------------------------------
+// Backend types (snake_case) — match
+//   GET /api/v1/ai/agents
+//   GET /api/v1/ai/fleet/status
+// -----------------------------------------------------------------------------
+
+interface Agent {
+  name: string;
+  description: string;
+  supported_tasks?: string[];
+  required_tools?: string[];
 }
 
-// Suggested prompts for the user
-const suggestedPrompts = [
-  "What's the current drift situation?",
-  "Show me compliance gaps in production",
-  "Which images need to be updated?",
-  "Analyze DR readiness across regions",
-  "Find assets with critical issues",
-  "Summarize this week's security posture",
-];
+interface AgentCounts {
+  total: number;
+  working: number;
+  idle: number;
+  blocked: number;
+}
 
-export default function AICopilotPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
+interface PendingDecision {
+  task_id: string;
+  plan_id: string;
+  user_intent: string;
+  plan_type: string;
+  quality_score?: number;
+  opa_pass: boolean;
+  blast_radius_assets: number;
+  environment: string;
+  created_at: string;
+}
 
-  // AI hooks
-  const sendMessage = useSendAIMessage();
-  const context = useAIContext();
-  const proactiveInsights = useProactiveInsights();
-  const { data: pendingTasks, isLoading: tasksLoading } = usePendingTasks();
+interface ToolInvocation {
+  task_id: string;
+  tool_name: string;
+  risk_level: string;
+  duration_ms?: number;
+  created_at: string;
+}
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
+interface FleetStatus {
+  agents: AgentCounts;
+  pending_approvals: PendingDecision[];
+  recent_invocations: ToolInvocation[];
+  tool_invocations_today: number;
+  llm_spend_today_cents: number;
+  llm_spend_budget_cents: number;
+}
 
-  const handleSend = async () => {
-    if (!input.trim() || sendMessage.isPending) return;
+// -----------------------------------------------------------------------------
+// Static maps for Phase A
+//   * autonomyByAgent — read-only display per doc §6; storage lands in Phase C.
+//   * agentByTool     — derived attribution for the activity stream until we
+//                        store agent_name on ai_tool_invocations.
+// -----------------------------------------------------------------------------
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: input,
-      timestamp: new Date(),
-    };
+const autonomyByAgent: Record<string, "manual" | "semi" | "auto"> = {
+  drift_agent: "semi",
+  patch_agent: "manual",
+  compliance_agent: "auto",
+  incident_agent: "manual",
+  dr_agent: "manual",
+  cost_agent: "auto",
+  security_agent: "manual",
+  image_agent: "semi",
+  sop_agent: "auto",
+  adapter_agent: "manual",
+  certificate_agent: "semi",
+  vulnerability_agent: "semi",
+};
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
+const agentByTool: Record<string, string> = {
+  list_cve_alerts: "vulnerability_agent",
+  get_cve_details: "vulnerability_agent",
+  calculate_blast_radius: "vulnerability_agent",
+  get_alert_blast_radius: "vulnerability_agent",
+  list_patch_campaigns: "vulnerability_agent",
+  create_patch_campaign: "vulnerability_agent",
+  get_campaign_status: "vulnerability_agent",
+  calculate_urgency_score: "vulnerability_agent",
+  analyze_drift: "drift_agent",
+  query_assets: "drift_agent",
+  get_drift_status: "drift_agent",
+  get_golden_image: "drift_agent",
+  compare_versions: "drift_agent",
+  generate_patch_plan: "patch_agent",
+  generate_rollout_plan: "patch_agent",
+  simulate_rollout: "patch_agent",
+  propose_rollout: "patch_agent",
+  list_certificates: "certificate_agent",
+  get_certificate_details: "certificate_agent",
+  map_certificate_usage: "certificate_agent",
+  generate_cert_renewal_plan: "certificate_agent",
+  propose_cert_rotation: "certificate_agent",
+  validate_tls_handshake: "certificate_agent",
+  check_control: "compliance_agent",
+  generate_compliance_evidence: "compliance_agent",
+  get_compliance_status: "compliance_agent",
+  generate_dr_runbook: "dr_agent",
+  simulate_failover: "dr_agent",
+  get_dr_status: "dr_agent",
+  acknowledge_alert: "incident_agent",
+  query_alerts: "incident_agent",
+  calculate_risk_score: "security_agent",
+  generate_sop: "sop_agent",
+  validate_sop: "sop_agent",
+  simulate_sop: "sop_agent",
+  execute_sop: "sop_agent",
+  list_sops: "sop_agent",
+  generate_image_contract: "image_agent",
+  generate_packer_template: "image_agent",
+  generate_ansible_playbook: "image_agent",
+  build_image: "image_agent",
+  list_image_versions: "image_agent",
+  promote_image: "image_agent",
+};
 
-    // Build conversation history for context
-    const conversationHistory = messages.map((msg) => ({
-      role: msg.role,
-      content: msg.content,
-    }));
+const AGENT_DISPLAY: Record<string, { label: string; short: string }> = {
+  drift_agent: { label: "Drift", short: "drift" },
+  patch_agent: { label: "Patch", short: "patch" },
+  compliance_agent: { label: "Compliance", short: "compliance" },
+  incident_agent: { label: "Incident", short: "incident" },
+  dr_agent: { label: "DR", short: "dr" },
+  cost_agent: { label: "Cost", short: "cost" },
+  security_agent: { label: "Security", short: "security" },
+  image_agent: { label: "Image", short: "image" },
+  sop_agent: { label: "SOP", short: "sop" },
+  adapter_agent: { label: "Adapter", short: "adapter" },
+  certificate_agent: { label: "Certificate", short: "certificate" },
+  vulnerability_agent: { label: "Vulnerability", short: "vulnerability" },
+};
 
-    try {
-      const response = await sendMessage.mutateAsync({
-        message: input,
-        context,
-        conversationHistory,
-      });
+// -----------------------------------------------------------------------------
+// Fetch helpers — mirror the orchestratorFetch pattern in use-ai.ts (Clerk
+// Bearer token in real auth, "dev-token" fallback in dev mode).
+// -----------------------------------------------------------------------------
 
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: response.content,
-        timestamp: new Date(),
-        task: response.task,
-      };
+const ORCHESTRATOR_URL =
+  process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "http://localhost:8083";
 
-      setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
-      // Add error message to chat
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: `I apologize, but I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}. Please try again.`,
-        timestamp: new Date(),
-      };
+async function orchestratorGet<T>(
+  endpoint: string,
+  getToken: () => Promise<string | null>,
+): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = await getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const r = await fetch(`${ORCHESTRATOR_URL}${endpoint}`, { headers });
+  if (!r.ok) throw new Error(`${endpoint} -> ${r.status}`);
+  return (await r.json()) as T;
+}
 
-      setMessages((prev) => [...prev, errorMessage]);
-    }
-  };
+function useFleetStatus() {
+  const { getToken } = useAuth();
+  const tokenFn = async () => (await getToken()) || "dev-token";
+  return useQuery({
+    queryKey: ["ai", "fleet", "status"],
+    queryFn: () => orchestratorGet<FleetStatus>("/api/v1/ai/fleet/status", tokenFn),
+    refetchInterval: 15_000,
+  });
+}
 
-  const handlePromptClick = (prompt: string) => {
-    setInput(prompt);
-  };
+function useAgentsList() {
+  const { getToken } = useAuth();
+  const tokenFn = async () => (await getToken()) || "dev-token";
+  return useQuery({
+    queryKey: ["ai", "agents"],
+    queryFn: () => orchestratorGet<{ agents: Agent[] }>("/api/v1/ai/agents", tokenFn),
+  });
+}
 
-  const handleCopy = (content: string) => {
-    navigator.clipboard.writeText(content);
-  };
+// -----------------------------------------------------------------------------
+// Formatting helpers
+// -----------------------------------------------------------------------------
+
+function formatCents(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+function autonomyTone(mode: string): string {
+  switch (mode) {
+    case "auto":
+      return "bg-status-green/10 text-status-green border-status-green/30";
+    case "semi":
+      return "bg-status-amber/10 text-status-amber border-status-amber/30";
+    case "manual":
+    default:
+      return "bg-muted text-muted-foreground border-muted-foreground/30";
+  }
+}
+
+function riskTone(risk: string): string {
+  if (risk.includes("prod")) return "text-status-red";
+  if (risk === "plan_only") return "text-status-amber";
+  return "text-muted-foreground";
+}
+
+// -----------------------------------------------------------------------------
+// Page
+// -----------------------------------------------------------------------------
+
+export default function MissionControlPage() {
+  const fleet = useFleetStatus();
+  const agents = useAgentsList();
+
+  const status = fleet.data;
+  const agentList = agents.data?.agents ?? [];
 
   return (
-    <div className="page-transition flex h-[calc(100vh-theme(spacing.32))] gap-6">
-      {/* Main Chat Area */}
-      <div className="flex flex-1 flex-col">
-        {/* Header */}
-        <div className="mb-4 flex items-start justify-between animate-in fade-in-0 slide-in-from-bottom-2 duration-500">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="rounded-lg bg-gradient-to-br from-[var(--ai-start)]/20 to-[var(--ai-end)]/20 p-2">
-                <Sparkles className="h-5 w-5 text-[var(--ai-start)]" />
-              </div>
-              <h1
-                className="text-2xl font-bold tracking-tight"
-                style={{ fontFamily: "var(--font-display)" }}
-              >
-                <GradientText variant="ai">AI Copilot</GradientText>
-              </h1>
-              <Badge variant="secondary" className="ml-2">Powered by Claude</Badge>
-            </div>
-            <p className="text-muted-foreground">
-              Ask questions about your infrastructure and get AI-powered insights.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Link href="/ai/agents">
-              <Button variant="outline" size="sm">
-                <Bot className="mr-2 h-4 w-4" />
-                Agents
-              </Button>
-            </Link>
-            <Link href="/ai/tasks">
-              <Button variant="outline" size="sm">
-                <History className="mr-2 h-4 w-4" />
-                Task History
-              </Button>
-            </Link>
-          </div>
+    <div className="page-transition space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            Mission Control
+          </h1>
+          <p className="text-muted-foreground">
+            Governed command for infrastructure agents.
+          </p>
         </div>
-
-        {/* Chat Area */}
-        <Card variant="elevated" className="flex flex-1 flex-col overflow-hidden min-h-0 animate-in fade-in-0 slide-in-from-bottom-3 duration-500" style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}>
-          <ScrollArea className="flex-1 p-4 min-h-0 h-full" type="always" ref={scrollRef}>
-            {messages.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center text-center">
-                <div className="rounded-full bg-gradient-to-r from-brand-accent/20 to-purple-500/20 p-6">
-                  <Bot className="h-12 w-12 text-brand-accent" />
-                </div>
-                <h3 className="mt-4 text-lg font-semibold">
-                  How can I help you today?
-                </h3>
-                <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-                  I can analyze your infrastructure, identify issues, suggest optimizations, and help you maintain compliance.
-                </p>
-                <div className="mt-6 flex flex-wrap justify-center gap-2">
-                  {suggestedPrompts.slice(0, 3).map((prompt) => (
-                    <Button
-                      key={prompt}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handlePromptClick(prompt)}
-                    >
-                      {prompt}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`flex gap-3 ${
-                      message.role === "user" ? "justify-end" : ""
-                    }`}
-                  >
-                    {message.role === "assistant" && (
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-brand-accent to-purple-500">
-                        <Bot className="h-4 w-4 text-white" />
-                      </div>
-                    )}
-                    <div
-                      className={`rounded-lg p-4 ${
-                        message.role === "user"
-                          ? "max-w-[80%] bg-brand-accent text-white"
-                          : message.task ? "w-full" : "max-w-[80%] bg-muted"
-                      }`}
-                    >
-                      {message.task && message.task.requires_hitl ? (
-                        <TaskApprovalCard task={message.task} />
-                      ) : message.task ? (
-                        <div className="space-y-3">
-                          <div className="prose prose-sm dark:prose-invert max-w-none">
-                            <ReactMarkdown>{message.content}</ReactMarkdown>
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <Badge variant="outline">
-                              {message.task.task_spec.task_type.replace(/_/g, " ")}
-                            </Badge>
-                            {message.task.agent_result && (
-                              <span>{message.task.agent_result.affected_assets} assets</span>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="whitespace-pre-wrap text-sm prose prose-sm dark:prose-invert max-w-none">
-                          <ReactMarkdown>{message.content}</ReactMarkdown>
-                        </div>
-                      )}
-                      {message.role === "assistant" && !message.task?.requires_hitl && (
-                        <div className="mt-3 flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7"
-                            onClick={() => handleCopy(message.content)}
-                          >
-                            <Copy className="mr-1 h-3 w-3" />
-                            Copy
-                          </Button>
-                          <Button variant="ghost" size="sm" className="h-7">
-                            <ThumbsUp className="h-3 w-3" />
-                          </Button>
-                          <Button variant="ghost" size="sm" className="h-7">
-                            <ThumbsDown className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    {message.role === "user" && (
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-                        <User className="h-4 w-4" />
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {sendMessage.isPending && (
-                  <div className="flex gap-3">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-brand-accent to-purple-500">
-                      <Bot className="h-4 w-4 text-white" />
-                    </div>
-                    <div className="rounded-lg bg-muted p-4">
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </ScrollArea>
-
-          {/* Input Area */}
-          <div className="border-t p-4">
-            {sendMessage.isError && (
-              <div className="mb-3 flex items-center gap-2 text-sm text-status-red">
-                <AlertCircle className="h-4 w-4" />
-                Failed to send message. Please try again.
-              </div>
-            )}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSend();
-              }}
-              className="flex gap-2"
-            >
-              <Input
-                placeholder="Ask about your infrastructure..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                disabled={sendMessage.isPending}
-              />
-              <Button type="submit" disabled={!input.trim() || sendMessage.isPending}>
-                {sendMessage.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
-            </form>
-          </div>
-        </Card>
       </div>
 
-      {/* Sidebar - Pending Tasks & Proactive Insights */}
-      <div className="hidden w-80 space-y-4 lg:block stagger-children">
-        {/* Pending Tasks */}
-        <Card variant="elevated" hover="lift">
-          <CardHeader className="pb-3">
-            <CardTitle
-              className="flex items-center gap-2 text-base"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              <ClipboardList className="h-4 w-4 text-brand-accent" />
-              Pending Tasks
-              {pendingTasks && pendingTasks.length > 0 && (
-                <Badge variant="secondary" className="ml-auto">
-                  {pendingTasks.length}
-                </Badge>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 max-h-80 overflow-y-auto">
-            {tasksLoading ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : pendingTasks && pendingTasks.length > 0 ? (
-              pendingTasks.map((task) => (
-                <PendingTaskCard key={task.id} task={task} />
-              ))
-            ) : (
-              <div className="text-center text-sm text-muted-foreground py-4">
-                <ClipboardList className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                <p>No pending tasks</p>
-                <p className="text-xs mt-1">Tasks requiring approval will appear here.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      <FleetStatusBar status={status} />
 
-        <Card variant="elevated" hover="lift">
-          <CardHeader className="pb-3">
-            <CardTitle
-              className="flex items-center gap-2 text-base"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              <Lightbulb className="h-4 w-4 text-status-amber" />
-              Proactive Insights
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {proactiveInsights.length > 0 ? (
-              proactiveInsights.map((insight, i) => (
-                <div
-                  key={i}
-                  className="cursor-pointer rounded-lg border p-3 transition-colors hover:border-brand-accent"
-                  onClick={() => setInput(`Tell me more about: ${insight.title}`)}
-                >
-                  <div className="flex items-start gap-2">
-                    {insight.type === "drift" && (
-                      <TrendingDown className="h-4 w-4 text-status-red" />
-                    )}
-                    {insight.type === "compliance" && (
-                      <Shield className="h-4 w-4 text-status-amber" />
-                    )}
-                    {insight.type === "dr" && (
-                      <RefreshCw className="h-4 w-4 text-purple-500" />
-                    )}
-                    {insight.type === "optimization" && (
-                      <Zap className="h-4 w-4 text-brand-accent" />
-                    )}
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-sm font-medium">{insight.title}</h4>
-                        <StatusBadge
-                          status={
-                            insight.severity === "critical"
-                              ? "critical"
-                              : insight.severity === "warning"
-                              ? "warning"
-                              : "info"
-                          }
-                          size="sm"
-                        >
-                          {insight.severity}
-                        </StatusBadge>
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {insight.description}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center text-sm text-muted-foreground py-4">
-                <Shield className="h-8 w-8 mx-auto mb-2 text-status-green" />
-                <p>All systems healthy!</p>
-                <p className="text-xs mt-1">No critical insights at this time.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card variant="elevated" hover="lift">
-          <CardHeader className="pb-3">
-            <CardTitle
-              className="flex items-center gap-2 text-base"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              <History className="h-4 w-4" />
-              Suggested Questions
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {suggestedPrompts.map((prompt) => (
-              <Button
-                key={prompt}
-                variant="ghost"
-                className="w-full justify-start text-left text-sm font-normal h-auto py-2"
-                onClick={() => handlePromptClick(prompt)}
-              >
-                <ChevronRight className="mr-2 h-3 w-3 text-muted-foreground" />
-                {prompt}
-              </Button>
-            ))}
-          </CardContent>
-        </Card>
-
-        {/* Context Status */}
-        <Card variant="elevated" hover="lift">
-          <CardHeader className="pb-3">
-            <CardTitle
-              className="flex items-center gap-2 text-base"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              <Zap className="h-4 w-4 text-brand-accent" />
-              Context Status
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Fleet Size</span>
-              <span className="font-medium">{context.fleetSize?.toLocaleString() ?? "Loading..."}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Drift Score</span>
-              <span className="font-medium">{context.driftScore !== undefined ? `${context.driftScore.toFixed(1)}%` : "Loading..."}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Compliance</span>
-              <span className="font-medium">{context.complianceScore !== undefined ? `${context.complianceScore.toFixed(1)}%` : "Loading..."}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">DR Readiness</span>
-              <span className="font-medium">{context.drReadiness !== undefined ? `${context.drReadiness.toFixed(1)}%` : "Loading..."}</span>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)_320px]">
+        <AgentRoster agents={agentList} status={status} />
+        <ActivityStream status={status} />
+        <PendingDecisionsRail status={status} />
       </div>
+
+      <ConversationDock />
     </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Fleet status bar
+// -----------------------------------------------------------------------------
+
+function FleetStatusBar({ status }: { status?: FleetStatus }) {
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4 text-sm">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <Bot className="h-4 w-4 text-brand-accent" />
+            <span className="font-medium">Fleet</span>
+          </div>
+          <span data-testid="fleet-working">
+            <span className="font-semibold text-foreground">{status?.agents.working ?? 0}</span>{" "}
+            <span className="text-muted-foreground">working</span>
+          </span>
+          <span data-testid="fleet-idle">
+            <span className="font-semibold text-foreground">{status?.agents.idle ?? 0}</span>{" "}
+            <span className="text-muted-foreground">idle</span>
+          </span>
+          <span data-testid="fleet-blocked">
+            <span className="font-semibold text-foreground">{status?.agents.blocked ?? 0}</span>{" "}
+            <span className="text-muted-foreground">blocked</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-6">
+          <span data-testid="fleet-pending">
+            <span className="font-semibold text-status-amber">
+              {status?.pending_approvals.length ?? 0}
+            </span>{" "}
+            <span className="text-muted-foreground">pending</span>
+          </span>
+          <span data-testid="fleet-actions-today">
+            <span className="font-semibold text-foreground">
+              {status?.tool_invocations_today ?? 0}
+            </span>{" "}
+            <span className="text-muted-foreground">tool runs today</span>
+          </span>
+          <span data-testid="fleet-spend">
+            <span className="font-semibold text-foreground">
+              {formatCents(status?.llm_spend_today_cents ?? 0)}
+            </span>{" "}
+            <span className="text-muted-foreground">
+              / {formatCents(status?.llm_spend_budget_cents ?? 0)} today
+            </span>
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Agent roster
+// -----------------------------------------------------------------------------
+
+function AgentRoster({
+  agents,
+  status,
+}: {
+  agents: Agent[];
+  status?: FleetStatus;
+}) {
+  const activeAgents = new Set<string>();
+  for (const inv of status?.recent_invocations ?? []) {
+    const owner = agentByTool[inv.tool_name];
+    if (owner) activeAgents.add(owner);
+  }
+
+  return (
+    <Card className="h-fit">
+      <CardContent className="p-3">
+        <div className="mb-2 flex items-center justify-between px-1 text-xs uppercase tracking-wider text-muted-foreground">
+          <span>Agents</span>
+          <span>{agents.length}</span>
+        </div>
+        <div className="space-y-1">
+          {agents.map((a) => {
+            const display = AGENT_DISPLAY[a.name] ?? { label: a.name, short: a.name };
+            const autonomy = autonomyByAgent[a.name] ?? "manual";
+            const active = activeAgents.has(a.name);
+            return (
+              <div
+                key={a.name}
+                data-testid={`agent-${display.short}`}
+                className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={`h-2 w-2 shrink-0 rounded-full ${
+                      active ? "bg-status-green" : "bg-muted-foreground/40"
+                    }`}
+                    aria-hidden
+                  />
+                  <span className="truncate font-medium text-foreground">
+                    {display.label}
+                  </span>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={`text-[10px] uppercase ${autonomyTone(autonomy)}`}
+                >
+                  {autonomy}
+                </Badge>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Activity stream
+// -----------------------------------------------------------------------------
+
+function ActivityStream({ status }: { status?: FleetStatus }) {
+  const events = status?.recent_invocations ?? [];
+  return (
+    <Card className="h-fit">
+      <CardContent className="p-3">
+        <div className="mb-2 flex items-center justify-between px-1 text-xs uppercase tracking-wider text-muted-foreground">
+          <span className="flex items-center gap-2">
+            <Activity className="h-3.5 w-3.5" />
+            Activity stream
+          </span>
+          <span>{events.length}</span>
+        </div>
+        <div className="space-y-1">
+          {events.length === 0 ? (
+            <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+              No recent activity.
+            </div>
+          ) : (
+            events.map((e) => {
+              const owner = agentByTool[e.tool_name];
+              const display = owner ? AGENT_DISPLAY[owner]?.label ?? owner : "—";
+              return (
+                <div
+                  key={e.task_id + e.tool_name + e.created_at}
+                  data-testid={`activity-${e.tool_name}`}
+                  className="flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted/50"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {e.created_at.slice(11, 16)}
+                    </span>
+                    <span className="text-muted-foreground">{display}</span>
+                    <span className="font-mono text-foreground">{e.tool_name}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className={`uppercase ${riskTone(e.risk_level)}`}>
+                      {e.risk_level.replace(/_/g, " ")}
+                    </span>
+                    {e.duration_ms != null && (
+                      <span className="text-muted-foreground">{e.duration_ms}ms</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Pending decisions rail
+// -----------------------------------------------------------------------------
+
+function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
+  const decisions = status?.pending_approvals ?? [];
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardContent className="p-3">
+          <div className="mb-2 flex items-center justify-between px-1 text-xs uppercase tracking-wider text-muted-foreground">
+            <span>Pending decisions</span>
+            <span>{decisions.length}</span>
+          </div>
+          {decisions.length === 0 ? (
+            <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+              Nothing waiting on you.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {decisions.map((d) => (
+                <div
+                  key={d.plan_id}
+                  data-testid={`pending-${d.plan_id}`}
+                  className="rounded-md border bg-card p-3"
+                >
+                  <div className="mb-2 text-sm font-medium text-foreground">
+                    {d.user_intent}
+                  </div>
+                  <div className="mb-2 grid grid-cols-2 gap-1 text-xs">
+                    <span className="text-muted-foreground">Blast radius</span>
+                    <span className="text-right">
+                      {d.blast_radius_assets} {d.environment || "—"}
+                    </span>
+                    <span className="text-muted-foreground">OPA</span>
+                    <span
+                      className={`text-right font-medium ${
+                        d.opa_pass ? "text-status-green" : "text-status-red"
+                      }`}
+                      data-testid="pending-opa"
+                    >
+                      {d.opa_pass ? "pass" : "fail"}
+                    </span>
+                    {d.quality_score != null && (
+                      <>
+                        <span className="text-muted-foreground">Quality</span>
+                        <span className="text-right" data-testid="pending-quality">
+                          {d.quality_score}/100
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled
+                      title="Approval is read-only in Phase A"
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled
+                      title="Approval is read-only in Phase A"
+                    >
+                      Modify
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled
+                      title="Approval is read-only in Phase A"
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-3">
+          <div className="mb-2 flex items-center justify-between px-1 text-xs uppercase tracking-wider text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <Lock className="h-3 w-3" />
+              Autonomy
+            </span>
+            <span>read-only</span>
+          </div>
+          <div className="space-y-1 text-xs">
+            {Object.entries(autonomyByAgent)
+              .slice(0, 4)
+              .map(([agentName, mode]) => {
+                const display = AGENT_DISPLAY[agentName] ?? {
+                  label: agentName,
+                  short: agentName,
+                };
+                return (
+                  <div
+                    key={agentName}
+                    className="flex items-center justify-between gap-2"
+                    data-testid={`autonomy-${display.short}`}
+                  >
+                    <span className="text-muted-foreground">
+                      {display.label} · prod
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] uppercase ${autonomyTone(mode)}`}
+                    >
+                      {mode}
+                    </Badge>
+                  </div>
+                );
+              })}
+            <div className="pt-1 text-[11px] text-muted-foreground">
+              Editing lands in Phase C.
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Conversation dock (collapsed by default; expand-on-focus)
+// -----------------------------------------------------------------------------
+
+function ConversationDock() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card>
+      <CardContent className="p-3">
+        <div className="flex items-center gap-2">
+          <ChevronRight
+            className={`h-4 w-4 text-muted-foreground transition-transform ${
+              open ? "rotate-90" : ""
+            }`}
+          />
+          <Input
+            data-testid="conversation-input"
+            placeholder="Ask Mission Control… (read-only preview in Phase A)"
+            onFocus={() => setOpen(true)}
+            onBlur={() => setOpen(false)}
+            disabled
+            className="flex-1 bg-transparent"
+          />
+          <Button size="sm" variant="outline" disabled title="Phase B">
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+        {open && (
+          <p className="mt-2 px-2 text-xs text-muted-foreground">
+            Conversations land in Phase B alongside the stub LLM provider — see{" "}
+            <span className="font-mono">docs/E2E-011-ai-mission-control.md</span>.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
