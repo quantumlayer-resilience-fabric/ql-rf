@@ -722,15 +722,33 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 
 	// Runs: one executing (task2), one completed (task3). The pending and
 	// rejected tasks have no run.
+	//
+	// Phase B.3 polish: audit_log carries the same shape the simulator
+	// produces — {kind, ts, _simulated} entries — so the seeded dashboard
+	// already shows a realistic evidence ledger trail without needing a
+	// user click. Every entry is tagged _simulated:true.
+	const executingAudit = `[
+		{"kind":"approved","_simulated":true,"by":"mission-control","ts":"2026-05-30T10:00:00Z"},
+		{"kind":"started","_simulated":true,"ts":"2026-05-30T10:00:01Z"}
+	]`
+	const completedAudit = `[
+		{"kind":"approved","_simulated":true,"by":"mission-control","ts":"2026-05-30T09:00:00Z"},
+		{"kind":"started","_simulated":true,"ts":"2026-05-30T09:00:01Z"},
+		{"kind":"phase_complete","phase":"issue","_simulated":true,"ts":"2026-05-30T09:00:02Z"},
+		{"kind":"phase_complete","phase":"stage","_simulated":true,"ts":"2026-05-30T09:00:03Z"},
+		{"kind":"phase_complete","phase":"cutover","_simulated":true,"ts":"2026-05-30T09:00:04Z"},
+		{"kind":"simulated_complete","_simulated":true,"real_changes":false,"tool_invocations":3,"ts":"2026-05-30T09:00:05Z"}
+	]`
+
 	runs := []struct {
-		id, planID, taskID, state, phase string
-		percent                          int
-		completed                        bool
+		id, planID, taskID, state, phase, auditLog string
+		percent                                    int
+		completed                                  bool
 	}{
 		{"e3000000-0000-0000-0000-000000000001",
-			"e2000000-0000-0000-0000-000000000002", task2, "executing", "canary", 50, false},
+			"e2000000-0000-0000-0000-000000000002", task2, "executing", "canary", executingAudit, 50, false},
 		{"e3000000-0000-0000-0000-000000000002",
-			"e2000000-0000-0000-0000-000000000003", task3, "completed", "cutover", 100, true},
+			"e2000000-0000-0000-0000-000000000003", task3, "completed", "cutover", completedAudit, 100, true},
 	}
 	for i := range runs {
 		r := &runs[i]
@@ -741,12 +759,14 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO ai_runs (id, plan_id, task_id, environment, initiated_by,
-				current_phase, percent_complete, state, started_at, completed_at)
-			VALUES ($1, $2, $3, 'production', $4, $5, $6, $7, NOW(), $8)
+				current_phase, percent_complete, state, audit_log, started_at, completed_at)
+			VALUES ($1, $2, $3, 'production', $4, $5, $6, $7, $8::jsonb, NOW(), $9)
 			ON CONFLICT (id) DO UPDATE SET
 				state = EXCLUDED.state, current_phase = EXCLUDED.current_phase,
-				percent_complete = EXCLUDED.percent_complete, completed_at = EXCLUDED.completed_at`,
-			r.id, r.planID, r.taskID, userID, r.phase, r.percent, r.state, completedAt,
+				percent_complete = EXCLUDED.percent_complete,
+				audit_log = EXCLUDED.audit_log,
+				completed_at = EXCLUDED.completed_at`,
+			r.id, r.planID, r.taskID, userID, r.phase, r.percent, r.state, r.auditLog, completedAt,
 		); err != nil {
 			return fmt.Errorf("insert ai_run for %s: %w", r.taskID[:8], err)
 		}

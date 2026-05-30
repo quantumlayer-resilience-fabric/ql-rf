@@ -19,6 +19,8 @@ import {
   useSendAIMessage,
   useLatestConversation,
   useConversationMessages,
+  useApproveTask,
+  useRejectTask,
   type ConversationMessage,
 } from "@/hooks/use-ai";
 import { MessageSquare } from "lucide-react";
@@ -487,6 +489,28 @@ function ActivityStream({ status }: { status?: FleetStatus }) {
 
 function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
   const decisions = status?.pending_approvals ?? [];
+  // Phase B.3: approve + reject mutations. Modify stays disabled until B.4
+  // (needs a plan-payload editor). On success the hooks invalidate fleet
+  // status + conversation queries so the dock thread and pending count
+  // refresh immediately rather than waiting for the 15s poll.
+  const approve = useApproveTask();
+  const reject = useRejectTask();
+  const [errorByPlan, setErrorByPlan] = useState<Record<string, string>>({});
+
+  const handleAction = async (
+    planID: string,
+    taskID: string,
+    fn: (args: { taskId: string }) => Promise<unknown>,
+  ) => {
+    setErrorByPlan((prev) => ({ ...prev, [planID]: "" }));
+    try {
+      await fn({ taskId: taskID });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Action failed";
+      setErrorByPlan((prev) => ({ ...prev, [planID]: msg }));
+    }
+  };
+
   return (
     <div className="space-y-3">
       <Card>
@@ -501,66 +525,82 @@ function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
             </div>
           ) : (
             <div className="space-y-3">
-              {decisions.map((d) => (
-                <div
-                  key={d.plan_id}
-                  data-testid={`pending-${d.plan_id}`}
-                  className="rounded-md border bg-card p-3"
-                >
-                  <div className="mb-2 text-sm font-medium text-foreground">
-                    {d.user_intent}
-                  </div>
-                  <div className="mb-2 grid grid-cols-2 gap-1 text-xs">
-                    <span className="text-muted-foreground">Blast radius</span>
-                    <span className="text-right">
-                      {d.blast_radius_assets} {d.environment || "—"}
-                    </span>
-                    <span className="text-muted-foreground">OPA</span>
-                    <span
-                      className={`text-right font-medium ${
-                        d.opa_pass ? "text-status-green" : "text-status-red"
-                      }`}
-                      data-testid="pending-opa"
-                    >
-                      {d.opa_pass ? "pass" : "fail"}
-                    </span>
-                    {d.quality_score != null && (
-                      <>
-                        <span className="text-muted-foreground">Quality</span>
-                        <span className="text-right" data-testid="pending-quality">
-                          {d.quality_score}/100
-                        </span>
-                      </>
+              {decisions.map((d) => {
+                const pending = approve.isPending || reject.isPending;
+                const errMsg = errorByPlan[d.plan_id];
+                return (
+                  <div
+                    key={d.plan_id}
+                    data-testid={`pending-${d.plan_id}`}
+                    className="rounded-md border bg-card p-3"
+                  >
+                    <div className="mb-2 text-sm font-medium text-foreground">
+                      {d.user_intent}
+                    </div>
+                    <div className="mb-2 grid grid-cols-2 gap-1 text-xs">
+                      <span className="text-muted-foreground">Blast radius</span>
+                      <span className="text-right">
+                        {d.blast_radius_assets} {d.environment || "—"}
+                      </span>
+                      <span className="text-muted-foreground">OPA</span>
+                      <span
+                        className={`text-right font-medium ${
+                          d.opa_pass ? "text-status-green" : "text-status-red"
+                        }`}
+                        data-testid="pending-opa"
+                      >
+                        {d.opa_pass ? "pass" : "fail"}
+                      </span>
+                      {d.quality_score != null && (
+                        <>
+                          <span className="text-muted-foreground">Quality</span>
+                          <span className="text-right" data-testid="pending-quality">
+                            {d.quality_score}/100
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={pending}
+                        data-testid={`pending-approve-${d.plan_id}`}
+                        onClick={() => void handleAction(d.plan_id, d.task_id, approve.mutateAsync)}
+                        title="Approve and start simulated execution"
+                      >
+                        {approve.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Approve"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled
+                        title="Modify deferred to B.4"
+                      >
+                        Modify
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={pending}
+                        data-testid={`pending-reject-${d.plan_id}`}
+                        onClick={() => void handleAction(d.plan_id, d.task_id, reject.mutateAsync)}
+                        title="Reject this plan"
+                      >
+                        {reject.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Reject"}
+                      </Button>
+                    </div>
+                    {errMsg && (
+                      <p
+                        data-testid={`pending-error-${d.plan_id}`}
+                        className="mt-2 px-1 text-xs text-status-red"
+                      >
+                        {errMsg}
+                      </p>
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled
-                      title="Approval is read-only in Phase A"
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled
-                      title="Approval is read-only in Phase A"
-                    >
-                      Modify
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled
-                      title="Approval is read-only in Phase A"
-                    >
-                      Reject
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

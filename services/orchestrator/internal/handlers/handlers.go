@@ -745,11 +745,10 @@ func (h *Handler) approveTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user ID from auth middleware context
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		userID = "anonymous"
-	}
+	// Get user ID from auth middleware context. Use resolveUserID so dev-mode
+	// "dev-user" gets mapped to the seeded UUID — required because both
+	// ai_plans.approved_by and ai_runs.initiated_by are UUID FKs to users.id.
+	userID := resolveUserID(r.Context())
 
 	ctx := r.Context()
 	now := time.Now().UTC()
@@ -767,6 +766,32 @@ func (h *Handler) approveTask(w http.ResponseWriter, r *http.Request) {
 		"user_id", userID,
 		"reason", req.Reason,
 	)
+
+	// Phase B.3 plan-only guard — see docs/E2E-011-ai-mission-control.md
+	// (AI-004). When the stub LLM provider is active, approvals run a
+	// deterministic in-memory simulation instead of touching Temporal,
+	// the executor, or any cloud SDK. Production deployments with a real
+	// LLM provider never reach this branch — the existing path below is
+	// unchanged.
+	if h.cfg.LLM.Provider == llm.ProviderStub {
+		h.log.Info("stub provider: routing approve to simulated run",
+			"task_id", taskID, "user_id", userID)
+		runID, sErr := h.startSimulatedRun(ctx, taskID, userID, req.Reason)
+		if sErr != nil {
+			h.respondError(w, http.StatusInternalServerError, "failed to start simulated run", sErr)
+			return
+		}
+		h.respond(w, http.StatusOK, map[string]any{
+			"task_id":     taskID,
+			"status":      "approved",
+			"run_id":      runID,
+			"message":     "Approved. Simulated execution in progress.",
+			"approved_by": userID,
+			"approved_at": now,
+			"_simulated":  true,
+		})
+		return
+	}
 
 	// Signal the Temporal workflow if available
 	if h.temporalWorker != nil {
@@ -856,10 +881,9 @@ func (h *Handler) rejectTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		userID = "anonymous"
-	}
+	// Use resolveUserID so dev-mode "dev-user" maps to the seeded UUID; the
+	// conversation breadcrumb's resolveUserLabel SELECT depends on a valid UUID.
+	userID := resolveUserID(r.Context())
 
 	ctx := r.Context()
 
@@ -905,6 +929,20 @@ func (h *Handler) rejectTask(w http.ResponseWriter, r *http.Request) {
 		SET state = 'rejected', rejection_reason = $1, updated_at = $2
 		WHERE task_id = $3
 	`, req.Reason, time.Now().UTC(), taskID)
+
+	// Phase B.3 (AI-004): append a "✗ Rejected by …" system message to the
+	// task's existing conversation so the dock thread shows the breadcrumb.
+	// Best-effort — failures here are logged but don't fail the rejection.
+	if convID := h.lookupTaskConversation(ctx, taskID); convID != "" {
+		msg := fmt.Sprintf("✗ Rejected by %s.", h.resolveUserLabel(ctx, userID))
+		if req.Reason != "" {
+			msg += " Reason: " + req.Reason
+		}
+		meta := map[string]any{"_simulated": true, "kind": "rejected"}
+		if mErr := h.insertMessage(ctx, h.db.Pool, convID, "system", msg, &taskID, meta); mErr != nil {
+			h.log.Warn("reject: conversation breadcrumb failed", "error", mErr, "task_id", taskID)
+		}
+	}
 
 	// Send rejection notification
 	if h.notifier != nil {

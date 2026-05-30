@@ -156,6 +156,13 @@ func (h *Handler) insertMessage(ctx context.Context, db dbExec, convID, role, co
 	if _, err := db.Exec(ctx, insertQ, convID, role, content, taskID, metaJSON); err != nil {
 		return fmt.Errorf("insert conversation message: %w", err)
 	}
+	// Bump the parent conversation's updated_at so any new activity (user
+	// prompt, assistant summary, B.3 system breadcrumb) makes the
+	// conversation "latest" for the dock's `?limit=1` query. Best-effort —
+	// a failure here doesn't invalidate the message insert.
+	if _, err := db.Exec(ctx, `UPDATE ai_conversations SET updated_at = NOW() WHERE id = $1`, convID); err != nil {
+		h.log.Warn("insertMessage: bump conversation updated_at failed", "error", err, "conversation_id", convID)
+	}
 	return nil
 }
 
