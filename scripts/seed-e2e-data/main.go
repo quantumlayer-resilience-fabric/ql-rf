@@ -752,8 +752,22 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		}
 	}
 
-	// Tool invocations: 6 across 3 agents (Vulnerability, Drift, Certificate).
-	// These power the activity stream.
+	if err := seedMissionControlToolsAndUsage(ctx, tx, userID, task1, task2, task3, task4); err != nil {
+		return err
+	}
+
+	if err := seedMissionControlConversations(ctx, tx, userID, task1, task2); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// seedMissionControlToolsAndUsage seeds the activity stream (tool invocations
+// across 3 agents) and the fleet status-bar spend (4 LLM usage rows totalling
+// $1.82). Extracted from seedMissionControl so the parent stays under
+// golangci-lint's cyclomatic-complexity ceiling.
+func seedMissionControlToolsAndUsage(ctx context.Context, tx pgx.Tx, userID, task1, task2, task3, task4 string) error {
 	invocations := []struct {
 		id, taskID, toolName, risk string
 		durationMs                 int
@@ -804,10 +818,6 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		); err != nil {
 			return fmt.Errorf("insert llm_usage for %s: %w", u.agentName, err)
 		}
-	}
-
-	if err := seedMissionControlConversations(ctx, tx, userID, task1, task2); err != nil {
-		return err
 	}
 
 	return nil
