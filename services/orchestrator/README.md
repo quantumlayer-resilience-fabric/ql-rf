@@ -434,6 +434,45 @@ Score thresholds:
 - `orchestrator_agent_latency_seconds` - Agent execution latency
 - `orchestrator_tool_calls_total` - Tool calls by name and result
 
+## Live LLM development
+
+The docker-compose default for `RF_LLM_PROVIDER` is `stub` — a deterministic,
+canned-response provider that makes no external calls and requires no API key.
+This is the right default for local dev and for CI E2E. The blocking E2E suite
+depends on this determinism; CI also pins `RF_LLM_PROVIDER=stub` explicitly in
+the `frontend-e2e` job (belt-and-suspenders).
+
+When the stub is active, the orchestrator's `executeTask` handler
+**short-circuits to plan-only**: a submitted prompt creates `ai_tasks` and
+`ai_plans` rows in `awaiting_approval` state and **never** invokes
+`agent.Execute`, a Temporal workflow, or any cloud SDK. The constructor emits
+a loud WARN log at startup:
+
+```
+llm: STUB PROVIDER ENABLED — provider=stub model=stub-canned deterministic=true external_calls=false. …
+```
+
+Use it as a grep target for any post-mortem.
+
+To enable the real Azure Anthropic provider for local development:
+
+```bash
+# in .env at the repo root
+RF_LLM_PROVIDER=azure_anthropic
+RF_LLM_API_KEY=…
+```
+
+Then `docker compose up -d --build orchestrator`. The compose file reads
+`${RF_LLM_PROVIDER:-stub}`, so the env override takes effect.
+
+**Never set `RF_LLM_PROVIDER=stub` in production.** The stub will refuse to
+contact any external service, the validator path is short-circuited, and
+every plan it produces carries an audit marker (`payload._stub: true`) that
+will fail any production-grade compliance review. The loud WARN log is a
+safeguard, not a license.
+
+See `docs/E2E-011-ai-mission-control.md` for the full Phase B design.
+
 ## License
 
 Copyright © 2024 QuantumLayer. All rights reserved.

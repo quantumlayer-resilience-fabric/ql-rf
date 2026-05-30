@@ -8,13 +8,14 @@
 // mutation, no Temporal mutation, no streaming.
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@clerk/nextjs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChevronRight, Lock, Bot, Activity, Send } from "lucide-react";
+import { ChevronRight, Lock, Bot, Activity, Send, Loader2 } from "lucide-react";
+import { useSendAIMessage } from "@/hooks/use-ai";
 
 // -----------------------------------------------------------------------------
 // Backend types (snake_case) — match
@@ -556,6 +557,30 @@ function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
 
 function ConversationDock() {
   const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const send = useSendAIMessage();
+
+  // Submit goes through POST /ai/execute. With the stub LLM provider active
+  // (Phase B.1), the orchestrator short-circuits to plan-only: a new
+  // ai_task + ai_plan in `awaiting_approval` state is created and the fleet
+  // status query is invalidated below so the pending decisions rail updates
+  // immediately rather than waiting on the 15s refetch interval.
+  // Environment is "staging" to keep `production_safety` OPA out of the path.
+  const handleSubmit = async () => {
+    const value = text.trim();
+    if (!value || send.isPending) return;
+    setError(null);
+    try {
+      await send.mutateAsync({ message: value, context: { environment: "staging" } });
+      setText("");
+      queryClient.invalidateQueries({ queryKey: ["ai", "fleet", "status"] });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Submission failed");
+    }
+  };
+
   return (
     <Card>
       <CardContent className="p-3">
@@ -567,20 +592,40 @@ function ConversationDock() {
           />
           <Input
             data-testid="conversation-input"
-            placeholder="Ask Mission Control… (read-only preview in Phase A)"
+            placeholder="Ask Mission Control…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
             onFocus={() => setOpen(true)}
             onBlur={() => setOpen(false)}
-            disabled
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void handleSubmit();
+              }
+            }}
             className="flex-1 bg-transparent"
           />
-          <Button size="sm" variant="outline" disabled title="Phase B">
-            <Send className="h-4 w-4" />
+          <Button
+            data-testid="conversation-submit"
+            size="sm"
+            variant="outline"
+            onClick={() => void handleSubmit()}
+            disabled={send.isPending || text.trim().length === 0}
+            title="Submit to Mission Control"
+          >
+            {send.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
           </Button>
         </div>
-        {open && (
-          <p className="mt-2 px-2 text-xs text-muted-foreground">
-            Conversations land in Phase B alongside the stub LLM provider — see{" "}
-            <span className="font-mono">docs/E2E-011-ai-mission-control.md</span>.
+        {error && (
+          <p
+            data-testid="conversation-error"
+            className="mt-2 px-2 text-xs text-status-red"
+          >
+            {error}
           </p>
         )}
       </CardContent>

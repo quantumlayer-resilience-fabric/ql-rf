@@ -349,8 +349,13 @@ func (c *Config) validateProduction() error {
 		missingConfig = append(missingConfig, "RF_CLERK_PUBLISHABLE_KEY")
 	}
 
-	// LLM configuration is required if orchestrator is enabled
-	if c.Orchestrator.Enabled {
+	// LLM configuration is required if orchestrator is enabled.
+	// The "stub" provider is deterministic and external-call-free — it
+	// requires no API key. Its constructor logs a loud WARN at startup, so a
+	// production deployment that accidentally selects RF_LLM_PROVIDER=stub
+	// still screams in every orchestrator log line. See
+	// services/orchestrator/internal/llm/stub.go and AI-002.
+	if c.Orchestrator.Enabled && c.LLM.Provider != "stub" {
 		if c.LLM.Provider == "" || (c.LLM.APIKey == "" && c.LLM.AzureEndpoint == "") {
 			missingConfig = append(missingConfig, "RF_LLM_PROVIDER and RF_LLM_API_KEY (or Azure OpenAI config)")
 		}

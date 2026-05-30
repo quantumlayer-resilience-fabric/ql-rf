@@ -199,6 +199,11 @@ jobs:
           RF_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           RF_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           RF_LLM_API_KEY: ${{ secrets.RF_LLM_API_KEY }}
+          # AI-002 belt-and-suspenders: force the stub LLM provider in CI even
+          # if the compose default ever drifts. Mission Control's blocking E2E
+          # must never depend on a live LLM. See
+          # docs/E2E-011-ai-mission-control.md §3.2.
+          RF_LLM_PROVIDER: stub
         run: docker compose up -d --build ui
 
       - name: Wait for stack readiness

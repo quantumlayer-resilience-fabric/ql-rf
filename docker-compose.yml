@@ -248,9 +248,17 @@ services:
       - RF_ORCHESTRATOR_PORT=8083
       - RF_ORCHESTRATOR_ENABLED=true
       - RF_DATABASE_URL=postgres://postgres:postgres@postgres:5432/qlrf?sslmode=disable
-      - RF_LLM_PROVIDER=azure_anthropic
+      # Default to the deterministic stub provider (Phase B.1 / AI-002). The
+      # stub returns canned responses, makes no external calls, and is the
+      # right choice for local dev + CI E2E. Reads from RF_LLM_PROVIDER (with
+      # default "stub") so CI can pin the value explicitly via its job env as
+      # a belt-and-suspenders guard. For live LLM development set
+      # RF_LLM_PROVIDER=azure_anthropic and RF_LLM_API_KEY in your local .env.
+      # NEVER use RF_LLM_PROVIDER=stub in production — the stub constructor
+      # logs a loud WARN at startup as a safeguard.
+      - RF_LLM_PROVIDER=${RF_LLM_PROVIDER:-stub}
       - RF_LLM_AZURE_ANTHROPIC_ENDPOINT=https://quantumlayer-rf-resource.services.ai.azure.com
-      - RF_LLM_API_KEY=${RF_LLM_API_KEY}
+      - RF_LLM_API_KEY=${RF_LLM_API_KEY:-}
       - RF_LLM_MODEL=claude-sonnet-4-5
       - RF_LLM_MAX_TOKENS=4096
       - RF_LLM_TEMPERATURE=0.3
