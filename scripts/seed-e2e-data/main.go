@@ -806,14 +806,27 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		}
 	}
 
-	// Conversations (Phase B.2 / AI-003). Two seeded threads:
-	//   A — stale (2h old) so it sits outside the 60-min append window. Used
-	//       to verify that the dock fetches the LATEST conversation, not the
-	//       first or oldest.
-	//   B — active (5m old) so it IS the active thread on page load. The dock
-	//       renders B's user + assistant messages above the input.
-	// Tasks 1 and 2 are linked back to A and B respectively via
-	// ai_tasks.conversation_id so the seeded thread maps to real task rows.
+	if err := seedMissionControlConversations(ctx, tx, userID, task1, task2); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// seedMissionControlConversations seeds the Phase B.2 conversation surface:
+//
+//	A — stale (2h old) so it sits outside the 60-min append window. Used to
+//	    verify that the dock fetches the LATEST conversation, not the first
+//	    or oldest.
+//	B — active (5m old) so it IS the active thread on page load. The dock
+//	    renders B's user + assistant messages above the input.
+//
+// Tasks 1 and 2 are linked back to A and B respectively via
+// ai_tasks.conversation_id so the seeded thread maps to real task rows.
+//
+// Split out from seedMissionControl so the parent stays under golangci-lint's
+// cyclomatic-complexity ceiling.
+func seedMissionControlConversations(ctx context.Context, tx pgx.Tx, userID, task1, task2 string) error {
 	const (
 		convA = "e6000000-0000-0000-0000-000000000001"
 		convB = "e6000000-0000-0000-0000-000000000002"
@@ -840,18 +853,17 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		}
 	}
 
-	// Link the seeded tasks to their conversations.
-	if _, err := tx.Exec(ctx,
-		`UPDATE ai_tasks SET conversation_id = $1 WHERE id = $2`,
-		convA, task1,
-	); err != nil {
-		return fmt.Errorf("link task1 to conv A: %w", err)
+	taskLinks := []struct{ convID, taskID string }{
+		{convA, task1},
+		{convB, task2},
 	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE ai_tasks SET conversation_id = $1 WHERE id = $2`,
-		convB, task2,
-	); err != nil {
-		return fmt.Errorf("link task2 to conv B: %w", err)
+	for _, l := range taskLinks {
+		if _, err := tx.Exec(ctx,
+			`UPDATE ai_tasks SET conversation_id = $1 WHERE id = $2`,
+			l.convID, l.taskID,
+		); err != nil {
+			return fmt.Errorf("link task %s to conv: %w", l.taskID[:8], err)
+		}
 	}
 
 	// Messages. Each thread has one user prompt and one assistant summary.
