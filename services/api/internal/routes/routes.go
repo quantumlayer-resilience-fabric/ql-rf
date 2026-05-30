@@ -380,6 +380,9 @@ func New(cfg Config) http.Handler {
 		// SBOM (Software Bill of Materials)
 		r.Route("/sbom", func(r chi.Router) {
 			r.Get("/", sbomHandler.ListSBOMs)
+			// Static subpaths must be registered before "/{id}" so they aren't
+			// swallowed by the parametric route.
+			r.Get("/licenses/summary", sbomHandler.GetLicenseSummary)
 			r.Get("/{id}", sbomHandler.GetSBOM)
 			r.Delete("/{id}", sbomHandler.DeleteSBOM)
 			r.Get("/{id}/export", sbomHandler.ExportSBOM)

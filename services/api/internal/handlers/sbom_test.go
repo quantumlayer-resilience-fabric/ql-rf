@@ -133,6 +133,12 @@ func (m *MockSBOMService) GetVulnerabilityStats(ctx context.Context, sbomID uuid
 	return map[string]interface{}{}, nil
 }
 
+// GetLicenseSummary implements SBOMServiceInterface. The mock returns an empty
+// summary; specific tests can swap the handler in for behavioural assertions.
+func (m *MockSBOMService) GetLicenseSummary(ctx context.Context, orgID uuid.UUID) (*sbom.LicenseSummary, error) {
+	return &sbom.LicenseSummary{Licenses: []sbom.LicenseInfo{}}, nil
+}
+
 // ExportSPDX implements SBOMServiceInterface.
 func (m *MockSBOMService) ExportSPDX(ctx context.Context, sbomID string) (map[string]interface{}, error) {
 	id, err := uuid.Parse(sbomID)

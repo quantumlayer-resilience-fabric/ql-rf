@@ -24,6 +24,7 @@ type SBOMServiceInterface interface {
 	GetPackages(ctx context.Context, sbomID uuid.UUID) ([]sbom.Package, error)
 	GetVulnerabilities(ctx context.Context, sbomID uuid.UUID, filter *sbom.VulnerabilityFilter) ([]sbom.Vulnerability, error)
 	GetVulnerabilityStats(ctx context.Context, sbomID uuid.UUID) (map[string]interface{}, error)
+	GetLicenseSummary(ctx context.Context, orgID uuid.UUID) (*sbom.LicenseSummary, error)
 	ExportSPDX(ctx context.Context, sbomID string) (map[string]interface{}, error)
 	ExportCycloneDX(ctx context.Context, sbomID string) (map[string]interface{}, error)
 }
@@ -403,6 +404,27 @@ func (h *SBOMHandler) ListSBOMs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+// GetLicenseSummary returns license aggregation across all SBOMs owned by the
+// caller's organization. Backs the SBOM page's Licenses tab.
+// GET /api/v1/sbom/licenses/summary
+func (h *SBOMHandler) GetLicenseSummary(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	org := middleware.GetOrg(ctx)
+	if org == nil {
+		http.Error(w, "organization not found", http.StatusUnauthorized)
+		return
+	}
+
+	summary, err := h.svc.GetLicenseSummary(ctx, org.ID)
+	if err != nil {
+		h.log.Error("failed to get license summary", "error", err, "org_id", org.ID)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
 }
 
 // GetSBOM retrieves a specific SBOM by ID.
