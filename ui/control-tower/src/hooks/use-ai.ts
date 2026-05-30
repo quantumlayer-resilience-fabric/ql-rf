@@ -258,9 +258,94 @@ export function useSendAIMessage() {
       // Invalidate task queries to refresh the list, and the Mission Control
       // fleet status so the new pending decision appears in the right rail
       // immediately rather than waiting on the 15s refetch interval (AI-002).
+      // Phase B.2: also invalidate conversation queries so the new dock thread
+      // appears without waiting for its 15s poll.
       queryClient.invalidateQueries({ queryKey: ["ai-tasks"] });
       queryClient.invalidateQueries({ queryKey: ["ai", "fleet", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "conversations", "latest"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "conversations", "messages"] });
     },
+  });
+}
+
+// =============================================================================
+// Conversation memory (Phase B.2 / AI-003)
+// =============================================================================
+
+export interface ConversationMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  task_id?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ConversationSummary {
+  id: string;
+  title?: string;
+  state: string;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ConversationMessagesResponse {
+  conversation: ConversationSummary;
+  messages: ConversationMessage[];
+}
+
+/**
+ * Hook to fetch the caller's most-recent conversation. The Mission Control
+ * dock uses this to determine the active conversation_id, then chains into
+ * useConversationMessages. Polled at the same 15s cadence as fleet status.
+ */
+export function useLatestConversation() {
+  const { getToken } = useAuth();
+
+  return useQuery<ConversationSummary | null>({
+    queryKey: ["ai", "conversations", "latest"],
+    queryFn: async () => {
+      const response = await orchestratorFetch(
+        "/api/v1/ai/conversations?limit=1",
+        {},
+        getToken
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to fetch conversations: ${response.status}`);
+      }
+      const data = await response.json();
+      const list = (data.conversations ?? []) as ConversationSummary[];
+      return list.length > 0 ? list[0] : null;
+    },
+    refetchInterval: 15000,
+  });
+}
+
+/**
+ * Hook to fetch the messages of a specific conversation. The dock chains this
+ * after useLatestConversation. `enabled: !!id` skips the request when there
+ * is no active conversation yet (first-load, empty user).
+ */
+export function useConversationMessages(id?: string) {
+  const { getToken } = useAuth();
+
+  return useQuery<ConversationMessagesResponse | null>({
+    queryKey: ["ai", "conversations", "messages", id ?? "none"],
+    queryFn: async () => {
+      if (!id) return null;
+      const response = await orchestratorFetch(
+        `/api/v1/ai/conversations/${id}/messages`,
+        {},
+        getToken
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to fetch conversation messages: ${response.status}`);
+      }
+      return response.json();
+    },
+    enabled: !!id,
+    refetchInterval: 15000,
   });
 }
 

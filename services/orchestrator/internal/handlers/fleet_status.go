@@ -14,12 +14,39 @@ import (
 // alternative to duplicating fleet-count and license-summary logic client-side
 // (see docs/E2E-011-ai-mission-control.md §8 "Backend").
 type FleetStatus struct {
-	Agents               AgentCounts       `json:"agents"`
-	PendingApprovals     []PendingDecision `json:"pending_approvals"`
-	RecentInvocations    []ToolInvocation  `json:"recent_invocations"`
-	ToolInvocationsToday int               `json:"tool_invocations_today"`
-	LLMSpendTodayCents   int               `json:"llm_spend_today_cents"`
-	LLMSpendBudgetCents  int               `json:"llm_spend_budget_cents"`
+	Agents            AgentCounts       `json:"agents"`
+	PendingApprovals  []PendingDecision `json:"pending_approvals"`
+	RecentInvocations []ToolInvocation  `json:"recent_invocations"`
+	// RecentActivity is the unified activity feed introduced in Phase B.2.
+	// Each element is discriminated by `kind` ("tool_invocation" or
+	// "conversation_message"); the frontend dispatches on kind to render.
+	// RecentInvocations is preserved untouched for backward compatibility
+	// with Phase A tests and external consumers.
+	RecentActivity       []ActivityEvent `json:"recent_activity"`
+	ToolInvocationsToday int             `json:"tool_invocations_today"`
+	LLMSpendTodayCents   int             `json:"llm_spend_today_cents"`
+	LLMSpendBudgetCents  int             `json:"llm_spend_budget_cents"`
+}
+
+// ActivityEvent is one row of the unified activity feed. Tool invocations and
+// conversation messages share this struct discriminated by Kind; fields
+// specific to one kind stay zero (and absent from JSON via `,omitempty`) for
+// the other. The frontend reads Kind first and renders accordingly.
+type ActivityEvent struct {
+	Kind      string `json:"kind"` // "tool_invocation" | "conversation_message"
+	TaskID    string `json:"task_id,omitempty"`
+	CreatedAt string `json:"created_at"`
+
+	// tool_invocation fields
+	ToolName   string `json:"tool_name,omitempty"`
+	RiskLevel  string `json:"risk_level,omitempty"`
+	DurationMs *int   `json:"duration_ms,omitempty"`
+
+	// conversation_message fields
+	ConversationID string `json:"conversation_id,omitempty"`
+	MessageID      string `json:"message_id,omitempty"`
+	Role           string `json:"role,omitempty"`
+	ContentPreview string `json:"content_preview,omitempty"`
 }
 
 // AgentCounts summarizes the fleet for the status bar.
@@ -73,6 +100,7 @@ func (h *Handler) getFleetStatus(w http.ResponseWriter, r *http.Request) {
 		Agents:              AgentCounts{},
 		PendingApprovals:    []PendingDecision{},
 		RecentInvocations:   []ToolInvocation{},
+		RecentActivity:      []ActivityEvent{},
 		LLMSpendBudgetCents: defaultLLMBudgetCents,
 	}
 
@@ -155,6 +183,92 @@ func (h *Handler) getFleetStatus(w http.ResponseWriter, r *http.Request) {
 			inv.DurationMs = dur
 			inv.CreatedAt = createdAt.UTC().Format(time.RFC3339)
 			resp.RecentInvocations = append(resp.RecentInvocations, inv)
+		}
+	}
+
+	// Unified activity feed (Phase B.2): tool invocations + user-role
+	// conversation messages, merged on the DB side and ordered by created_at.
+	// recent_invocations above is left intact for Phase A consumers; this is
+	// purely additive. Assistant messages are intentionally filtered out —
+	// they're conversation UX, not activity, and surfacing them would
+	// double-count every submission.
+	actRows, err := h.db.Pool.Query(ctx, `
+		SELECT * FROM (
+			SELECT 'tool_invocation'::text AS kind,
+			       i.task_id::text         AS task_id,
+			       i.tool_name             AS tool_name,
+			       i.risk_level            AS risk_level,
+			       i.duration_ms           AS duration_ms,
+			       NULL::uuid              AS conversation_id,
+			       NULL::uuid              AS message_id,
+			       NULL::text              AS role,
+			       NULL::text              AS content_preview,
+			       i.created_at            AS created_at
+			FROM ai_tool_invocations i
+			JOIN ai_tasks t ON t.id = i.task_id
+			WHERE t.org_id = $1
+			UNION ALL
+			SELECT 'conversation_message'::text AS kind,
+			       m.task_id::text              AS task_id,
+			       NULL::varchar                AS tool_name,
+			       NULL::varchar                AS risk_level,
+			       NULL::int                    AS duration_ms,
+			       c.id                         AS conversation_id,
+			       m.id                         AS message_id,
+			       m.role                       AS role,
+			       LEFT(m.content, 120)         AS content_preview,
+			       m.created_at                 AS created_at
+			FROM ai_conversation_messages m
+			JOIN ai_conversations c ON c.id = m.conversation_id
+			WHERE c.org_id = $1 AND m.role = 'user'
+		) AS act
+		ORDER BY created_at DESC
+		LIMIT 20`, orgID)
+	if err != nil {
+		h.log.Warn("fleet status: recent_activity query failed", "error", err)
+	} else {
+		defer actRows.Close()
+		for actRows.Next() {
+			var (
+				ev        ActivityEvent
+				taskID    *string
+				toolName  *string
+				riskLevel *string
+				durMs     *int
+				convID    *string
+				msgID     *string
+				role      *string
+				preview   *string
+				createdAt time.Time
+			)
+			if err := actRows.Scan(&ev.Kind, &taskID, &toolName, &riskLevel, &durMs, &convID, &msgID, &role, &preview, &createdAt); err != nil {
+				h.log.Warn("fleet status: scan activity failed", "error", err)
+				continue
+			}
+			if taskID != nil {
+				ev.TaskID = *taskID
+			}
+			if toolName != nil {
+				ev.ToolName = *toolName
+			}
+			if riskLevel != nil {
+				ev.RiskLevel = *riskLevel
+			}
+			ev.DurationMs = durMs
+			if convID != nil {
+				ev.ConversationID = *convID
+			}
+			if msgID != nil {
+				ev.MessageID = *msgID
+			}
+			if role != nil {
+				ev.Role = *role
+			}
+			if preview != nil {
+				ev.ContentPreview = *preview
+			}
+			ev.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
+			resp.RecentActivity = append(resp.RecentActivity, ev)
 		}
 	}
 

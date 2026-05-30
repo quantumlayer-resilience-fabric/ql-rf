@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/quantumlayerhq/ql-rf/pkg/config"
 	"github.com/quantumlayerhq/ql-rf/pkg/database"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
@@ -130,6 +131,10 @@ func (h *Handler) Router() http.Handler {
 			r.Get("/agents", h.listAgents)
 			r.Get("/tools", h.listTools)
 			r.Get("/fleet/status", h.getFleetStatus)
+
+			// Conversation memory (Phase B.2 / AI-003).
+			r.Get("/conversations", h.listConversations)
+			r.Get("/conversations/{conversationID}/messages", h.getConversationMessages)
 
 			// Task execution - requires execute:ai-tasks permission
 			r.Group(func(r chi.Router) {
@@ -291,12 +296,9 @@ func (h *Handler) executeTask(w http.ResponseWriter, r *http.Request) {
 	// returns the literal string "dev-user" — map it to the seeded Mission
 	// Control user UUID so the ai_tasks.created_by FK (-> users.id) is
 	// satisfied. The mapping is dev-only safe-by-default: a real Clerk session
-	// returns an actual UUID and falls through unchanged.
-	const missionControlDevUserID = "e0000000-0000-0000-0000-000000000001"
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" || userID == "dev-user" {
-		userID = missionControlDevUserID
-	}
+	// returns an actual UUID and falls through unchanged. Shared helper lives
+	// in conversations.go so the two paths can't drift.
+	userID := resolveUserID(r.Context())
 
 	// The middleware org_id is the authoritative source — it comes from the
 	// validated Clerk claims (or the dev-mode hardcoded org). Always prefer
@@ -386,13 +388,9 @@ func (h *Handler) executeTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Store the task in the database
-	if err := h.storeTask(ctx, taskSpec, result); err != nil {
-		h.log.Error("failed to store task", "error", err)
-		// Continue anyway - task is still valid
-	}
-
-	// Compute quality score for the artifact
+	// Compute quality score for the artifact. Done before the DB transaction
+	// because ComputeQualityScore is read-only and the synthesized assistant
+	// message embeds the score (see synthesizeAssistantMessage).
 	qualityScore := h.validator.ComputeQualityScore(ctx, &validation.QualityScoreRequest{
 		ArtifactType:     string(taskSpec.TaskType),
 		ArtifactID:       taskSpec.ID,
@@ -401,6 +399,60 @@ func (h *Handler) executeTask(w http.ResponseWriter, r *http.Request) {
 		Environment:      taskSpec.Environment,
 		ValidationResult: validationResult,
 	})
+
+	// Persist task + plan + conversation + messages atomically. Phase B.2
+	// transactional discipline (AI-003): if any of these rows fail to commit
+	// the others must roll back, so a UI showing "you submitted X" never
+	// implies a half-written state in the database.
+	//
+	// Plan-only guard from B.1 is preserved one level above this block — by
+	// the time we enter the transaction, `result` has already been set either
+	// by the stub short-circuit or by agent.Execute.
+	isStub := h.cfg.LLM.Provider == llm.ProviderStub
+	rawLLMContent := ""
+	if isStub {
+		// The stub envelope was already consumed by the meta engine, but the
+		// plan payload IS the canonical serialised artefact. Persist it under
+		// metadata.raw_llm_content for audit; the UI never reads it.
+		if planBytes, mErr := json.Marshal(result.Plan); mErr == nil {
+			rawLLMContent = string(planBytes)
+		}
+	}
+	assistantText := synthesizeAssistantMessage(taskSpec, result, qualityScore)
+
+	if err := h.db.WithTx(ctx, func(tx pgx.Tx) error {
+		convID, _, cErr := h.ensureActiveConversation(ctx, tx, taskSpec.OrgID, userID, req.Intent)
+		if cErr != nil {
+			return fmt.Errorf("ensure conversation: %w", cErr)
+		}
+		if tErr := h.storeTask(ctx, tx, taskSpec, result, &convID); tErr != nil {
+			return fmt.Errorf("store task: %w", tErr)
+		}
+		// User message — captured before the assistant summary so the dock
+		// thread shows the right turn order. created_at uses clock_timestamp()
+		// inside insertMessage so user < assistant ordering is guaranteed.
+		if mErr := h.insertMessage(ctx, tx, convID, "user", req.Intent, &taskSpec.ID, nil); mErr != nil {
+			return fmt.Errorf("insert user message: %w", mErr)
+		}
+		// Assistant message — server-synthesised text, never raw LLM output.
+		// Raw content lives under metadata.raw_llm_content for audit and
+		// future replay; the UI renders `content`.
+		assistantMeta := map[string]any{}
+		if rawLLMContent != "" {
+			assistantMeta["raw_llm_content"] = rawLLMContent
+		}
+		if isStub {
+			assistantMeta["_stub"] = true
+		}
+		if mErr := h.insertMessage(ctx, tx, convID, "assistant", assistantText, &taskSpec.ID, assistantMeta); mErr != nil {
+			return fmt.Errorf("insert assistant message: %w", mErr)
+		}
+		return nil
+	}); err != nil {
+		h.log.Error("failed to persist task + conversation", "error", err)
+		h.respondError(w, http.StatusInternalServerError, "failed to persist task", err)
+		return
+	}
 
 	// If HITL is required and Temporal is available, start a workflow.
 	// Phase B.1 plan-only guard: never start a Temporal workflow when the stub
@@ -1146,7 +1198,14 @@ func (h *Handler) respondError(w http.ResponseWriter, status int, message string
 	}
 }
 
-func (h *Handler) storeTask(ctx context.Context, spec *agents.TaskSpec, result *agents.AgentResult) error {
+// storeTask inserts (or updates) the ai_tasks row and, if the result carries
+// a plan, the ai_plans row. Takes a dbExec so the caller can pass a pgx.Tx —
+// Phase B.2 wraps task + plan + conversation messages in one transaction so
+// they commit atomically (see executeTask).
+//
+// conversationID, if non-nil, is written to ai_tasks.conversation_id. Pre-B.2
+// callers pass nil and the column stays NULL.
+func (h *Handler) storeTask(ctx context.Context, db dbExec, spec *agents.TaskSpec, result *agents.AgentResult, conversationID *string) error {
 	h.log.Debug("storing task",
 		"task_id", spec.ID,
 		"task_type", spec.TaskType,
@@ -1181,20 +1240,22 @@ func (h *Handler) storeTask(ctx context.Context, spec *agents.TaskSpec, result *
 
 	// Insert task into ai_tasks
 	query := `
-		INSERT INTO ai_tasks (id, org_id, created_by, user_intent, task_spec, state, source, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, 'api', NOW(), NOW())
+		INSERT INTO ai_tasks (id, org_id, created_by, user_intent, task_spec, state, source, conversation_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, 'api', $7, NOW(), NOW())
 		ON CONFLICT (id) DO UPDATE SET
 			task_spec = EXCLUDED.task_spec,
 			state = EXCLUDED.state,
+			conversation_id = COALESCE(EXCLUDED.conversation_id, ai_tasks.conversation_id),
 			updated_at = NOW()
 	`
-	_, err = h.db.Pool.Exec(ctx, query,
+	_, err = db.Exec(ctx, query,
 		spec.ID,
 		spec.OrgID,
 		userID,
 		spec.UserIntent,
 		taskSpecJSON,
 		state,
+		conversationID,
 	)
 	if err != nil {
 		h.log.Error("failed to insert task", "error", err)
@@ -1203,7 +1264,7 @@ func (h *Handler) storeTask(ctx context.Context, spec *agents.TaskSpec, result *
 
 	// Store the plan in ai_plans if result has a plan
 	if result.Plan != nil {
-		if err := h.storePlan(ctx, spec, result); err != nil {
+		if err := h.storePlan(ctx, db, spec, result); err != nil {
 			h.log.Error("failed to store plan", "error", err)
 			return err
 		}
@@ -1213,7 +1274,9 @@ func (h *Handler) storeTask(ctx context.Context, spec *agents.TaskSpec, result *
 	return nil
 }
 
-func (h *Handler) storePlan(ctx context.Context, spec *agents.TaskSpec, result *agents.AgentResult) error {
+// storePlan upserts the ai_plans row for the task. Takes a dbExec so it runs
+// in the same transaction as storeTask when invoked from executeTask (B.2).
+func (h *Handler) storePlan(ctx context.Context, db dbExec, spec *agents.TaskSpec, result *agents.AgentResult) error {
 	// Serialize plan to JSON
 	planJSON, err := json.Marshal(result.Plan)
 	if err != nil {
@@ -1251,7 +1314,7 @@ func (h *Handler) storePlan(ctx context.Context, spec *agents.TaskSpec, result *
 	// First check if plan already exists for this task
 	var existingPlanID string
 	checkQuery := `SELECT id FROM ai_plans WHERE task_id = $1 LIMIT 1`
-	err = h.db.Pool.QueryRow(ctx, checkQuery, spec.ID).Scan(&existingPlanID)
+	err = db.QueryRow(ctx, checkQuery, spec.ID).Scan(&existingPlanID)
 
 	if err == nil {
 		// Plan exists, update it
@@ -1259,14 +1322,14 @@ func (h *Handler) storePlan(ctx context.Context, spec *agents.TaskSpec, result *
 			UPDATE ai_plans SET payload = $1, state = $2, updated_at = NOW()
 			WHERE task_id = $3
 		`
-		_, err = h.db.Pool.Exec(ctx, updateQuery, planJSON, planState, spec.ID)
+		_, err = db.Exec(ctx, updateQuery, planJSON, planState, spec.ID)
 	} else {
 		// Plan doesn't exist, insert it
 		insertQuery := `
 			INSERT INTO ai_plans (task_id, type, payload, state, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, NOW(), NOW())
 		`
-		_, err = h.db.Pool.Exec(ctx, insertQuery,
+		_, err = db.Exec(ctx, insertQuery,
 			spec.ID,
 			planType,
 			planJSON,

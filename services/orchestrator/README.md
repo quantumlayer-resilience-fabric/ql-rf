@@ -473,6 +473,34 @@ safeguard, not a license.
 
 See `docs/E2E-011-ai-mission-control.md` for the full Phase B design.
 
+## Conversations (Phase B.2)
+
+Every prompt submitted through Mission Control's dock is captured as a
+persistent `ai_conversations` row plus two `ai_conversation_messages` rows
+(user + server-synthesized assistant summary). The lifecycle is decided
+server-side: successive submissions from the same user within **60 minutes**
+fold into the same conversation; outside that window a new conversation
+starts. There is no UI affordance to switch threads in B.2 — that lands in
+B.3.
+
+The assistant message stored in the thread is a deterministic projection of
+the validated `TaskSpec` + `AgentResult` (see
+`synthesizeAssistantMessage` in `internal/handlers/conversations.go`). It
+never contains JSON, never contains the literal word "stub", and is
+identical for stub and live LLM paths. The raw LLM `Content` is preserved
+in `ai_conversation_messages.metadata.raw_llm_content` for audit only — the
+UI never reads it.
+
+The activity stream gains a `recent_activity` discriminator field on
+`GET /api/v1/ai/fleet/status` that unifies tool invocations and user-role
+conversation messages. The existing `recent_invocations` field is unchanged
+for backward compatibility.
+
+`ai_conversations`, `ai_conversation_messages`, and `ai_tasks.conversation_id`
+all land in migration `000019_add_ai_conversations`. The persisted writes —
+task, plan, conversation, both messages — happen inside a single
+`pgx.Tx` (see `executeTask`); a partial commit is impossible by design.
+
 ## License
 
 Copyright © 2024 QuantumLayer. All rights reserved.
