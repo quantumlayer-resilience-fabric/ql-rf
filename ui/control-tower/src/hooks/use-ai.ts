@@ -255,8 +255,11 @@ export function useSendAIMessage() {
       };
     },
     onSuccess: () => {
-      // Invalidate task queries to refresh the list
+      // Invalidate task queries to refresh the list, and the Mission Control
+      // fleet status so the new pending decision appears in the right rail
+      // immediately rather than waiting on the 15s refetch interval (AI-002).
       queryClient.invalidateQueries({ queryKey: ["ai-tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "fleet", "status"] });
     },
   });
 }

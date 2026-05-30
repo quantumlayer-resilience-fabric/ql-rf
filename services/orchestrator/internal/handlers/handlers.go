@@ -287,15 +287,23 @@ func (h *Handler) executeTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user/org from auth middleware context
+	// Get user/org from auth middleware context. In dev mode the middleware
+	// returns the literal string "dev-user" — map it to the seeded Mission
+	// Control user UUID so the ai_tasks.created_by FK (-> users.id) is
+	// satisfied. The mapping is dev-only safe-by-default: a real Clerk session
+	// returns an actual UUID and falls through unchanged.
+	const missionControlDevUserID = "e0000000-0000-0000-0000-000000000001"
 	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		userID = "dev-user" // Fallback for development
+	if userID == "" || userID == "dev-user" {
+		userID = missionControlDevUserID
 	}
 
-	// Override org_id from auth context if not provided in request
-	orgID := middleware.GetOrgID(r.Context())
-	if orgID != "" && req.OrgID == "" {
+	// The middleware org_id is the authoritative source — it comes from the
+	// validated Clerk claims (or the dev-mode hardcoded org). Always prefer
+	// it over whatever the client put in the body, so the client can't
+	// inject a foreign or malformed org id (the dev-mode browser sends the
+	// literal string "dev-org" which isn't a UUID).
+	if orgID := middleware.GetOrgID(r.Context()); orgID != "" {
 		req.OrgID = orgID
 	}
 
@@ -339,11 +347,43 @@ func (h *Handler) executeTask(w http.ResponseWriter, r *http.Request) {
 
 	agent := agentList[0] // Use the first matching agent
 
-	// Execute the agent
-	result, err := agent.Execute(ctx, taskSpec)
-	if err != nil {
-		h.respondError(w, http.StatusInternalServerError, "agent execution failed", err)
-		return
+	// Phase B.1 plan-only guard — see docs/E2E-011-ai-mission-control.md §3.1b
+	// (AI-002). When the stub LLM provider is active, we deliberately skip
+	// agent.Execute (and the Temporal workflow below) so a submitted prompt
+	// produces only ai_tasks + ai_plans rows in `awaiting_approval` state.
+	// No agent.Execute, no ai_tool_invocations, no Temporal workflow progress,
+	// no cloud SDK calls. Remove or extend when Phase B.2 wires real execution.
+	var result *agents.AgentResult
+	if h.cfg.LLM.Provider == llm.ProviderStub {
+		h.log.Info("stub provider: short-circuiting after intent parsing (plan-only)",
+			"task_id", taskSpec.ID,
+			"task_type", string(taskSpec.TaskType),
+		)
+		result = &agents.AgentResult{
+			TaskID:    taskSpec.ID,
+			AgentName: agent.Name(),
+			Status:    agents.AgentStatusPendingApproval,
+			Summary:   "Stub-driven plan (plan-only): " + taskSpec.Goal,
+			RiskLevel: string(taskSpec.RiskLevel),
+			Plan: map[string]interface{}{
+				"_stub":       true,
+				"summary":     "Plan-only short-circuit (stub provider)",
+				"task_type":   string(taskSpec.TaskType),
+				"goal":        taskSpec.Goal,
+				"environment": taskSpec.Environment,
+				"blast_radius": map[string]interface{}{
+					"assets":      1,
+					"environment": taskSpec.Environment,
+				},
+				"phases": []string{"canary", "monitor"},
+			},
+		}
+	} else {
+		result, err = agent.Execute(ctx, taskSpec)
+		if err != nil {
+			h.respondError(w, http.StatusInternalServerError, "agent execution failed", err)
+			return
+		}
 	}
 
 	// Store the task in the database
@@ -362,8 +402,11 @@ func (h *Handler) executeTask(w http.ResponseWriter, r *http.Request) {
 		ValidationResult: validationResult,
 	})
 
-	// If HITL is required and Temporal is available, start a workflow
-	if taskSpec.HITLRequired && h.temporalWorker != nil {
+	// If HITL is required and Temporal is available, start a workflow.
+	// Phase B.1 plan-only guard: never start a Temporal workflow when the stub
+	// LLM provider is active — keeps the submitted prompt strictly in
+	// `awaiting_approval` state. See docs/E2E-011-ai-mission-control.md §3.1b.
+	if taskSpec.HITLRequired && h.temporalWorker != nil && h.cfg.LLM.Provider != llm.ProviderStub {
 		// Convert plan to map if possible
 		var planMap map[string]interface{}
 		if p, ok := result.Plan.(map[string]interface{}); ok {

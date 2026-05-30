@@ -83,7 +83,13 @@ func NewClient(cfg config.LLMConfig, log *logger.Logger) (Client, error) {
 		return newAzureOpenAIClient(cfg, log)
 	case "openai":
 		return newOpenAIClient(cfg, log)
+	case ProviderStub:
+		// Deterministic canned responses for Phase B E2E / local dev. The stub
+		// constructor emits a loud WARN log; the orchestrator's executeTask
+		// handler additionally short-circuits to plan-only when this provider
+		// is active. NOT FOR PRODUCTION. See stub.go and AI-002.
+		return newStubClient(cfg, log)
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: anthropic, azure_anthropic, azure_openai, openai)", cfg.Provider)
+		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: anthropic, azure_anthropic, azure_openai, openai, %s)", cfg.Provider, ProviderStub)
 	}
 }

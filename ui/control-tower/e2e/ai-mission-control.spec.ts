@@ -100,13 +100,56 @@ test.describe("Mission Control (AI-001 Phase A)", () => {
     await expect(page.getByTestId("pending-quality")).toHaveText("87/100");
   });
 
-  test("should render a collapsed, read-only conversation dock", async ({ page }) => {
+  test("should render an enabled conversation dock", async ({ page }) => {
+    // Phase B.1: the dock is enabled and accepts submissions via the stub
+    // LLM provider. Phase A's "(read-only preview in Phase A)" suffix is gone.
     const input = page.getByTestId("conversation-input");
     await expect(input).toBeVisible({ timeout: WIDGET_TIMEOUT });
-    await expect(input).toBeDisabled();
-    await expect(input).toHaveAttribute(
-      "placeholder",
-      /Ask Mission Control/i,
-    );
+    await expect(input).toBeEnabled();
+    await expect(input).toHaveAttribute("placeholder", /Ask Mission Control/i);
+    // Submit button is present but disabled until the input has content.
+    const submit = page.getByTestId("conversation-submit");
+    await expect(submit).toBeVisible();
+    await expect(submit).toBeDisabled();
+  });
+});
+
+test.describe("Mission Control (AI-002 Phase B.1 — conversation submission)", () => {
+  test("submitting a prompt creates a new pending decision", async ({ page }) => {
+    await page.goto("/ai");
+    await expect(
+      page.getByRole("heading", { name: "Mission Control", exact: true }),
+    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    // Read the current pending count rather than hard-coding 1. The seeded
+    // fixture starts at 1, but a persistent local stack may carry debris from
+    // a previous run; either way the assertion below is "+1", which catches
+    // the failure mode "count moved for some other reason" while staying
+    // robust to baseline drift.
+    const pendingEl = page.getByTestId("fleet-pending");
+    const initialText = (await pendingEl.textContent()) ?? "";
+    const initialCount = parseInt(initialText.match(/\d+/)?.[0] ?? "0", 10);
+    const expectedCount = String(initialCount + 1);
+
+    // Unique per-run prompt — safe whether CI re-seeds (yes) or a developer
+    // runs the spec multiple times locally against a persistent stack.
+    const prompt = `Patch CVE-2026-1234 safely from Mission Control (e2e ${Date.now()})`;
+
+    const input = page.getByTestId("conversation-input");
+    await input.fill(prompt);
+    await page.getByTestId("conversation-submit").click();
+
+    // The stub provider short-circuits to plan-only on the orchestrator side,
+    // so the new ai_plan lands in awaiting_approval and surfaces on the
+    // pending decisions rail. Fleet status invalidation makes this near-instant;
+    // 20s is the safety net for the 15s refetch interval.
+    await expect(pendingEl).toContainText(expectedCount, { timeout: 20_000 });
+
+    // Beyond the count, assert the new pending card actually shows the
+    // submitted text — catches the failure mode "count moved for some other
+    // reason."
+    await expect(
+      page.getByRole("main").getByText(prompt).first(),
+    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
   });
 });
