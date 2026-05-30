@@ -756,11 +756,7 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		return err
 	}
 
-	if err := seedMissionControlConversations(ctx, tx, userID, task1, task2); err != nil {
-		return err
-	}
-
-	return nil
+	return seedMissionControlConversations(ctx, tx, userID, task1, task2)
 }
 
 // seedMissionControlToolsAndUsage seeds the activity stream (tool invocations
