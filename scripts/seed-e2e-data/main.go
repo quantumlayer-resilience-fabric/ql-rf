@@ -11,12 +11,14 @@
 // Usage: RF_DATABASE_URL=... go run ./scripts/seed-e2e-data
 //
 // Scope: this seeds the entities the Overview, Sites, Drift, Images, Risk,
-// Vulnerabilities, Certificates, Compliance, and SBOM pages need (org, project,
-// environments, sites, assets, images, image vulnerabilities, drift reports,
-// alerts, CVE cache + alerts, certificates, compliance frameworks + controls +
-// results, sboms + packages). InSpec, FinOps, and AI Copilot are intentionally
-// deferred until the corresponding page specs are tackled (see
-// docs/E2E-001-deterministic-fullstack-e2e.md).
+// Vulnerabilities, Certificates, Compliance, SBOM, and Mission Control pages
+// need (org, project, environments, sites, assets, images, image
+// vulnerabilities, drift reports, alerts, CVE cache + alerts, certificates,
+// compliance frameworks + controls + results, sboms + packages, ai tasks +
+// plans + runs + tool invocations + llm usage). InSpec and FinOps are
+// intentionally deferred until the corresponding page specs are tackled (see
+// docs/E2E-001-deterministic-fullstack-e2e.md and
+// docs/E2E-011-ai-mission-control.md).
 package main
 
 import (
@@ -113,7 +115,7 @@ func run() error {
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=6 sboms=1 sbom_packages=6\n", orgID)
+	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=6 sboms=1 sbom_packages=6 ai_tasks=4 ai_plans=4 ai_runs=2 ai_tool_invocations=6 llm_usage=4\n", orgID)
 	return nil
 }
 
@@ -125,7 +127,7 @@ func seedFixture(ctx context.Context, tx pgx.Tx) error {
 	for _, step := range []func(context.Context, pgx.Tx) error{
 		seedOrg, seedUser, seedProjectAndEnvironments, seedSites, seedImages,
 		seedAssets, seedVulnerabilities, seedDrift, seedAlerts, seedCVEAlerts,
-		seedCertificates, seedCompliance, seedSBOM,
+		seedCertificates, seedCompliance, seedSBOM, seedMissionControl,
 	} {
 		if err := step(ctx, tx); err != nil {
 			return err
@@ -616,3 +618,195 @@ func seedSBOM(ctx context.Context, tx pgx.Tx) error {
 	}
 	return nil
 }
+
+// seedMissionControl seeds the Mission Control surface (AI-001 / E2E-011): a
+// deterministic AI lifecycle under the orchestrator dev org covering one task
+// in each lifecycle position (pending approval, executing, completed, rejected)
+// plus tool invocations across multiple agents and LLM usage rows so the fleet
+// status bar reports a real spend. All data is read-only; the seed does not
+// trigger any agent execution or LLM call.
+func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
+	const (
+		userID = "e0000000-0000-0000-0000-000000000001"
+		task1  = "e1000000-0000-0000-0000-000000000001" // CVE patch, awaiting approval
+		task2  = "e1000000-0000-0000-0000-000000000002" // drift analysis, executing
+		task3  = "e1000000-0000-0000-0000-000000000003" // cert rotation, completed
+		task4  = "e1000000-0000-0000-0000-000000000004" // DR failover, rejected
+	)
+
+	// Mission Control user under the orchestrator dev org (the org the
+	// orchestrator resolves in dev mode — see services/orchestrator/internal/
+	// middleware/auth.go). FK ai_tasks.created_by references this user.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, external_id, email, name, role, org_id)
+		VALUES ($1, 'mission-control-dev-user', 'mission-control-dev@example.com',
+		        'Mission Control Dev User', 'admin', $2)
+		ON CONFLICT (id) DO NOTHING`,
+		userID, orchestratorDevOrgID,
+	); err != nil {
+		return fmt.Errorf("insert mission control user: %w", err)
+	}
+
+	tasks := []struct {
+		id, intent string
+	}{
+		{task1, "Patch CVE-2024-3094 (xz backdoor) on production assets"},
+		{task2, "Analyze drift across azure production sites"},
+		{task3, "Rotate api.quantumlayer.io certificate before expiry"},
+		{task4, "Failover production database to DR site immediately"},
+	}
+	for i := range tasks {
+		t := &tasks[i]
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO ai_tasks (id, org_id, created_by, user_intent, state, source)
+			VALUES ($1, $2, $3, $4, 'planned', 'chat')
+			ON CONFLICT (id) DO NOTHING`,
+			t.id, orchestratorDevOrgID, userID, t.intent,
+		); err != nil {
+			return fmt.Errorf("insert ai_task %s: %w", t.intent[:32], err)
+		}
+	}
+
+	// Plans: one per task. State + quality + OPA result vary by lifecycle stage.
+	plans := []struct {
+		id, taskID, planType, state, payload string
+		quality                              int
+		opaPass                              bool
+		opaViolations                        string
+		approved                             bool
+		rejectionReason                      string
+	}{
+		{"e2000000-0000-0000-0000-000000000001", task1, "patch_plan", "awaiting_approval",
+			`{"summary":"Patch CVE-2024-3094","blast_radius":{"assets":4,"environment":"production"},"phases":["canary","monitor","full_rollout"],"rollback":"available"}`,
+			87, true, `[]`, false, ""},
+		{"e2000000-0000-0000-0000-000000000002", task2, "drift_plan", "approved",
+			`{"summary":"Bring azure production assets back to golden image","blast_radius":{"assets":3,"environment":"production"},"phases":["canary","monitor","full_rollout"]}`,
+			92, true, `[]`, true, ""},
+		{"e2000000-0000-0000-0000-000000000003", task3, "patch_plan", "approved",
+			`{"summary":"Rotate api.quantumlayer.io certificate","blast_radius":{"assets":1,"environment":"production"},"phases":["issue","stage","cutover"]}`,
+			90, true, `[]`, true, ""},
+		{"e2000000-0000-0000-0000-000000000004", task4, "dr_runbook", "rejected",
+			`{"summary":"Failover prod DB to DR site","blast_radius":{"assets":12,"environment":"production"},"phases":["snapshot","cutover","reroute"]}`,
+			65, false, `["production failover blocked by policy: requires two-approver override"]`, false,
+			"OPA policy blocked: production_failover_requires_dual_approval"},
+	}
+	for i := range plans {
+		p := &plans[i]
+		validation := fmt.Sprintf(`{"schema_valid":true,"schema_errors":[],"opa_valid":%t,"opa_violations":%s,"safety_valid":true,"safety_violations":[],"overall_valid":%t}`,
+			p.opaPass, p.opaViolations, p.opaPass)
+		var approvedBy *string
+		var approvedAt *time.Time
+		now := time.Now()
+		if p.approved {
+			approvedBy = ptrString(userID)
+			approvedAt = &now
+		}
+		var rejReason *string
+		if p.rejectionReason != "" {
+			rejReason = &p.rejectionReason
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO ai_plans (id, task_id, type, payload, validation, quality_score, state,
+				approved_by, approved_at, rejection_reason)
+			VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10)
+			ON CONFLICT (id) DO UPDATE SET
+				state = EXCLUDED.state, validation = EXCLUDED.validation,
+				quality_score = EXCLUDED.quality_score, approved_by = EXCLUDED.approved_by,
+				approved_at = EXCLUDED.approved_at, rejection_reason = EXCLUDED.rejection_reason`,
+			p.id, p.taskID, p.planType, p.payload, validation, p.quality, p.state,
+			approvedBy, approvedAt, rejReason,
+		); err != nil {
+			return fmt.Errorf("insert ai_plan for %s: %w", p.taskID[:8], err)
+		}
+	}
+
+	// Runs: one executing (task2), one completed (task3). The pending and
+	// rejected tasks have no run.
+	runs := []struct {
+		id, planID, taskID, state, phase string
+		percent                          int
+		completed                        bool
+	}{
+		{"e3000000-0000-0000-0000-000000000001",
+			"e2000000-0000-0000-0000-000000000002", task2, "executing", "canary", 50, false},
+		{"e3000000-0000-0000-0000-000000000002",
+			"e2000000-0000-0000-0000-000000000003", task3, "completed", "cutover", 100, true},
+	}
+	for i := range runs {
+		r := &runs[i]
+		var completedAt *time.Time
+		if r.completed {
+			now := time.Now()
+			completedAt = &now
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO ai_runs (id, plan_id, task_id, environment, initiated_by,
+				current_phase, percent_complete, state, started_at, completed_at)
+			VALUES ($1, $2, $3, 'production', $4, $5, $6, $7, NOW(), $8)
+			ON CONFLICT (id) DO UPDATE SET
+				state = EXCLUDED.state, current_phase = EXCLUDED.current_phase,
+				percent_complete = EXCLUDED.percent_complete, completed_at = EXCLUDED.completed_at`,
+			r.id, r.planID, r.taskID, userID, r.phase, r.percent, r.state, completedAt,
+		); err != nil {
+			return fmt.Errorf("insert ai_run for %s: %w", r.taskID[:8], err)
+		}
+	}
+
+	// Tool invocations: 6 across 3 agents (Vulnerability, Drift, Certificate).
+	// These power the activity stream.
+	invocations := []struct {
+		id, taskID, toolName, risk string
+		durationMs                 int
+	}{
+		{"e4000000-0000-0000-0000-000000000001", task1, "list_cve_alerts", "read_only", 110},
+		{"e4000000-0000-0000-0000-000000000002", task1, "calculate_blast_radius", "read_only", 230},
+		{"e4000000-0000-0000-0000-000000000003", task2, "query_assets", "read_only", 80},
+		{"e4000000-0000-0000-0000-000000000004", task2, "analyze_drift", "read_only", 450},
+		{"e4000000-0000-0000-0000-000000000005", task3, "list_certificates", "read_only", 95},
+		{"e4000000-0000-0000-0000-000000000006", task3, "propose_cert_rotation", "plan_only", 320},
+	}
+	for i := range invocations {
+		v := &invocations[i]
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO ai_tool_invocations (id, task_id, tool_name, risk_level, duration_ms)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (id) DO NOTHING`,
+			v.id, v.taskID, v.toolName, v.risk, v.durationMs,
+		); err != nil {
+			return fmt.Errorf("insert ai_tool_invocation %s: %w", v.toolName, err)
+		}
+	}
+
+	// LLM usage rows so the fleet status-bar spend is a real number — total
+	// 182 cents = $1.82 today across 4 tasks.
+	usages := []struct {
+		id, taskID                      string
+		agentName                       string
+		inputTokens, outputTokens       int
+		inputCostCents, outputCostCents int
+	}{
+		{"e5000000-0000-0000-0000-000000000001", task1, "vulnerability_agent", 1200, 800, 40, 20},
+		{"e5000000-0000-0000-0000-000000000002", task2, "drift_agent", 900, 600, 30, 20},
+		{"e5000000-0000-0000-0000-000000000003", task3, "certificate_agent", 700, 500, 25, 20},
+		{"e5000000-0000-0000-0000-000000000004", task4, "dr_agent", 500, 400, 18, 9},
+	}
+	for i := range usages {
+		u := &usages[i]
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO llm_usage (id, org_id, user_id, task_id, agent_name, request_id,
+				provider, model, input_tokens, output_tokens,
+				input_cost_cents, output_cost_cents, operation_type, status)
+			VALUES ($1, $2, $3, $4, $5, gen_random_uuid(),
+				'azure_anthropic', 'claude-sonnet-4-5', $6, $7, $8, $9, 'plan_generation', 'success')
+			ON CONFLICT (id) DO NOTHING`,
+			u.id, orchestratorDevOrgID, userID, u.taskID, u.agentName,
+			u.inputTokens, u.outputTokens, u.inputCostCents, u.outputCostCents,
+		); err != nil {
+			return fmt.Errorf("insert llm_usage for %s: %w", u.agentName, err)
+		}
+	}
+
+	return nil
+}
+
+func ptrString(s string) *string { return &s }
