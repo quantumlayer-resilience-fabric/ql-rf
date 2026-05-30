@@ -115,7 +115,7 @@ func run() error {
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=6 sboms=1 sbom_packages=6 ai_tasks=4 ai_plans=4 ai_runs=2 ai_tool_invocations=6 llm_usage=4\n", orgID)
+	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=6 sboms=1 sbom_packages=6 ai_tasks=4 ai_plans=4 ai_runs=2 ai_tool_invocations=6 llm_usage=4 ai_conversations=2 ai_conversation_messages=4\n", orgID)
 	return nil
 }
 
@@ -803,6 +803,88 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 			u.inputTokens, u.outputTokens, u.inputCostCents, u.outputCostCents,
 		); err != nil {
 			return fmt.Errorf("insert llm_usage for %s: %w", u.agentName, err)
+		}
+	}
+
+	// Conversations (Phase B.2 / AI-003). Two seeded threads:
+	//   A — stale (2h old) so it sits outside the 60-min append window. Used
+	//       to verify that the dock fetches the LATEST conversation, not the
+	//       first or oldest.
+	//   B — active (5m old) so it IS the active thread on page load. The dock
+	//       renders B's user + assistant messages above the input.
+	// Tasks 1 and 2 are linked back to A and B respectively via
+	// ai_tasks.conversation_id so the seeded thread maps to real task rows.
+	const (
+		convA = "e6000000-0000-0000-0000-000000000001"
+		convB = "e6000000-0000-0000-0000-000000000002"
+	)
+
+	convSeeds := []struct {
+		id, title string
+		ageMins   int
+	}{
+		{convA, "Patch CVE-2024-3094 (xz backdoor) on production assets", 120},
+		{convB, "Analyze drift across azure production sites", 5},
+	}
+	for i := range convSeeds {
+		c := &convSeeds[i]
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO ai_conversations (id, org_id, created_by, title, state, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, 'active', NOW() - make_interval(mins => $5), NOW() - make_interval(mins => $5))
+			ON CONFLICT (id) DO UPDATE SET
+				updated_at = EXCLUDED.updated_at,
+				title = EXCLUDED.title`,
+			c.id, orchestratorDevOrgID, userID, c.title, c.ageMins,
+		); err != nil {
+			return fmt.Errorf("insert ai_conversation %s: %w", c.id[:8], err)
+		}
+	}
+
+	// Link the seeded tasks to their conversations.
+	if _, err := tx.Exec(ctx,
+		`UPDATE ai_tasks SET conversation_id = $1 WHERE id = $2`,
+		convA, task1,
+	); err != nil {
+		return fmt.Errorf("link task1 to conv A: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE ai_tasks SET conversation_id = $1 WHERE id = $2`,
+		convB, task2,
+	); err != nil {
+		return fmt.Errorf("link task2 to conv B: %w", err)
+	}
+
+	// Messages. Each thread has one user prompt and one assistant summary.
+	// The assistant summaries match the shape of synthesizeAssistantMessage
+	// output so the seeded view looks identical to a live submission.
+	msgSeeds := []struct {
+		id, convID, role, content, taskID string
+		ageMinsOffset                     int
+	}{
+		{"e7000000-0000-0000-0000-000000000001", convA, "user",
+			"Patch CVE-2024-3094 (xz backdoor) on production assets",
+			task1, 120},
+		{"e7000000-0000-0000-0000-000000000002", convA, "assistant",
+			`Drafted plan-only patch_rollout for: "Patch CVE-2024-3094 (xz backdoor) on production assets". Risk: high (HITL required). Quality: 87/100. Awaiting your approval.`,
+			task1, 119},
+		{"e7000000-0000-0000-0000-000000000003", convB, "user",
+			"Analyze drift across azure production sites",
+			task2, 5},
+		{"e7000000-0000-0000-0000-000000000004", convB, "assistant",
+			`Drafted plan-only drift_remediation for: "Analyze drift across azure production sites". Risk: medium. Quality: 92/100. Awaiting your approval.`,
+			task2, 4},
+	}
+	for i := range msgSeeds {
+		m := &msgSeeds[i]
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO ai_conversation_messages (id, conversation_id, role, content, task_id, created_at)
+			VALUES ($1, $2, $3, $4, $5, NOW() - make_interval(mins => $6))
+			ON CONFLICT (id) DO UPDATE SET
+				content = EXCLUDED.content,
+				created_at = EXCLUDED.created_at`,
+			m.id, m.convID, m.role, m.content, m.taskID, m.ageMinsOffset,
+		); err != nil {
+			return fmt.Errorf("insert ai_conversation_message %s: %w", m.id[:8], err)
 		}
 	}
 

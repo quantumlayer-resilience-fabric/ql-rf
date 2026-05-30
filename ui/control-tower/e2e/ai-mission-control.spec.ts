@@ -90,11 +90,14 @@ test.describe("Mission Control (AI-001 Phase A)", () => {
   });
 
   test("should show the seeded pending decision with OPA result and quality score", async ({ page }) => {
-    const main = page.getByRole("main");
-    // The seeded pending task's intent.
-    await expect(
-      main.getByText("Patch CVE-2024-3094 (xz backdoor) on production assets"),
-    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
+    // Scope to the pending rail — the seeded CVE text now also appears in the
+    // activity stream (Phase B.2 conversation event), so a `main.getByText(...)`
+    // would resolve to two elements.
+    const pendingCard = page.locator('[data-testid^="pending-e2"]').first();
+    await expect(pendingCard).toContainText(
+      "Patch CVE-2024-3094 (xz backdoor) on production assets",
+      { timeout: WIDGET_TIMEOUT },
+    );
     // OPA pass + quality 87.
     await expect(page.getByTestId("pending-opa")).toHaveText("pass");
     await expect(page.getByTestId("pending-quality")).toHaveText("87/100");
@@ -111,6 +114,54 @@ test.describe("Mission Control (AI-001 Phase A)", () => {
     const submit = page.getByTestId("conversation-submit");
     await expect(submit).toBeVisible();
     await expect(submit).toBeDisabled();
+  });
+});
+
+test.describe("Mission Control (AI-003 Phase B.2 — conversation thread)", () => {
+  test("submitting a prompt appends to the dock thread", async ({ page }) => {
+    await page.goto("/ai");
+    await expect(
+      page.getByRole("heading", { name: "Mission Control", exact: true }),
+    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    // Unique per-run prompt so successive local runs don't collide on text.
+    const prompt = `Patch CVE-2026-1234 from B.2 thread (e2e ${Date.now()})`;
+
+    const input = page.getByTestId("conversation-input");
+    await input.fill(prompt);
+    await page.getByTestId("conversation-submit").click();
+
+    // The dock thread renders the active conversation. After a submit:
+    //   * the user message bubble shows the submitted text;
+    //   * the assistant bubble shows the server-synthesised summary, which
+    //     for a CVE-keyword prompt always references "patch_rollout" and ends
+    //     with "Awaiting your approval."
+    const thread = page.getByTestId("conversation-thread");
+    await expect(thread).toBeVisible({ timeout: WIDGET_TIMEOUT });
+    await expect(thread.getByText(prompt).first()).toBeVisible({ timeout: 20_000 });
+
+    const assistantBubble = thread.locator('[data-role="assistant"]').last();
+    await expect(assistantBubble).toContainText("patch_rollout", { timeout: 20_000 });
+    await expect(assistantBubble).toContainText("Awaiting your approval", { timeout: 20_000 });
+  });
+
+  test("submitting a prompt surfaces a conversation event in the activity stream", async ({ page }) => {
+    await page.goto("/ai");
+    await expect(
+      page.getByRole("heading", { name: "Mission Control", exact: true }),
+    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    const prompt = `Drift check from B.2 stream (e2e ${Date.now()})`;
+    await page.getByTestId("conversation-input").fill(prompt);
+    await page.getByTestId("conversation-submit").click();
+
+    // Activity stream entries for conversation events have
+    // data-testid="activity-conversation-<message_id>". Message id isn't
+    // known up front, so match by partial selector + visible preview text.
+    const main = page.getByRole("main");
+    await expect(
+      main.locator('[data-testid^="activity-conversation-"]').first(),
+    ).toContainText(prompt.slice(0, 60), { timeout: 20_000 });
   });
 });
 

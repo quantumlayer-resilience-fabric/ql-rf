@@ -15,7 +15,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronRight, Lock, Bot, Activity, Send, Loader2 } from "lucide-react";
-import { useSendAIMessage } from "@/hooks/use-ai";
+import {
+  useSendAIMessage,
+  useLatestConversation,
+  useConversationMessages,
+  type ConversationMessage,
+} from "@/hooks/use-ai";
+import { MessageSquare } from "lucide-react";
 
 // -----------------------------------------------------------------------------
 // Backend types (snake_case) — match
@@ -61,9 +67,26 @@ interface FleetStatus {
   agents: AgentCounts;
   pending_approvals: PendingDecision[];
   recent_invocations: ToolInvocation[];
+  // Phase B.2: unified activity feed. Each event is discriminated by `kind`.
+  recent_activity?: ActivityEvent[];
   tool_invocations_today: number;
   llm_spend_today_cents: number;
   llm_spend_budget_cents: number;
+}
+
+interface ActivityEvent {
+  kind: "tool_invocation" | "conversation_message";
+  task_id?: string;
+  created_at: string;
+  // tool_invocation fields
+  tool_name?: string;
+  risk_level?: string;
+  duration_ms?: number;
+  // conversation_message fields
+  conversation_id?: string;
+  message_id?: string;
+  role?: string;
+  content_preview?: string;
 }
 
 // -----------------------------------------------------------------------------
@@ -370,7 +393,22 @@ function AgentRoster({
 // -----------------------------------------------------------------------------
 
 function ActivityStream({ status }: { status?: FleetStatus }) {
-  const events = status?.recent_invocations ?? [];
+  // Phase B.2: prefer the unified `recent_activity` feed (discriminated by
+  // `kind`). Fall back to the legacy `recent_invocations` shape so the page
+  // keeps rendering during the brief window between an orchestrator deploy
+  // and the next fleet-status poll.
+  const events: ActivityEvent[] =
+    status?.recent_activity && status.recent_activity.length > 0
+      ? status.recent_activity
+      : (status?.recent_invocations ?? []).map((inv) => ({
+          kind: "tool_invocation" as const,
+          task_id: inv.task_id,
+          tool_name: inv.tool_name,
+          risk_level: inv.risk_level,
+          duration_ms: inv.duration_ms,
+          created_at: inv.created_at,
+        }));
+
   return (
     <Card className="h-fit">
       <CardContent className="p-3">
@@ -387,13 +425,35 @@ function ActivityStream({ status }: { status?: FleetStatus }) {
               No recent activity.
             </div>
           ) : (
-            events.map((e) => {
-              const owner = agentByTool[e.tool_name];
+            events.map((e, idx) => {
+              if (e.kind === "conversation_message") {
+                return (
+                  <div
+                    key={`conv-${e.message_id ?? idx}`}
+                    data-testid={`activity-conversation-${e.message_id ?? idx}`}
+                    className="flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted/50"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {e.created_at.slice(11, 16)}
+                      </span>
+                      <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="text-muted-foreground">you</span>
+                      <span className="truncate text-foreground" title={e.content_preview ?? ""}>
+                        {e.content_preview ?? ""}
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+              const toolName = e.tool_name ?? "";
+              const riskLevel = e.risk_level ?? "";
+              const owner = agentByTool[toolName];
               const display = owner ? AGENT_DISPLAY[owner]?.label ?? owner : "—";
               return (
                 <div
-                  key={e.task_id + e.tool_name + e.created_at}
-                  data-testid={`activity-${e.tool_name}`}
+                  key={`tool-${e.task_id ?? ""}-${toolName}-${e.created_at}`}
+                  data-testid={`activity-${toolName}`}
                   className="flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted/50"
                 >
                   <div className="flex min-w-0 items-center gap-3">
@@ -401,11 +461,11 @@ function ActivityStream({ status }: { status?: FleetStatus }) {
                       {e.created_at.slice(11, 16)}
                     </span>
                     <span className="text-muted-foreground">{display}</span>
-                    <span className="font-mono text-foreground">{e.tool_name}</span>
+                    <span className="font-mono text-foreground">{toolName}</span>
                   </div>
                   <div className="flex items-center gap-3 text-xs">
-                    <span className={`uppercase ${riskTone(e.risk_level)}`}>
-                      {e.risk_level.replace(/_/g, " ")}
+                    <span className={`uppercase ${riskTone(riskLevel)}`}>
+                      {riskLevel.replace(/_/g, " ")}
                     </span>
                     {e.duration_ms != null && (
                       <span className="text-muted-foreground">{e.duration_ms}ms</span>
@@ -562,6 +622,16 @@ function ConversationDock() {
   const queryClient = useQueryClient();
   const send = useSendAIMessage();
 
+  // Phase B.2: render the active conversation thread above the input. The
+  // backend decides which conversation is "active" (60-min append window per
+  // user, see services/orchestrator/internal/handlers/conversations.go). The
+  // dock just shows whatever GET /conversations?limit=1 returns. Successive
+  // submits within the window grow the same thread; outside the window a new
+  // conversation starts automatically.
+  const latest = useLatestConversation();
+  const messages = useConversationMessages(latest.data?.id);
+  const thread: ConversationMessage[] = messages.data?.messages ?? [];
+
   // Submit goes through POST /ai/execute. With the stub LLM provider active
   // (Phase B.1), the orchestrator short-circuits to plan-only: a new
   // ai_task + ai_plan in `awaiting_approval` state is created and the fleet
@@ -584,6 +654,39 @@ function ConversationDock() {
   return (
     <Card>
       <CardContent className="p-3">
+        <div
+          data-testid="conversation-thread"
+          className="mb-3 max-h-48 space-y-2 overflow-y-auto rounded-md border border-border/50 bg-muted/20 p-2"
+        >
+          {thread.length === 0 ? (
+            <p
+              data-testid="conversation-empty"
+              className="px-2 py-3 text-center text-xs text-muted-foreground"
+            >
+              Send your first request to start a thread.
+            </p>
+          ) : (
+            thread.map((m) => (
+              <div
+                key={m.id}
+                data-testid={`conversation-message-${m.id}`}
+                data-role={m.role}
+                className={
+                  m.role === "user"
+                    ? "ml-auto max-w-[85%] rounded-md bg-primary/10 px-3 py-2 text-sm text-foreground"
+                    : "mr-auto max-w-[85%] rounded-md bg-background px-3 py-2 text-sm text-foreground"
+                }
+              >
+                {m.role === "assistant" && (
+                  <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Mission Control
+                  </p>
+                )}
+                <p className="whitespace-pre-wrap break-words">{m.content}</p>
+              </div>
+            ))
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <ChevronRight
             className={`h-4 w-4 text-muted-foreground transition-transform ${
