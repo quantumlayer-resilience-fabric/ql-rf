@@ -501,6 +501,37 @@ all land in migration `000019_add_ai_conversations`. The persisted writes —
 task, plan, conversation, both messages — happen inside a single
 `pgx.Tx` (see `executeTask`); a partial commit is impossible by design.
 
+## Approval simulation (Phase B.3)
+
+When `RF_LLM_PROVIDER=stub` is active and a user clicks Approve on a pending
+decision, the orchestrator routes the approval through a deterministic
+in-memory simulator instead of touching Temporal, the executor, or any cloud
+SDK. The simulation creates a real `ai_runs` row, advances it through
+`queued → executing → completed` over ~3 seconds, inserts one synthetic
+`ai_tool_invocations` row per plan phase (always at `risk_level='plan_only'`,
+never `state_change_*`), and writes structured entries to
+`ai_runs.audit_log` at every transition.
+
+Every audit entry carries `"_simulated": true` — a grep target that makes
+synthetic and real runs distinguishable in post-mortems:
+
+```sql
+SELECT id, jsonb_array_length(audit_log) AS entries,
+       audit_log->-1->>'kind' AS last_event
+FROM ai_runs
+WHERE audit_log @> '[{"_simulated": true}]'::jsonb;
+```
+
+The approve response payload also carries `_simulated: true` and a `run_id`.
+Production deployments with a real LLM provider (`RF_LLM_PROVIDER=azure_anthropic`)
+never reach this branch — the existing Temporal-signal + executor path runs
+unchanged. See `services/orchestrator/internal/handlers/approval_simulation.go`
+for the simulator's structural guards.
+
+Rejection follows the same conversation-breadcrumb pattern: a `system`-role
+message ("✗ Rejected by …") is appended to the task's conversation, but no
+`ai_runs` or `ai_tool_invocations` row is ever created for a rejection.
+
 ## License
 
 Copyright © 2024 QuantumLayer. All rights reserved.

@@ -117,6 +117,74 @@ test.describe("Mission Control (AI-001 Phase A)", () => {
   });
 });
 
+test.describe("Mission Control (AI-004 Phase B.3 — approval simulation)", () => {
+  test("approving a pending decision drains it and surfaces a system message", async ({ page }) => {
+    await page.goto("/ai");
+    await expect(
+      page.getByRole("heading", { name: "Mission Control", exact: true }),
+    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    // The seeded pending decision is plan e2000000-...-01 (task1: Patch
+    // CVE-2024-3094). It's the only awaiting_approval plan in the seed.
+    const pendingCard = page.getByTestId("pending-e2000000-0000-0000-0000-000000000001");
+    await expect(pendingCard).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    const pending = page.getByTestId("fleet-pending");
+    const initialText = (await pending.textContent()) ?? "";
+    const initialCount = parseInt(initialText.match(/\d+/)?.[0] ?? "0", 10);
+    const expectedAfter = String(Math.max(0, initialCount - 1));
+
+    await pendingCard
+      .getByTestId("pending-approve-e2000000-0000-0000-0000-000000000001")
+      .click();
+
+    // Pending count drops by 1 — plan transitions out of awaiting_approval.
+    await expect(pending).toContainText(expectedAfter, { timeout: 20_000 });
+
+    // The seeded conversation A (linked to task1) gets a system-role
+    // "✓ Approved by …" bubble.
+    const thread = page.getByTestId("conversation-thread");
+    await expect(thread).toBeVisible({ timeout: WIDGET_TIMEOUT });
+    await expect(
+      thread.locator('[data-role="system"]').first(),
+    ).toContainText("Approved", { timeout: 20_000 });
+  });
+
+  test("rejecting a pending decision drains it and surfaces a system message", async ({ page }) => {
+    await page.goto("/ai");
+    await expect(
+      page.getByRole("heading", { name: "Mission Control", exact: true }),
+    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    // Submit a fresh prompt so we have a non-seeded pending decision to
+    // reject — keeps this test independent of seed state.
+    const prompt = `Drift check from B.3 reject (e2e ${Date.now()})`;
+    await page.getByTestId("conversation-input").fill(prompt);
+    await page.getByTestId("conversation-submit").click();
+
+    // Wait for the new pending card to appear.
+    const main = page.getByRole("main");
+    const newCard = main
+      .locator('[data-testid^="pending-"]')
+      .filter({ hasText: prompt })
+      .first();
+    await expect(newCard).toBeVisible({ timeout: 20_000 });
+
+    const testId = (await newCard.getAttribute("data-testid")) ?? "";
+    const planID = testId.replace("pending-", "");
+    expect(planID).not.toEqual("");
+
+    await newCard.getByTestId(`pending-reject-${planID}`).click();
+
+    // The reject system message ("✗ Rejected by …") lands on the active
+    // conversation (which is the one the prompt just created).
+    const thread = page.getByTestId("conversation-thread");
+    await expect(
+      thread.locator('[data-role="system"]').last(),
+    ).toContainText("Rejected", { timeout: 20_000 });
+  });
+});
+
 test.describe("Mission Control (AI-003 Phase B.2 — conversation thread)", () => {
   test("submitting a prompt appends to the dock thread", async ({ page }) => {
     await page.goto("/ai");

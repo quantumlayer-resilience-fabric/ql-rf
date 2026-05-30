@@ -375,7 +375,13 @@ export function useApproveTask() {
       return response.json();
     },
     onSuccess: () => {
+      // Phase B.3: fan out to fleet status (pending count drops, activity
+      // stream picks up synthetic invocations) and conversations (the
+      // approval system message appears in the dock thread).
       queryClient.invalidateQueries({ queryKey: ["ai-tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "fleet", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "conversations", "latest"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "conversations", "messages"] });
     },
   });
 }
@@ -406,7 +412,12 @@ export function useRejectTask() {
       return response.json();
     },
     onSuccess: () => {
+      // Phase B.3: same fan-out as approve so the dock thread + fleet status
+      // refresh immediately rather than waiting on the 15s poll.
       queryClient.invalidateQueries({ queryKey: ["ai-tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "fleet", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "conversations", "latest"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "conversations", "messages"] });
     },
   });
 }
