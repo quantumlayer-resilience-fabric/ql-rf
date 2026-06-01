@@ -740,15 +740,22 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		{"kind":"simulated_complete","_simulated":true,"real_changes":false,"tool_invocations":3,"ts":"2026-05-30T09:00:05Z"}
 	]`
 
+	// phases_completed and phases_remaining are populated so phases_total
+	// (derived in the GET /runs query) reports the true plan length, not
+	// just current_phase=1. The B.3 simulator keeps these in sync per run;
+	// the seed mirrors that contract for the two seeded runs.
 	runs := []struct {
 		id, planID, taskID, state, phase, auditLog string
+		phasesCompleted, phasesRemaining           string
 		percent                                    int
 		completed                                  bool
 	}{
 		{"e3000000-0000-0000-0000-000000000001",
-			"e2000000-0000-0000-0000-000000000002", task2, "executing", "canary", executingAudit, 50, false},
+			"e2000000-0000-0000-0000-000000000002", task2, "executing", "canary", executingAudit,
+			`[]`, `["monitor","full_rollout"]`, 50, false},
 		{"e3000000-0000-0000-0000-000000000002",
-			"e2000000-0000-0000-0000-000000000003", task3, "completed", "cutover", completedAudit, 100, true},
+			"e2000000-0000-0000-0000-000000000003", task3, "completed", "", completedAudit,
+			`["issue","stage","cutover"]`, `[]`, 100, true},
 	}
 	for i := range runs {
 		r := &runs[i]
@@ -759,14 +766,19 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO ai_runs (id, plan_id, task_id, environment, initiated_by,
-				current_phase, percent_complete, state, audit_log, started_at, completed_at)
-			VALUES ($1, $2, $3, 'production', $4, $5, $6, $7, $8::jsonb, NOW(), $9)
+				current_phase, phases_completed, phases_remaining, percent_complete,
+				state, audit_log, started_at, completed_at)
+			VALUES ($1, $2, $3, 'production', $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10::jsonb, NOW(), $11)
 			ON CONFLICT (id) DO UPDATE SET
 				state = EXCLUDED.state, current_phase = EXCLUDED.current_phase,
+				phases_completed = EXCLUDED.phases_completed,
+				phases_remaining = EXCLUDED.phases_remaining,
 				percent_complete = EXCLUDED.percent_complete,
 				audit_log = EXCLUDED.audit_log,
 				completed_at = EXCLUDED.completed_at`,
-			r.id, r.planID, r.taskID, userID, r.phase, r.percent, r.state, r.auditLog, completedAt,
+			r.id, r.planID, r.taskID, userID, r.phase,
+			r.phasesCompleted, r.phasesRemaining, r.percent, r.state,
+			r.auditLog, completedAt,
 		); err != nil {
 			return fmt.Errorf("insert ai_run for %s: %w", r.taskID[:8], err)
 		}
@@ -784,24 +796,42 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 // $1.82). Extracted from seedMissionControl so the parent stays under
 // golangci-lint's cyclomatic-complexity ceiling.
 func seedMissionControlToolsAndUsage(ctx context.Context, tx pgx.Tx, userID, task1, task2, task3, task4 string) error {
+	// Run IDs from seedMissionControl runs block — task2 → executing run,
+	// task3 → completed run. task1 has no run (it's still awaiting_approval).
+	// PR #16: link the per-task invocations to their runs so the audit
+	// timeline renders the tool invocations under each phase_complete entry.
+	const (
+		runTask2 = "e3000000-0000-0000-0000-000000000001"
+		runTask3 = "e3000000-0000-0000-0000-000000000002"
+	)
 	invocations := []struct {
-		id, taskID, toolName, risk string
-		durationMs                 int
+		id, taskID, runID, toolName, risk string
+		durationMs                        int
 	}{
-		{"e4000000-0000-0000-0000-000000000001", task1, "list_cve_alerts", "read_only", 110},
-		{"e4000000-0000-0000-0000-000000000002", task1, "calculate_blast_radius", "read_only", 230},
-		{"e4000000-0000-0000-0000-000000000003", task2, "query_assets", "read_only", 80},
-		{"e4000000-0000-0000-0000-000000000004", task2, "analyze_drift", "read_only", 450},
-		{"e4000000-0000-0000-0000-000000000005", task3, "list_certificates", "read_only", 95},
-		{"e4000000-0000-0000-0000-000000000006", task3, "propose_cert_rotation", "plan_only", 320},
+		{"e4000000-0000-0000-0000-000000000001", task1, "", "list_cve_alerts", "read_only", 110},
+		{"e4000000-0000-0000-0000-000000000002", task1, "", "calculate_blast_radius", "read_only", 230},
+		{"e4000000-0000-0000-0000-000000000003", task2, runTask2, "query_assets", "read_only", 80},
+		{"e4000000-0000-0000-0000-000000000004", task2, runTask2, "analyze_drift", "read_only", 450},
+		{"e4000000-0000-0000-0000-000000000005", task3, runTask3, "list_certificates", "read_only", 95},
+		{"e4000000-0000-0000-0000-000000000006", task3, runTask3, "propose_cert_rotation", "plan_only", 320},
 	}
 	for i := range invocations {
 		v := &invocations[i]
+		var runID any
+		if v.runID != "" {
+			runID = v.runID
+		}
+		// Refresh `created_at` on every seed run so fleet_status's "today"
+		// tool-invocations counter (`WHERE created_at::date = CURRENT_DATE`)
+		// keeps reporting the seeded baseline of 6.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO ai_tool_invocations (id, task_id, tool_name, risk_level, duration_ms)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (id) DO NOTHING`,
-			v.id, v.taskID, v.toolName, v.risk, v.durationMs,
+			INSERT INTO ai_tool_invocations (id, task_id, run_id, tool_name, risk_level, duration_ms, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, NOW())
+			ON CONFLICT (id) DO UPDATE SET
+				run_id = EXCLUDED.run_id,
+				duration_ms = EXCLUDED.duration_ms,
+				created_at = NOW()`,
+			v.id, v.taskID, runID, v.toolName, v.risk, v.durationMs,
 		); err != nil {
 			return fmt.Errorf("insert ai_tool_invocation %s: %w", v.toolName, err)
 		}
@@ -822,13 +852,18 @@ func seedMissionControlToolsAndUsage(ctx context.Context, tx pgx.Tx, userID, tas
 	}
 	for i := range usages {
 		u := &usages[i]
+		// Refresh `timestamp` on every seed run so the "today" counter on
+		// fleet status (`WHERE timestamp::date = CURRENT_DATE`) keeps reporting
+		// the seeded $1.82 spend regardless of how many days the row has been
+		// in the DB. Previously the row used ON CONFLICT DO NOTHING and the
+		// counter drained to 0 after the first day.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO llm_usage (id, org_id, user_id, task_id, agent_name, request_id,
 				provider, model, input_tokens, output_tokens,
-				input_cost_cents, output_cost_cents, operation_type, status)
+				input_cost_cents, output_cost_cents, operation_type, status, timestamp)
 			VALUES ($1, $2, $3, $4, $5, gen_random_uuid(),
-				'azure_anthropic', 'claude-sonnet-4-5', $6, $7, $8, $9, 'plan_generation', 'success')
-			ON CONFLICT (id) DO NOTHING`,
+				'azure_anthropic', 'claude-sonnet-4-5', $6, $7, $8, $9, 'plan_generation', 'success', NOW())
+			ON CONFLICT (id) DO UPDATE SET timestamp = NOW()`,
 			u.id, orchestratorDevOrgID, userID, u.taskID, u.agentName,
 			u.inputTokens, u.outputTokens, u.inputCostCents, u.outputCostCents,
 		); err != nil {
