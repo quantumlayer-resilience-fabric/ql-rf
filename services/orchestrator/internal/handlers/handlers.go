@@ -136,6 +136,10 @@ func (h *Handler) Router() http.Handler {
 			r.Get("/conversations", h.listConversations)
 			r.Get("/conversations/{conversationID}/messages", h.getConversationMessages)
 
+			// Run detail / audit timeline (PR #16 / UX-001).
+			r.Get("/runs", h.listRuns)
+			r.Get("/runs/{runID}", h.getRun)
+
 			// Task execution - requires execute:ai-tasks permission
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequirePermission(models.PermExecuteAITasks))

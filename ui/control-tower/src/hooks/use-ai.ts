@@ -322,6 +322,108 @@ export function useLatestConversation() {
   });
 }
 
+// =============================================================================
+// Recent runs + audit timeline (PR #16 / UX-001)
+// =============================================================================
+
+export interface RunSummary {
+  id: string;
+  task_id: string;
+  plan_id: string;
+  user_intent: string;
+  plan_type: string;
+  state: "queued" | "executing" | "paused" | "completed" | "rolled_back" | "failed";
+  current_phase: string;
+  percent_complete: number;
+  environment: string;
+  phases_total: number;
+  started_at?: string;
+  completed_at?: string;
+  updated_at: string;
+  simulated: boolean;
+}
+
+export interface RunAuditEntry {
+  ts: string;
+  kind: string; // "approved" | "started" | "phase_complete" | "simulated_complete" | future kinds
+  _simulated?: boolean;
+  // kind-specific fields are open: by, reason, phase, tool, duration_ms,
+  // tool_invocations, real_changes, run_id, ...
+  [key: string]: unknown;
+}
+
+export interface RunToolInvocationDetail {
+  id: string;
+  tool_name: string;
+  risk_level: string;
+  duration_ms?: number;
+  parameters?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error?: string;
+  created_at: string;
+}
+
+export interface RunDetail extends RunSummary {
+  audit_log: RunAuditEntry[];
+  phases_completed: string[];
+  phases_remaining: string[];
+  metrics?: Record<string, unknown>;
+  error?: string;
+}
+
+interface RunDetailResponse {
+  run: RunDetail;
+  tool_invocations: RunToolInvocationDetail[];
+}
+
+/**
+ * Hook to fetch the caller's most-recent runs (default 5, max 50). The
+ * Mission Control "Recent runs" rail uses this. Polls fast (2s) while any
+ * run is in-flight, slows to 15s once everything is settled — so the rail
+ * animates during a simulation but stays cheap when idle.
+ */
+export function useRecentRuns(limit = 5) {
+  const { getToken } = useAuth();
+  return useQuery<RunSummary[]>({
+    queryKey: ["ai", "runs", "recent", limit],
+    queryFn: async () => {
+      const r = await orchestratorFetch(`/api/v1/ai/runs?limit=${limit}`, {}, getToken);
+      if (!r.ok) throw new Error(`Failed to fetch runs: ${r.status}`);
+      const data = await r.json();
+      return (data.runs ?? []) as RunSummary[];
+    },
+    refetchInterval: (q) => {
+      const runs = (q.state.data ?? []) as RunSummary[];
+      const anyInFlight = runs.some((r) => r.state === "queued" || r.state === "executing");
+      return anyInFlight ? 2000 : 15000;
+    },
+  });
+}
+
+/**
+ * Hook to fetch a single run's full detail (audit_log + tool invocations).
+ * The dock's run-card expansion uses this. Polls 2s while in-flight, 30s
+ * once settled. `enabled: !!runID` skips the request when no run is selected.
+ */
+export function useRun(runID?: string) {
+  const { getToken } = useAuth();
+  return useQuery<RunDetailResponse | null>({
+    queryKey: ["ai", "runs", "detail", runID ?? "none"],
+    queryFn: async () => {
+      if (!runID) return null;
+      const r = await orchestratorFetch(`/api/v1/ai/runs/${runID}`, {}, getToken);
+      if (!r.ok) throw new Error(`Failed to fetch run: ${r.status}`);
+      return r.json();
+    },
+    enabled: !!runID,
+    refetchInterval: (q) => {
+      const run = (q.state.data as RunDetailResponse | null)?.run;
+      if (!run) return 15000;
+      return run.state === "queued" || run.state === "executing" ? 2000 : 30000;
+    },
+  });
+}
+
 /**
  * Hook to fetch the messages of a specific conversation. The dock chains this
  * after useLatestConversation. `enabled: !!id` skips the request when there
@@ -378,10 +480,13 @@ export function useApproveTask() {
       // Phase B.3: fan out to fleet status (pending count drops, activity
       // stream picks up synthetic invocations) and conversations (the
       // approval system message appears in the dock thread).
+      // PR #16: invalidate recent runs so the new run card appears in the
+      // rail immediately rather than waiting for the 2s/15s poll.
       queryClient.invalidateQueries({ queryKey: ["ai-tasks"] });
       queryClient.invalidateQueries({ queryKey: ["ai", "fleet", "status"] });
       queryClient.invalidateQueries({ queryKey: ["ai", "conversations", "latest"] });
       queryClient.invalidateQueries({ queryKey: ["ai", "conversations", "messages"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "runs", "recent"] });
     },
   });
 }

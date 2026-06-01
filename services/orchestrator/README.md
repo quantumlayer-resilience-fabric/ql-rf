@@ -532,6 +532,22 @@ Rejection follows the same conversation-breadcrumb pattern: a `system`-role
 message ("✗ Rejected by …") is appended to the task's conversation, but no
 `ai_runs` or `ai_tool_invocations` row is ever created for a rejection.
 
+## Run detail (PR #16)
+
+Two new read-only endpoints surface the `ai_runs.audit_log` evidence ledger
+in Mission Control:
+
+- `GET /api/v1/ai/runs?limit=N` — recent runs for the caller's org (default 5,
+  max 50), ordered by `updated_at DESC` across all lifecycle states. Powers
+  the "Recent runs" rail.
+- `GET /api/v1/ai/runs/{runID}` — single run with full `audit_log`, phase
+  trackers, metrics, and joined `ai_tool_invocations`. 404 on cross-org
+  access (same isolation pattern as `getConversationMessages`).
+
+Both endpoints are read-only and additive; they do not modify any state.
+The frontend rail polls at 2s while any run is in-flight and 15s otherwise —
+so the dashboard animates during a B.3 simulation but stays cheap when idle.
+
 ## License
 
 Copyright © 2024 QuantumLayer. All rights reserved.

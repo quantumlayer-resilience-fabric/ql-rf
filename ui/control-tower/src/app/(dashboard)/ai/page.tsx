@@ -14,14 +14,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChevronRight, Lock, Bot, Activity, Send, Loader2 } from "lucide-react";
+import { ChevronRight, Lock, Bot, Activity, Send, Loader2, ListChecks, CheckCircle2, PlayCircle, Hourglass, Wrench } from "lucide-react";
 import {
   useSendAIMessage,
   useLatestConversation,
   useConversationMessages,
   useApproveTask,
   useRejectTask,
+  useRecentRuns,
+  useRun,
   type ConversationMessage,
+  type RunSummary,
+  type RunAuditEntry,
 } from "@/hooks/use-ai";
 import { MessageSquare } from "lucide-react";
 
@@ -606,6 +610,8 @@ function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
         </CardContent>
       </Card>
 
+      <RecentRunsRail />
+
       <Card>
         <CardContent className="p-3">
           <div className="mb-2 flex items-center justify-between px-1 text-xs uppercase tracking-wider text-muted-foreground">
@@ -649,6 +655,265 @@ function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
       </Card>
     </div>
   );
+}
+
+// -----------------------------------------------------------------------------
+// Recent runs rail + audit timeline (PR #16 / UX-001)
+//   * RecentRunsRail polls /api/v1/ai/runs at 2s/15s depending on whether any
+//     run is in-flight. Renders up to 5 RunCards.
+//   * RunCard is an expandable mini-card showing a state badge + current
+//     phase + relative time. data-state attribute exposes the lifecycle
+//     state for E2E selectors.
+//   * RunAuditTimeline fetches /api/v1/ai/runs/{id} and renders the
+//     interleaved audit_log + tool_invocation timeline. Read-only.
+// -----------------------------------------------------------------------------
+
+function RecentRunsRail() {
+  const runs = useRecentRuns(5);
+  const [expandedRunID, setExpandedRunID] = useState<string | null>(null);
+  const list = runs.data ?? [];
+
+  return (
+    <Card>
+      <CardContent className="p-3">
+        <div className="mb-2 flex items-center justify-between px-1 text-xs uppercase tracking-wider text-muted-foreground">
+          <span className="flex items-center gap-2">
+            <ListChecks className="h-3.5 w-3.5" />
+            Recent runs
+          </span>
+          <span data-testid="recent-runs-count">{list.length}</span>
+        </div>
+        <div className="space-y-1">
+          {list.length === 0 ? (
+            <div
+              data-testid="recent-runs-empty"
+              className="px-3 py-6 text-center text-sm text-muted-foreground"
+            >
+              No runs yet. Approve a pending decision to start one.
+            </div>
+          ) : (
+            list.map((r) => (
+              <RunCard
+                key={r.id}
+                run={r}
+                expanded={expandedRunID === r.id}
+                onToggle={() =>
+                  setExpandedRunID(expandedRunID === r.id ? null : r.id)
+                }
+              />
+            ))
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RunCard({
+  run,
+  expanded,
+  onToggle,
+}: {
+  run: RunSummary;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      data-testid={`run-${run.id}`}
+      data-state={run.state}
+      className="rounded-md border bg-card"
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        data-testid={`run-toggle-${run.id}`}
+        className="flex w-full items-center justify-between gap-2 p-3 text-left hover:bg-muted/40"
+      >
+        <div className="min-w-0 flex-1">
+          <div
+            className="truncate text-sm font-medium text-foreground"
+            title={run.user_intent}
+          >
+            {run.user_intent || "(no intent)"}
+          </div>
+          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+            <RunStateBadge state={run.state} />
+            {run.state === "executing" && run.current_phase && (
+              <span>phase: {run.current_phase}</span>
+            )}
+            <span>{describeProgress(run)}</span>
+            <span>{relativeTime(run.updated_at)}</span>
+          </div>
+        </div>
+        <ChevronRight
+          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
+            expanded ? "rotate-90" : ""
+          }`}
+        />
+      </button>
+      {expanded && <RunAuditTimeline runID={run.id} />}
+    </div>
+  );
+}
+
+function RunAuditTimeline({ runID }: { runID: string }) {
+  const { data, isLoading, error } = useRun(runID);
+
+  if (isLoading) {
+    return (
+      <div className="border-t bg-muted/10 p-3 text-xs text-muted-foreground">
+        Loading…
+      </div>
+    );
+  }
+  if (error || !data) {
+    return (
+      <div
+        data-testid={`run-timeline-error-${runID}`}
+        className="border-t bg-muted/10 p-3 text-xs text-status-red"
+      >
+        Failed to load run.
+      </div>
+    );
+  }
+
+  const { run, tool_invocations } = data;
+  // Tool invocations are inserted 1:1 per phase by the B.3 simulator, ordered
+  // by created_at. We walk the audit_log in order and attach the next pending
+  // invocation under each phase_complete entry. If a future writer breaks the
+  // 1:1, the timeline gracefully misaligns (best-effort UX, not a correctness
+  // invariant).
+  let invIdx = 0;
+
+  return (
+    <div
+      data-testid={`run-timeline-${run.id}`}
+      className="border-t bg-muted/10 p-3 text-xs"
+    >
+      <ol className="space-y-2">
+        {run.audit_log.map((entry, i) => {
+          const ts = formatTimestamp(String(entry.ts ?? ""));
+          const kind = String(entry.kind ?? "");
+          const inv =
+            kind === "phase_complete" ? tool_invocations[invIdx++] : null;
+          return (
+            <li
+              key={i}
+              data-testid={`audit-${run.id}-${i}`}
+              data-kind={kind}
+              className="flex flex-col gap-1"
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-muted-foreground">{ts}</span>
+                <KindIcon kind={kind} />
+                <span className="text-foreground">{describeAuditEntry(entry)}</span>
+              </div>
+              {inv && (
+                <div className="ml-10 flex items-center gap-2 rounded-sm border bg-card px-2 py-1">
+                  <Wrench className="h-3 w-3 text-muted-foreground" />
+                  <span className="font-mono">{inv.tool_name}</span>
+                  <span className={`uppercase ${riskTone(inv.risk_level)}`}>
+                    {inv.risk_level.replace(/_/g, " ")}
+                  </span>
+                  {inv.duration_ms != null && (
+                    <span className="text-muted-foreground">{inv.duration_ms}ms</span>
+                  )}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      {run.simulated && (
+        <p className="mt-3 text-[10px] uppercase tracking-wider text-muted-foreground">
+          Simulated run — no real infrastructure changes.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Run rendering helpers — pure functions, no DOM, no new deps.
+// -----------------------------------------------------------------------------
+
+function RunStateBadge({ state }: { state: RunSummary["state"] }) {
+  const tone =
+    state === "completed"
+      ? "text-status-green"
+      : state === "executing"
+      ? "text-status-amber"
+      : state === "queued"
+      ? "text-muted-foreground"
+      : state === "failed" || state === "rolled_back"
+      ? "text-status-red"
+      : "text-muted-foreground";
+  return <span className={`font-medium uppercase ${tone}`}>{state}</span>;
+}
+
+function KindIcon({ kind }: { kind: string }) {
+  const cls = "h-3.5 w-3.5 shrink-0";
+  switch (kind) {
+    case "approved":
+      return <CheckCircle2 className={`${cls} text-status-green`} />;
+    case "started":
+      return <PlayCircle className={`${cls} text-status-amber`} />;
+    case "phase_complete":
+      return <CheckCircle2 className={`${cls} text-muted-foreground`} />;
+    case "simulated_complete":
+      return <CheckCircle2 className={`${cls} text-status-green`} />;
+    default:
+      // Unknown kinds (forward-compatible for future real-run event shapes).
+      return <Hourglass className={`${cls} text-muted-foreground`} />;
+  }
+}
+
+function describeAuditEntry(entry: RunAuditEntry): string {
+  const kind = String(entry.kind ?? "");
+  switch (kind) {
+    case "approved":
+      return entry.by ? `approved by ${String(entry.by).slice(0, 8)}…` : "approved";
+    case "started":
+      return "started";
+    case "phase_complete": {
+      const phase = entry.phase ? String(entry.phase) : "phase";
+      return `phase ${phase} completed`;
+    }
+    case "simulated_complete": {
+      const n = typeof entry.tool_invocations === "number" ? entry.tool_invocations : 0;
+      return `simulated complete · ${n} invocation${n === 1 ? "" : "s"} · no real changes`;
+    }
+    default:
+      return kind || "(unknown event)";
+  }
+}
+
+function describeProgress(run: RunSummary): string {
+  if (run.state === "completed") return `${run.phases_total} phase${run.phases_total === 1 ? "" : "s"}`;
+  if (run.state === "executing") return `${run.percent_complete}%`;
+  if (run.state === "queued") return "queued";
+  return run.state;
+}
+
+function relativeTime(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const diffSec = Math.round((Date.now() - d.getTime()) / 1000);
+  if (diffSec < 5) return "just now";
+  if (diffSec < 60) return `${diffSec}s ago`;
+  if (diffSec < 3600) return `${Math.round(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.round(diffSec / 3600)}h ago`;
+  return d.toLocaleDateString();
+}
+
+function formatTimestamp(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  // HH:MM:SS in local time — keeps the timeline compact.
+  return d.toLocaleTimeString([], { hour12: false });
 }
 
 // -----------------------------------------------------------------------------

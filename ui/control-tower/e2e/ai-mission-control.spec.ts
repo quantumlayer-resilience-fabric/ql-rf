@@ -117,6 +117,83 @@ test.describe("Mission Control (AI-001 Phase A)", () => {
   });
 });
 
+test.describe("Mission Control (UX-001 — recent runs rail + audit timeline)", () => {
+  test("seeded completed run appears in the recent runs rail and expands to show audit timeline", async ({ page }) => {
+    await page.goto("/ai");
+    await expect(
+      page.getByRole("heading", { name: "Mission Control", exact: true }),
+    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    // The seed inserts one completed run (task3) and one executing run (task2).
+    // We pick the completed one for the expansion assertions because its
+    // audit_log is fully populated (6 entries).
+    const completedRun = page
+      .locator('[data-testid^="run-"][data-state="completed"]')
+      .first();
+    await expect(completedRun).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    // Extract the run id from the testid so the expand-button selector works.
+    const testId = (await completedRun.getAttribute("data-testid")) ?? "";
+    const runID = testId.replace("run-", "");
+    expect(runID).not.toEqual("");
+
+    // Click the toggle to expand the timeline.
+    await page.getByTestId(`run-toggle-${runID}`).click();
+
+    const timeline = page.getByTestId(`run-timeline-${runID}`);
+    await expect(timeline).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    // The seeded completed audit log has 6 entries: approved + started +
+    // 3 × phase_complete + simulated_complete. Spot-check the kinds.
+    await expect(timeline.locator('[data-kind="approved"]')).toHaveCount(1);
+    await expect(timeline.locator('[data-kind="started"]')).toHaveCount(1);
+    await expect(timeline.locator('[data-kind="phase_complete"]')).toHaveCount(3);
+    await expect(timeline.locator('[data-kind="simulated_complete"]')).toHaveCount(1);
+
+    // The simulated-run footer is visible.
+    await expect(timeline).toContainText("Simulated run", { timeout: WIDGET_TIMEOUT });
+  });
+
+  test("approving a freshly-submitted prompt creates a new run card that reaches completed", async ({ page }) => {
+    // Submit a fresh prompt so we don't compete with other tests for the
+    // single seeded pending decision (task1). The reject test in the B.3
+    // block does the same; both stay independent of seed mutation order.
+    await page.goto("/ai");
+    await expect(
+      page.getByRole("heading", { name: "Mission Control", exact: true }),
+    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    const prompt = `Patch CVE-2026-9999 for run-card test (e2e ${Date.now()})`;
+    await page.getByTestId("conversation-input").fill(prompt);
+    await page.getByTestId("conversation-submit").click();
+
+    // Wait for the new pending card to appear, then approve it.
+    const main = page.getByRole("main");
+    const newPending = main
+      .locator('[data-testid^="pending-"]')
+      .filter({ hasText: prompt })
+      .first();
+    await expect(newPending).toBeVisible({ timeout: 20_000 });
+    const planTestId = (await newPending.getAttribute("data-testid")) ?? "";
+    const planID = planTestId.replace("pending-", "");
+    expect(planID).not.toEqual("");
+    await newPending.getByTestId(`pending-approve-${planID}`).click();
+
+    // A new run card should appear keyed by the unique prompt text.
+    const newRun = page
+      .locator('[data-testid^="run-"]')
+      .filter({ hasText: prompt })
+      .first();
+    await expect(newRun).toBeVisible({ timeout: 20_000 });
+
+    // The simulator runs ~3s; the rail's 2s in-flight poll catches the
+    // completed transition within 30s for safety.
+    await expect(newRun).toHaveAttribute("data-state", "completed", {
+      timeout: 30_000,
+    });
+  });
+});
+
 test.describe("Mission Control (AI-004 Phase B.3 — approval simulation)", () => {
   test("approving a pending decision drains it and surfaces a system message", async ({ page }) => {
     await page.goto("/ai");
