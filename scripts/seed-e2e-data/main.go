@@ -884,7 +884,7 @@ func seedMissionControlToolsAndUsage(ctx context.Context, tx pgx.Tx, userID, tas
 //	    CVE?" confusion in the first 30 seconds of the demo.
 //	B — stale (2h old). Linked to task2 (drift). Kept stale so the seed
 //	    still exercises the B.2 60-min append window's "stale conversation
-//	    exists but isn't surfaced" behaviour.
+//	    exists but isn't surfaced" behavior.
 //
 // Tasks 1 and 2 are linked back to A and B respectively via
 // ai_tasks.conversation_id so the seeded thread maps to real task rows.
