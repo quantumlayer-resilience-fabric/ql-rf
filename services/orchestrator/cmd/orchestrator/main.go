@@ -107,6 +107,13 @@ func run() error {
 	// serves fake data.
 	registerAWSCloudTools(ctx, cfg, toolRegistry, log)
 
+	// PR #20 / CONN-002: register the state-change SSM patch tool in
+	// dry-run mode. Neither the real nor mock SSM client makes any network
+	// call (the SDK isn't even imported in this PR's code), so this is
+	// safe to register unconditionally. Live mode lands as a follow-up
+	// PR with explicit env opt-in.
+	registerSSMStateChangeTools(cfg, toolRegistry, log)
+
 	// Initialize agent registry
 	agentRegistry := agents.NewRegistry(llmClient, toolRegistry, validator, log)
 	log.Info("initialized agent registry", "agents", agentRegistry.ListAgents())
@@ -492,4 +499,35 @@ func registerAWSCloudTools(
 		"fallback_reason", realErr.Error(),
 	)
 	reg.RegisterCloudTools(tools.NewMockAWSClient())
+}
+
+// registerSSMStateChangeTools is the PR #20 / CONN-002 boot hook for the
+// state-change cloud surface. Registers ssm_send_patch_command in dry-run
+// mode. Both the "real" and "mock" SSM clients in PR #20 make ZERO network
+// calls — the SDK isn't imported in this PR's code, enforced by a depguard
+// rule in .golangci.yml. So registration is unconditional and safe.
+//
+// The mock client is more aggressive (returns a fixed two-instance plan
+// regardless of input); the real client validates instance IDs strictly.
+// CI uses mock (via fallback_to_mock); dev with creds uses real.
+//
+// PR #21 will introduce a separate `live_ssm_client.go` that DOES import
+// the SDK and exposes a Send method, gated by env opt-in + per-instance
+// whitelist + two-approver workflow.
+func registerSSMStateChangeTools(
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	var ssmClient tools.SSMClient
+	if cfg.Connectors.AWS.FallbackToMock {
+		log.Warn("ssm tools: MOCK CLIENT ACTIVE — patch plans use fixed i-mock-* instance IDs. DO NOT USE IN PRODUCTION.",
+			"reason", "RF_CONNECTORS_AWS_FALLBACK_TO_MOCK=true",
+		)
+		ssmClient = tools.NewMockSSMClient()
+	} else {
+		ssmClient = tools.NewRealSSMClient(log)
+		log.Info("ssm tools: real client initialized (dry-run only in PR #20)")
+	}
+	reg.RegisterStateChangeTools(ssmClient)
 }

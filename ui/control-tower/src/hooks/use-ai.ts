@@ -342,6 +342,42 @@ interface InvokeToolParams {
 }
 
 /**
+ * Hook to dry-run a state-change tool. Backend enforces that only tools
+ * with risk_level in {"state_change_nonprod", "state_change_prod"} can use
+ * this path; read-only and plan-only return 403. The result lands as a
+ * real (non-simulated) ai_tool_invocations row with a dry_run:true marker
+ * in the parameters/result JSONB.
+ *
+ * PR #20 / CONN-002 — no live SSM SendCommand fires from this code path.
+ */
+export function useDryRunTool() {
+  const queryClient = useQueryClient();
+  const { getToken } = useAuth();
+
+  return useMutation<InvokeToolResponse, Error, InvokeToolParams>({
+    mutationFn: async ({ toolName, params }) => {
+      const response = await orchestratorFetch(
+        `/api/v1/ai/tools/${encodeURIComponent(toolName)}/dry-run`,
+        {
+          method: "POST",
+          body: JSON.stringify({ params: params ?? {} }),
+        },
+        getToken
+      );
+      if (!response.ok) {
+        const errData = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(errData.error ?? `Dry-run failed: ${response.status}`);
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai", "fleet", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "runs", "recent"] });
+    },
+  });
+}
+
+/**
  * Hook to invoke a read-only tool directly. Backend enforces that only tools
  * with risk_level === "read_only" can be invoked this way; state-change
  * tools return 403. The result lands as a real (non-simulated)
