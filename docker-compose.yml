@@ -267,6 +267,21 @@ services:
       - RF_OPA_URL=http://opa:8181
       - RF_TEMPORAL_HOST=temporal
       - RF_TEMPORAL_PORT=7233
+      # PR #19 / CONN-001 — AWS real-tool config.
+      #   * RF_CONNECTORS_AWS_FALLBACK_TO_MOCK defaults to true for local dev
+      #     so query_aws_instances is registered (with mock data) even
+      #     without AWS credentials. MUST be false in production.
+      #   * Standard AWS SDK env vars (AWS_REGION, AWS_ACCESS_KEY_ID, etc.)
+      #     pass through from .env when present.
+      - RF_CONNECTORS_AWS_REGION=${RF_CONNECTORS_AWS_REGION:-us-east-1}
+      - RF_CONNECTORS_AWS_ASSUME_ROLE_ARN=${RF_CONNECTORS_AWS_ASSUME_ROLE_ARN:-}
+      - RF_CONNECTORS_AWS_ASSUME_ROLE_EXTERNAL_ID=${RF_CONNECTORS_AWS_ASSUME_ROLE_EXTERNAL_ID:-}
+      - RF_CONNECTORS_AWS_FALLBACK_TO_MOCK=${RF_CONNECTORS_AWS_FALLBACK_TO_MOCK:-true}
+      - AWS_REGION=${AWS_REGION:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+      - AWS_PROFILE=${AWS_PROFILE:-}
     ports:
       - "8083:8083"
     healthcheck:

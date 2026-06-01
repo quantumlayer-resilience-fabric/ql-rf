@@ -117,6 +117,38 @@ test.describe("Mission Control (AI-001 Phase A)", () => {
   });
 });
 
+test.describe("Mission Control (CONN-001 — real tools panel)", () => {
+  test("invoking query_aws_instances inserts a real (non-simulated) row in the activity stream", async ({ page }) => {
+    await page.goto("/ai");
+    await expect(
+      page.getByRole("heading", { name: "Mission Control", exact: true }),
+    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    // The orchestrator boots with RF_CONNECTORS_AWS_FALLBACK_TO_MOCK=true in
+    // CI so query_aws_instances is registered with the mock client. The
+    // Real tools card is visible and the Invoke button is enabled.
+    const card = page.getByTestId("real-tools-query_aws_instances");
+    await expect(card).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    await card.getByTestId("real-tools-invoke-query_aws_instances").click();
+
+    // Within 20s the invocation lands in the activity stream as a
+    // tool_invocation row keyed by tool name. Same data-testid pattern as
+    // simulated invocations — the safety distinction lives in the DB
+    // (no _simulated marker), not in the test selector.
+    const stream = page.getByRole("main");
+    await expect(
+      stream.locator('[data-testid="activity-query_aws_instances"]').first(),
+    ).toBeVisible({ timeout: 20_000 });
+
+    // Inline result text confirms the invocation completed (the mock client
+    // returns 2 instances).
+    await expect(
+      page.getByTestId("real-tools-result-query_aws_instances"),
+    ).toContainText(/Got 2 result|Completed in/, { timeout: 20_000 });
+  });
+});
+
 test.describe("Mission Control (UX-001 — recent runs rail + audit timeline)", () => {
   test("seeded completed run appears in the recent runs rail and expands to show audit timeline", async ({ page }) => {
     await page.goto("/ai");

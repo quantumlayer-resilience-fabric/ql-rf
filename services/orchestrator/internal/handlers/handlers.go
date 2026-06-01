@@ -144,6 +144,10 @@ func (h *Handler) Router() http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequirePermission(models.PermExecuteAITasks))
 				r.Post("/execute", h.executeTask)
+				// PR #19 / CONN-001: ad-hoc tool invocation (read_only only).
+				// State-change tools cannot be invoked via this endpoint —
+				// they must flow through the approval pipeline.
+				r.Post("/tools/{toolName}/invoke", h.invokeTool)
 			})
 
 			// Task approval/rejection - requires approve:ai-tasks permission

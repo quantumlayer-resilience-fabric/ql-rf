@@ -100,6 +100,13 @@ func run() error {
 	toolRegistry := tools.NewRegistry(db.Pool, log)
 	log.Info("initialized tool registry", "tools", toolRegistry.ListTools())
 
+	// PR #19 / CONN-001: register real AWS tools when credentials are
+	// available, with optional fallback to a deterministic mock client for
+	// dev/CI. The mock-client path is gated by RF_CONNECTORS_AWS_FALLBACK_TO_MOCK
+	// and emits a loud WARN log when active so production never silently
+	// serves fake data.
+	registerAWSCloudTools(ctx, cfg, toolRegistry, log)
+
 	// Initialize agent registry
 	agentRegistry := agents.NewRegistry(llmClient, toolRegistry, validator, log)
 	log.Info("initialized agent registry", "agents", agentRegistry.ListAgents())
@@ -438,4 +445,51 @@ func vulnScanInterval(log *logger.Logger) time.Duration {
 		return def
 	}
 	return d
+}
+
+// registerAWSCloudTools is the PR #19 / CONN-001 boot hook for the orchestrator
+// tool layer's real cloud surface. It tries the real AWS client first
+// (validates creds via STS GetCallerIdentity). If that fails AND fallback is
+// enabled, it falls back to a deterministic mock client with a loud WARN
+// log. If neither path works, no AWS tools are registered and the
+// orchestrator boots normally — query_aws_instances simply doesn't exist
+// that day.
+//
+// Three operational modes:
+//   - Real client succeeds → tool registered, info log "aws tools: real client initialized".
+//   - Real client fails, fallback_to_mock=true → mock registered, loud WARN.
+//   - Real client fails, fallback_to_mock=false → nothing registered, info log.
+func registerAWSCloudTools(
+	ctx context.Context,
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	awsCfg := cfg.Connectors.AWS
+
+	bootCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	realClient, realErr := tools.NewRealAWSClient(bootCtx, awsCfg, log)
+	if realErr == nil {
+		log.Info("aws tools: real client initialized",
+			"region", awsCfg.Region,
+			"assume_role", awsCfg.AssumeRoleARN != "",
+		)
+		reg.RegisterCloudTools(realClient)
+		return
+	}
+
+	if !awsCfg.FallbackToMock {
+		log.Info("aws tools: real client unavailable and fallback_to_mock=false, not registering aws tools",
+			"hint", "set RF_CONNECTORS_AWS_FALLBACK_TO_MOCK=true for dev/CI",
+			"error", realErr.Error(),
+		)
+		return
+	}
+
+	log.Warn("aws tools: MOCK CLIENT ACTIVE — instances returned are FAKE. DO NOT USE IN PRODUCTION.",
+		"fallback_reason", realErr.Error(),
+	)
+	reg.RegisterCloudTools(tools.NewMockAWSClient())
 }
