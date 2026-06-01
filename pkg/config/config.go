@@ -91,11 +91,24 @@ type ConnectorsConfig struct {
 	K8s     K8sConfig     `mapstructure:"k8s"`
 }
 
-// AWSConfig holds AWS connector configuration.
+// AWSConfig holds AWS connector configuration. Shared between the connectors
+// service (asset discovery) and the orchestrator (real-tool invocations,
+// PR #19 / CONN-001).
 type AWSConfig struct {
 	Region        string   `mapstructure:"region"`
 	AssumeRoleARN string   `mapstructure:"assume_role_arn"`
 	Regions       []string `mapstructure:"regions"` // List of regions to scan (optional, discovers all if empty)
+
+	// AssumeRoleExternalID is the optional STS AssumeRole external ID.
+	AssumeRoleExternalID string `mapstructure:"assume_role_external_id"`
+
+	// FallbackToMock controls whether the orchestrator's real-tool path
+	// (PR #19) falls back to a deterministic mock client when real AWS
+	// credentials are absent or invalid. true in dev/CI so the
+	// query_aws_instances tool stays registered and demoable without an
+	// AWS account; MUST be false in production so a misconfiguration is
+	// surfaced loudly at boot instead of silently using fake data.
+	FallbackToMock bool `mapstructure:"fallback_to_mock"`
 }
 
 // AzureConfig holds Azure connector configuration.
@@ -405,6 +418,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("connectors.sync_interval", "5m")
 	v.SetDefault("connectors.enabled", []string{"aws"})
 
+	// AWS connector defaults. fallback_to_mock defaults to false (so a
+	// misconfigured production deployment loudly fails to register the tool
+	// rather than silently serving fake data). Dev/CI override to true.
+	v.SetDefault("connectors.aws.region", "us-east-1")
+	v.SetDefault("connectors.aws.fallback_to_mock", false)
+
 	// K8s connector defaults
 	v.SetDefault("connectors.k8s.kubeconfig", "")
 	v.SetDefault("connectors.k8s.context", "")
@@ -504,6 +523,13 @@ func bindEnvVars(v *viper.Viper) error {
 		"connectors.port",
 		"connectors.sync_interval",
 		"connectors.enabled",
+		// AWS connector config (shared between the connectors service for
+		// asset discovery and the orchestrator for real-tool invocations,
+		// PR #19 / CONN-001).
+		"connectors.aws.region",
+		"connectors.aws.assume_role_arn",
+		"connectors.aws.assume_role_external_id",
+		"connectors.aws.fallback_to_mock",
 		"drift.host",
 		"drift.port",
 		"drift.calculation_interval",

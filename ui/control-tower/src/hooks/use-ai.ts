@@ -323,6 +323,60 @@ export function useLatestConversation() {
 }
 
 // =============================================================================
+// Direct tool invocation (PR #19 / CONN-001)
+// =============================================================================
+
+export interface InvokeToolResponse {
+  invocation_id: string;
+  tool_name: string;
+  risk_level: string;
+  duration_ms: number;
+  result?: unknown;
+  error?: string;
+  simulated: boolean; // always false from /invoke; here to make the contract explicit
+}
+
+interface InvokeToolParams {
+  toolName: string;
+  params?: Record<string, unknown>;
+}
+
+/**
+ * Hook to invoke a read-only tool directly. Backend enforces that only tools
+ * with risk_level === "read_only" can be invoked this way; state-change
+ * tools return 403. The result lands as a real (non-simulated)
+ * ai_tool_invocations row in the activity stream.
+ */
+export function useInvokeTool() {
+  const queryClient = useQueryClient();
+  const { getToken } = useAuth();
+
+  return useMutation<InvokeToolResponse, Error, InvokeToolParams>({
+    mutationFn: async ({ toolName, params }) => {
+      const response = await orchestratorFetch(
+        `/api/v1/ai/tools/${encodeURIComponent(toolName)}/invoke`,
+        {
+          method: "POST",
+          body: JSON.stringify({ params: params ?? {} }),
+        },
+        getToken
+      );
+      if (!response.ok) {
+        const errData = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(errData.error ?? `Invoke failed: ${response.status}`);
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      // Real invocations land as ai_tool_invocations rows — refresh the
+      // activity stream and recent runs rail so the result appears.
+      queryClient.invalidateQueries({ queryKey: ["ai", "fleet", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "runs", "recent"] });
+    },
+  });
+}
+
+// =============================================================================
 // Recent runs + audit timeline (PR #16 / UX-001)
 // =============================================================================
 
@@ -911,7 +965,11 @@ export function useAgents() {
 export interface ToolInfo {
   name: string;
   description: string;
-  category: string;
+  risk: "read_only" | "plan_only" | "state_change_nonprod" | "state_change_prod";
+  scope?: string;
+  idempotent?: boolean;
+  requires_approval?: boolean;
+  category?: string;
   parameters: Record<string, unknown>;
 }
 

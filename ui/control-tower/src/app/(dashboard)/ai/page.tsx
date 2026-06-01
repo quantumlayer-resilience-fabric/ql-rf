@@ -23,10 +23,14 @@ import {
   useRejectTask,
   useRecentRuns,
   useRun,
+  useTools,
+  useInvokeTool,
   type ConversationMessage,
   type RunSummary,
   type RunAuditEntry,
+  type ToolInfo,
 } from "@/hooks/use-ai";
+import { Zap } from "lucide-react";
 import { MessageSquare } from "lucide-react";
 
 // -----------------------------------------------------------------------------
@@ -610,6 +614,8 @@ function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
         </CardContent>
       </Card>
 
+      <RealToolsCard />
+
       <RecentRunsRail />
 
       <Card>
@@ -667,6 +673,131 @@ function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
 //   * RunAuditTimeline fetches /api/v1/ai/runs/{id} and renders the
 //     interleaved audit_log + tool_invocation timeline. Read-only.
 // -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// Real tools panel (PR #19 / CONN-001)
+//   * RealToolsCard lists registered tools and shows "Invoke" buttons for
+//     read_only ones. Plan-only / state-change tools are visible but not
+//     directly invocable here — they flow through the approval pipeline.
+//   * If no read-only real tools are registered (e.g., AWS creds missing
+//     and fallback-to-mock disabled), the card shows an empty state. This
+//     is the most demo-leverage message in the product right now.
+//   * Invoking a tool inserts a REAL ai_tool_invocations row — no
+//     _simulated marker. Distinguishable from the B.3 simulator's output.
+// -----------------------------------------------------------------------------
+
+function RealToolsCard() {
+  const tools = useTools();
+  const invoke = useInvokeTool();
+  const [lastResult, setLastResult] = useState<{ tool: string; ok: boolean; message: string } | null>(null);
+
+  const allTools = tools.data ?? [];
+  // Cloud / read-only tools first; plan-only and state-change shown below as
+  // "approval required" badges so the viewer sees the gradient of risk.
+  const readOnly = allTools.filter((t) => t.risk === "read_only");
+  const planOnly = allTools.filter((t) => t.risk === "plan_only");
+  const stateChange = allTools.filter(
+    (t) => t.risk === "state_change_nonprod" || t.risk === "state_change_prod",
+  );
+
+  const onInvoke = async (toolName: string) => {
+    setLastResult(null);
+    try {
+      const resp = await invoke.mutateAsync({ toolName });
+      const summary =
+        typeof resp.result === "object" && resp.result !== null && "instance_count" in resp.result
+          ? `Got ${(resp.result as { instance_count: number }).instance_count} result(s) in ${resp.duration_ms}ms.`
+          : `Completed in ${resp.duration_ms}ms.`;
+      setLastResult({ tool: toolName, ok: true, message: summary });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Invoke failed";
+      setLastResult({ tool: toolName, ok: false, message: msg });
+    }
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-3">
+        <div className="mb-2 flex items-center justify-between px-1 text-xs uppercase tracking-wider text-muted-foreground">
+          <span className="flex items-center gap-2">
+            <Zap className="h-3.5 w-3.5" />
+            Real tools
+          </span>
+          <span data-testid="real-tools-count">{readOnly.length}</span>
+        </div>
+
+        {readOnly.length === 0 ? (
+          <div
+            data-testid="real-tools-empty"
+            className="px-3 py-4 text-center text-xs text-muted-foreground"
+          >
+            No real cloud tools configured. Set AWS credentials and restart the
+            orchestrator (or enable fallback mock for local dev).
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {readOnly.map((t) => (
+              <div
+                key={t.name}
+                data-testid={`real-tools-${t.name}`}
+                className="flex items-center justify-between gap-2 rounded-md border bg-card px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-mono text-xs">{t.name}</div>
+                  <div className="text-[10px] uppercase tracking-wider text-status-green">read-only</div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-testid={`real-tools-invoke-${t.name}`}
+                  onClick={() => void onInvoke(t.name)}
+                  disabled={invoke.isPending}
+                  title="Invoke this real cloud tool"
+                >
+                  {invoke.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Invoke"}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {(planOnly.length > 0 || stateChange.length > 0) && (
+          <div className="mt-2 space-y-1 border-t pt-2">
+            {planOnly.slice(0, 2).map((t) => (
+              <div
+                key={t.name}
+                className="flex items-center justify-between gap-2 rounded-md px-3 py-1 text-xs text-muted-foreground"
+              >
+                <span className="truncate font-mono">{t.name}</span>
+                <span className="uppercase">plan-only</span>
+              </div>
+            ))}
+            {stateChange.slice(0, 2).map((t) => (
+              <div
+                key={t.name}
+                className="flex items-center justify-between gap-2 rounded-md px-3 py-1 text-xs text-muted-foreground"
+              >
+                <span className="truncate font-mono">{t.name}</span>
+                <span className="uppercase text-status-amber">approval required</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {lastResult && (
+          <p
+            data-testid={`real-tools-result-${lastResult.tool}`}
+            className={`mt-2 px-1 text-xs ${
+              lastResult.ok ? "text-status-green" : "text-status-red"
+            }`}
+          >
+            {lastResult.message}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function RecentRunsRail() {
   const runs = useRecentRuns(5);

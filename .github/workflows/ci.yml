@@ -204,6 +204,12 @@ jobs:
           # must never depend on a live LLM. See
           # docs/E2E-011-ai-mission-control.md §3.2.
           RF_LLM_PROVIDER: stub
+          # PR #19 / CONN-001 belt-and-suspenders: CI never has real AWS
+          # creds, so the orchestrator must fall back to the deterministic
+          # mock client to register query_aws_instances. Without this, the
+          # CONN-001 E2E test would fail because the tool wouldn't be
+          # listed in /api/v1/ai/tools.
+          RF_CONNECTORS_AWS_FALLBACK_TO_MOCK: "true"
         run: docker compose up -d --build ui
 
       - name: Wait for stack readiness

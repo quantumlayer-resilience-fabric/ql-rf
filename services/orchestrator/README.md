@@ -548,6 +548,53 @@ Both endpoints are read-only and additive; they do not modify any state.
 The frontend rail polls at 2s while any run is in-flight and 15s otherwise —
 so the dashboard animates during a B.3 simulation but stays cheap when idle.
 
+## Real tools (PR #19 / CONN-001)
+
+The orchestrator's tool registry includes the first real cloud-touching tool —
+`query_aws_instances`, which calls AWS EC2 `DescribeInstances` (read-only) via
+the SDK v2. Registered at boot only when an AWS client can be constructed.
+
+**Three operational modes** (decided at orchestrator startup):
+
+1. **Real AWS client** — `RF_CONNECTORS_AWS_REGION` is set and standard AWS
+   credentials are reachable (env vars, profile, or assume-role ARN). The
+   client is validated via `sts:GetCallerIdentity` at boot; success → INFO
+   log `aws tools: real client initialized`.
+2. **Mock fallback** — `RF_CONNECTORS_AWS_FALLBACK_TO_MOCK=true` and the real
+   client failed to initialize. A deterministic two-instance fixture
+   (`i-mock-0001`, `i-mock-0002`) is returned. A loud WARN log at boot
+   announces the fallback. Used by local dev and CI.
+3. **Skipped** — no real creds and fallback disabled (production default).
+   Tool is simply not registered; `GET /api/v1/ai/tools` doesn't list it.
+
+**Invocation endpoint:** `POST /api/v1/ai/tools/{toolName}/invoke`. Strict
+whitelist: only tools with `risk == read_only` are invocable here.
+State-change tools return 403; they must flow through the approval pipeline.
+The endpoint inserts an `ai_tool_invocations` row WITHOUT the `_simulated`
+marker — distinguishable from the B.3 simulator's synthetic rows by the
+absence of `parameters._simulated = true`.
+
+**Audit queries:** real vs simulated runs are distinguishable in SQL:
+
+```sql
+-- Real invocations (no _simulated marker)
+SELECT tool_name, risk_level, duration_ms
+FROM ai_tool_invocations
+WHERE NOT (parameters @> '{"_simulated": true}'::jsonb)
+  AND NOT (result @> '{"_simulated": true}'::jsonb);
+
+-- Simulated invocations (B.3 simulator)
+SELECT tool_name, risk_level
+FROM ai_tool_invocations
+WHERE parameters @> '{"_simulated": true}'::jsonb
+   OR result @> '{"_simulated": true}'::jsonb;
+```
+
+**Never use `RF_CONNECTORS_AWS_FALLBACK_TO_MOCK=true` in production.** The
+loud WARN at boot is the safety net; a misconfigured production deployment
+would silently serve fake instance lists. CI sets it explicitly to true to
+keep the demo working without real AWS credentials.
+
 ## License
 
 Copyright © 2024 QuantumLayer. All rights reserved.
