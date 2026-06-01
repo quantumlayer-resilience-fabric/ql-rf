@@ -876,11 +876,15 @@ func seedMissionControlToolsAndUsage(ctx context.Context, tx pgx.Tx, userID, tas
 
 // seedMissionControlConversations seeds the Phase B.2 conversation surface:
 //
-//	A — stale (2h old) so it sits outside the 60-min append window. Used to
-//	    verify that the dock fetches the LATEST conversation, not the first
-//	    or oldest.
-//	B — active (5m old) so it IS the active thread on page load. The dock
-//	    renders B's user + assistant messages above the input.
+//	A — active (5m old). Linked to task1 (Patch CVE-2024-3094), the seeded
+//	    pending decision. Active on landing so the dock thread and the
+//	    pending decision rail tell the same story on a cold demo open
+//	    (PR #17 / UX-002). Previously B was active and A was stale — the
+//	    swap removes the "why is the chat about drift but pending shows
+//	    CVE?" confusion in the first 30 seconds of the demo.
+//	B — stale (2h old). Linked to task2 (drift). Kept stale so the seed
+//	    still exercises the B.2 60-min append window's "stale conversation
+//	    exists but isn't surfaced" behaviour.
 //
 // Tasks 1 and 2 are linked back to A and B respectively via
 // ai_tasks.conversation_id so the seeded thread maps to real task rows.
@@ -897,8 +901,8 @@ func seedMissionControlConversations(ctx context.Context, tx pgx.Tx, userID, tas
 		id, title string
 		ageMins   int
 	}{
-		{convA, "Patch CVE-2024-3094 (xz backdoor) on production assets", 120},
-		{convB, "Analyze drift across azure production sites", 5},
+		{convA, "Patch CVE-2024-3094 (xz backdoor) on production assets", 5}, // active (PR #17)
+		{convB, "Analyze drift across azure production sites", 120},          // stale (PR #17)
 	}
 	for i := range convSeeds {
 		c := &convSeeds[i]
@@ -934,18 +938,20 @@ func seedMissionControlConversations(ctx context.Context, tx pgx.Tx, userID, tas
 		id, convID, role, content, taskID string
 		ageMinsOffset                     int
 	}{
+		// Conv A (active, 5m old) — CVE patch thread.
 		{"e7000000-0000-0000-0000-000000000001", convA, "user",
 			"Patch CVE-2024-3094 (xz backdoor) on production assets",
-			task1, 120},
+			task1, 5},
 		{"e7000000-0000-0000-0000-000000000002", convA, "assistant",
 			`Drafted plan-only patch_rollout for: "Patch CVE-2024-3094 (xz backdoor) on production assets". Risk: high (HITL required). Quality: 87/100. Awaiting your approval.`,
-			task1, 119},
+			task1, 4},
+		// Conv B (stale, 2h old) — drift thread.
 		{"e7000000-0000-0000-0000-000000000003", convB, "user",
 			"Analyze drift across azure production sites",
-			task2, 5},
+			task2, 120},
 		{"e7000000-0000-0000-0000-000000000004", convB, "assistant",
 			`Drafted plan-only drift_remediation for: "Analyze drift across azure production sites". Risk: medium. Quality: 92/100. Awaiting your approval.`,
-			task2, 4},
+			task2, 119},
 	}
 	for i := range msgSeeds {
 		m := &msgSeeds[i]
