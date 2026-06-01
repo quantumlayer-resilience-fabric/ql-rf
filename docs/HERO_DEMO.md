@@ -12,6 +12,8 @@ This document is the *spec* for the demo. It does NOT take screenshots — those
 
 Run these once before each demo session. Total time: ~30 seconds if the stack is already up, ~2 minutes cold.
 
+> **The seeder alone is not a reset.** It's idempotent on its own deterministic IDs but does NOT delete rows from earlier dry-run sessions (extra pending tasks, extra conversations, extra runs). If the stack has been used at all today, you MUST run the [reset SQL block](#one-shot-reset-sql) BEFORE the seeder. The pre-flight below does this in order.
+
 ```bash
 # 1. Bring up the compose stack (postgres + redis + temporal + opa + api + orchestrator).
 make dev
@@ -20,7 +22,11 @@ make dev
 #    no external calls, no LLM tokens burned).
 RF_LLM_PROVIDER=stub docker compose up -d --build --no-deps orchestrator
 
-# 3. Reset to the known seeded fixture.
+# 3a. Clean out any debris from prior dry-runs (see "One-shot reset SQL" below).
+#     Required even on a fresh boot if the DB volume persisted.
+#     Paste the reset SQL block into psql, then continue.
+
+# 3b. Re-seed to the known fixture (idempotent on the seeded IDs; refreshes timestamps).
 go run ./scripts/seed-e2e-data/
 
 # 4. Start the frontend.
@@ -41,7 +47,7 @@ curl -s -H "Authorization: Bearer dev-token" \
   }'
 ```
 
-**Expected output (anything else → reset):**
+**Expected output (anything else → run the reset SQL block, then re-seed):**
 
 ```json
 {
@@ -52,11 +58,26 @@ curl -s -H "Authorization: Bearer dev-token" \
 }
 ```
 
+If `pending > 1`, your DB has demo debris from prior runs — apply the [reset SQL](#one-shot-reset-sql) and re-seed.
+
+### Is the stub provider actually serving? (live check, restart-safe)
+
+Long-running containers' boot WARN scrolls off `docker logs --tail`, so don't rely on the startup line. Instead, hit the orchestrator's runtime endpoint and infer from the response shape — only the stub returns `model=stub-canned`:
+
 ```bash
-docker logs qlrf-orchestrator --tail 100 | grep "STUB PROVIDER ENABLED"
+docker exec qlrf-orchestrator env | grep RF_LLM_PROVIDER
+# expect: RF_LLM_PROVIDER=stub
 ```
 
-**Expected:** one WARN line that includes `STUB PROVIDER ENABLED — provider=stub model=stub-canned deterministic=true external_calls=false`. If this is missing, the orchestrator booted with a real provider — restart with `RF_LLM_PROVIDER=stub docker compose up -d --build --no-deps orchestrator` and try again.
+**OR** if you have time to restart the orchestrator (gives you a fresh boot log):
+
+```bash
+RF_LLM_PROVIDER=stub docker compose up -d --build --no-deps orchestrator
+sleep 4
+docker logs qlrf-orchestrator --since 30s | grep "STUB PROVIDER ENABLED"
+```
+
+Expected on restart: one WARN line `STUB PROVIDER ENABLED — provider=stub model=stub-canned deterministic=true external_calls=false`. If missing, the orchestrator booted with a real provider — the compose env or `.env` has a non-stub `RF_LLM_PROVIDER`.
 
 ---
 
@@ -190,11 +211,12 @@ If you hit any of these during a demo, the seed is dirty or the stack is off. Re
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Pending count ≠ 1 on landing | A previous demo approved/rejected the seeded plan | `go run ./scripts/seed-e2e-data/` and refresh |
-| Dock thread shows "Analyze drift…" instead of "Patch CVE-2024-3094…" | You're on a pre-PR-#17 seed | Pull latest, re-run `go run ./scripts/seed-e2e-data/` |
-| `tool_invocations_today` shows 0 | The seed was last run >24h ago AND nothing new ran today | Re-run `go run ./scripts/seed-e2e-data/` — it refreshes timestamps |
+| Pending count > 1 on landing | DB has debris from prior dry-runs (the seeder alone won't clean this) | Run the [reset SQL](#one-shot-reset-sql), then re-run the seeder |
+| Pending count = 0 on landing | Seeded pending was approved/rejected by an earlier demo | Run the [reset SQL](#one-shot-reset-sql) (it restores `awaiting_approval`), then re-seed |
+| Dock thread shows "Analyze drift…" instead of "Patch CVE-2024-3094…" | You're on a pre-PR-#17 seed | Pull latest, run the reset SQL + seeder |
+| `tool_invocations_today` shows 0 | The seed was last run >24h ago AND nothing new ran today | Re-run `go run ./scripts/seed-e2e-data/` — it refreshes timestamps via UPDATE on conflict |
 | `llm_spend_today_cents` shows 0 | Same as above | Same fix |
-| Run card doesn't appear after Approve | Orchestrator not on stub | `docker logs qlrf-orchestrator \| grep "STUB PROVIDER ENABLED"` should print; if not, `RF_LLM_PROVIDER=stub docker compose up -d --build --no-deps orchestrator` |
+| Run card doesn't appear after Approve | Orchestrator not on stub | Check `docker exec qlrf-orchestrator env \| grep RF_LLM_PROVIDER` (should be `stub`); if not, `RF_LLM_PROVIDER=stub docker compose up -d --build --no-deps orchestrator` |
 | Run card flips to `completed` instantly, no animation | The fleet status polling interval missed the window (rare) | Refresh the page right after approve to re-trigger the 2s in-flight poll |
 | Activity stream is empty | Org ID mismatch | Check `curl /fleet/status` matches expected output above |
 
