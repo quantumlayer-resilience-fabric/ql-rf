@@ -30,10 +30,19 @@ allow {
     input.autonomy.mode in ["canary_only", "full_auto"]
 }
 
-# Allow state-changing prod tools only with approval
+# Allow state-changing prod tools only with TWO distinct approvers.
+# PR #21 / CONN-003: production state changes require both a first
+# approver (input.approval.approved_by) and a second, DISTINCT approver
+# (input.approval.second_approver). The handler layer enforces this at
+# /co-approve time and the OPA policy enforces it again at tool
+# invocation, so a direct DB write that bypassed the handler is still
+# blocked here.
 allow {
     input.tool.risk == "state_change_prod"
     input.approval.status == "approved"
+    input.approval.second_approver != null
+    input.approval.second_approver != ""
+    input.approval.approved_by != input.approval.second_approver
 }
 
 # =============================================================================
@@ -52,6 +61,24 @@ deny[msg] {
     input.tool.risk == "state_change_prod"
     not input.approval.status == "approved"
     msg := sprintf("Tool '%s' requires approval for production state changes", [input.tool.name])
+}
+
+# PR #21 / CONN-003: deny state-changing prod tools that lack a second
+# approver. The deny rule fires even when status="approved" if the second
+# approver field is missing — i.e. first-approval-only.
+deny[msg] {
+    input.tool.risk == "state_change_prod"
+    input.approval.status == "approved"
+    not input.approval.second_approver
+    msg := sprintf("Tool '%s' requires TWO distinct approvers for production state changes", [input.tool.name])
+}
+
+# PR #21 / CONN-003: deny self-second-approval — the second approver
+# must be a different user from the first.
+deny[msg] {
+    input.tool.risk == "state_change_prod"
+    input.approval.second_approver == input.approval.approved_by
+    msg := sprintf("Tool '%s': second approver must differ from first approver", [input.tool.name])
 }
 
 # Deny tools that require simulation without prior simulation

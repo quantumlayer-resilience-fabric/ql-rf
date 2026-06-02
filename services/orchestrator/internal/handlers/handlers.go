@@ -158,6 +158,11 @@ func (h *Handler) Router() http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequirePermission(models.PermApproveAITasks))
 				r.Post("/tasks/{taskID}/approve", h.approveTask)
+				// PR #21 / CONN-003: second-approver path for
+				// state_change_prod tasks. Same permission as /approve;
+				// the body of the handler enforces the distinct-approver
+				// rule and that the plan actually needs two approvers.
+				r.Post("/tasks/{taskID}/co-approve", h.coApproveTask)
 				r.Post("/tasks/{taskID}/reject", h.rejectTask)
 				r.Post("/tasks/{taskID}/modify", h.modifyTask)
 				r.Post("/tasks/{taskID}/cancel", h.cancelTask)
@@ -801,6 +806,49 @@ func (h *Handler) approveTask(w http.ResponseWriter, r *http.Request) {
 			"approved_by": userID,
 			"approved_at": now,
 			"_simulated":  true,
+		})
+		return
+	}
+
+	// PR #21 / CONN-003: for state_change_prod tasks, the first approval
+	// records approved_by but DOES NOT transition to 'approved' or trigger
+	// the executor. State stays 'awaiting_approval' until a second,
+	// distinct approver hits POST /api/v1/ai/tasks/{id}/co-approve. The
+	// OPA tool_authorization policy ALSO requires second_approver to be
+	// set for state_change_prod, so any path that bypasses this handler
+	// (e.g. direct DB write) is still policy-gated downstream.
+	requiresSecondApproval, riskErr := h.planRequiresTwoApprovers(ctx, taskID)
+	if riskErr != nil {
+		h.log.Warn("approveTask: could not determine plan risk; assuming single-approver path",
+			"task_id", taskID, "error", riskErr)
+	}
+	if requiresSecondApproval {
+		if exists, by, sErr := h.firstApprovalState(ctx, taskID); sErr == nil && exists && by != "" && by != userID {
+			// First approver already recorded by a different user; this
+			// request is effectively a co-approval routed to the wrong
+			// endpoint. Direct the caller to /co-approve so the second-
+			// approver path runs (which OPA policy + audit log expect).
+			h.respondError(w, http.StatusConflict,
+				"first approver already recorded; second approver must use POST /api/v1/ai/tasks/{id}/co-approve", nil)
+			return
+		}
+		if _, err := h.db.Pool.Exec(ctx, `
+			UPDATE ai_plans
+			SET approved_by = $1, approved_at = $2, updated_at = $2
+			WHERE task_id = $3 AND state = 'awaiting_approval'
+		`, userID, now, taskID); err != nil {
+			h.log.Warn("failed to record first approval", "error", err)
+			h.respondError(w, http.StatusInternalServerError, "failed to record first approval", err)
+			return
+		}
+		h.log.Info("first approval recorded; awaiting second approver",
+			"task_id", taskID, "approved_by", userID)
+		h.respond(w, http.StatusOK, map[string]any{
+			"task_id":     taskID,
+			"status":      "awaiting_second_approval",
+			"approved_by": userID,
+			"approved_at": now,
+			"next_action": "POST /api/v1/ai/tasks/" + taskID + "/co-approve (must be a different user)",
 		})
 		return
 	}

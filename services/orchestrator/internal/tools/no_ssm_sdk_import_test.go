@@ -101,3 +101,34 @@ func TestSSMClientFile_DocumentsTheGuarantee(t *testing.T) {
 		t.Errorf("ssm_client.go is missing its SAFETY comment about NOT importing the SDK; restore it before merging")
 	}
 }
+
+// TestLiveSSMClient_IsTheOnlyFileImportingSDK — PR #21 / CONN-003 strengthens
+// the structural safety guarantee. The "no SDK" half is enforced by
+// TestNoSSMSDKImportInToolsPackage above; THIS test is the positive half:
+// live_ssm_client.go MUST import the SDK. If it doesn't, PR #21's live
+// mode is structurally unreachable — either the file was deleted without
+// removing the live tool, or a refactor moved the SDK into a different
+// file and the negative test would now mis-allowlist the wrong file.
+//
+// Both halves must pass for the safety invariant ("SDK is reachable from
+// exactly ONE file in the package, with that file's name fixed") to hold.
+func TestLiveSSMClient_IsTheOnlyFileImportingSDK(t *testing.T) {
+	// Use the same AST-import parsing TestNoSSMSDKImportInToolsPackage
+	// uses so comments mentioning the SDK path don't false-positive.
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, pr21LiveClientFile, nil, parser.ImportsOnly)
+	if err != nil {
+		t.Fatalf("parse %s: %v — PR #21's live mode requires this file. If you intentionally removed live mode, also remove this test and the allowlist constant.", pr21LiveClientFile, err)
+	}
+	hasImport := false
+	for _, imp := range f.Imports {
+		if strings.Trim(imp.Path.Value, `"`) == forbiddenSDKImport {
+			hasImport = true
+			break
+		}
+	}
+	if !hasImport {
+		t.Errorf("%s must import %q — PR #21's live mode is unreachable without it. If you intentionally removed live mode, also remove this test.",
+			pr21LiveClientFile, forbiddenSDKImport)
+	}
+}
