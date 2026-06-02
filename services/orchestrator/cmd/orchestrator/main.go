@@ -125,6 +125,13 @@ func run() error {
 	// incoherent — see registerSSMLiveTools for the exact gates.
 	registerSSMLiveTools(ctx, cfg, toolRegistry, log)
 
+	// PR #27 / CONN-007: register the Azure Run Command dry-run tool.
+	// Both real and mock clients here make ZERO network calls — the
+	// state-change Azure SDK constructor is excluded from this file by
+	// a structural Go test (no_azure_runcommand_sdk_import_test.go).
+	// Registration is unconditional and safe.
+	registerAzureRunCommandDryRunTools(cfg, toolRegistry, log)
+
 	// Initialize agent registry
 	agentRegistry := agents.NewRegistry(llmClient, toolRegistry, validator, log)
 	log.Info("initialized agent registry", "agents", agentRegistry.ListAgents())
@@ -588,6 +595,40 @@ func registerSSMStateChangeTools(
 		log.Info("ssm tools: real client initialized (dry-run only in PR #20)")
 	}
 	reg.RegisterStateChangeTools(ssmClient)
+}
+
+// registerAzureRunCommandDryRunTools is the PR #27 / CONN-007 boot hook
+// for the Azure state-change cloud surface. Registers `azure_run_command`
+// in dry-run mode. Both the "real" and "mock" Azure Run Command clients
+// in PR #27 make ZERO network calls — the state-change SDK constructor
+// is excluded from this package by name-based static check (see
+// no_azure_runcommand_sdk_import_test.go). So registration is
+// unconditional and safe.
+//
+// The mock client is the more aggressive variant (returns a fixed mock-vm
+// regardless of input); the real client validates resource group + VM
+// naming rules strictly. CI uses mock (via fallback_to_mock); dev with
+// creds uses real.
+//
+// PR #28 will introduce `live_azure_runcommand_client.go` that DOES call
+// the state-change SDK and exposes a Send method, gated by env opt-in +
+// per-VM whitelist + two-approver workflow.
+func registerAzureRunCommandDryRunTools(
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	var azClient tools.AzureRunCommandClient
+	if cfg.Connectors.Azure.FallbackToMock {
+		log.Warn("azure run-command tools: MOCK CLIENT ACTIVE — plans use fixed mock-vm-* VM names. DO NOT USE IN PRODUCTION.",
+			"reason", "RF_CONNECTORS_AZURE_FALLBACK_TO_MOCK=true",
+		)
+		azClient = tools.NewMockAzureRunCommandClient()
+	} else {
+		azClient = tools.NewRealAzureRunCommandClient(log)
+		log.Info("azure run-command tools: real client initialized (dry-run only in PR #27)")
+	}
+	reg.RegisterAzureRunCommandDryRunTools(azClient)
 }
 
 // registerSSMLiveTools is the PR #21 / CONN-003 boot hook for the LIVE

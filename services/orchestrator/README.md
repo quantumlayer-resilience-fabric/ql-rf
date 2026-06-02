@@ -650,10 +650,39 @@ rather than waiting for first real invocation. If validation fails:
 Same safety story as AWS. CI sets it true so the read-only demo arc
 works without a real Azure subscription.
 
-**PR #27/#28** will add the Azure state-change tools (`azure_run_command`
-dry-run + `azure_run_command_live` with two-approver) following the
-same arc PR #20 + #21 used for AWS SSM. The SDK-isolation discipline
-(one file owns the Run Command SDK import) carries over verbatim.
+## Azure Run Command dry-run (PR #27 / CONN-007)
+
+The first Azure state-change tool — dry-run only. `azure_run_command`
+constructs an Azure VM Run Command plan (RunShellScript or
+RunPowerShellScript document, target VM, inline script) and records it
+as audit; no call to the state-change SDK constructor is made.
+
+The structural guarantee:
+
+- `azure_run_command_client.go` builds the plan as a plain Go struct.
+- A Go test (`no_azure_runcommand_sdk_import_test.go`) scans every
+  non-test file in the tools package and fails CI if any references
+  the state-change Run Command client constructor by name. PR #28 will
+  add `live_azure_runcommand_client.go` as the single allowlist
+  exception.
+
+The pattern mirrors PR #20's SSM dry-run exactly. The Azure structural
+test uses **function-name matching** instead of import-path forbidding,
+because `armcompute/v5` is legitimately used by PR #26's read-only path —
+only the state-change-specific constructor must be off-limits.
+
+**Invocable only** via PR #20's `/api/v1/ai/tools/{name}/dry-run`
+endpoint. PR #19's `/invoke` strictly rejects state-change tools.
+
+The seeded compliance mapping links both `azure_run_command` (dry-run)
+and `azure_run_command_live` (PR #28 placeholder) to CIS-1.4, so
+dry-run invocations of the Azure tool produce `compliance_evidence`
+attestations the same way SSM dry-run does.
+
+**PR #28** will introduce `live_azure_runcommand_client.go` — the sole
+allowlisted caller of the state-change SDK constructor — with the same
+four-gate safety pattern PR #21 used for SSM live (env opt-in,
+mock-conflict refusal, per-VM whitelist, two-approver workflow).
 
 ## State-change dry-run (PR #20 / CONN-002)
 
