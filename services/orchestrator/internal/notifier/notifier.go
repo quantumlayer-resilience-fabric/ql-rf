@@ -44,18 +44,23 @@ const (
 	EventTaskPendingApproval EventType = "task_pending_approval"
 	EventTaskApproved        EventType = "task_approved"
 	EventTaskRejected        EventType = "task_rejected"
-	EventExecutionStarted    EventType = "execution_started"
-	EventExecutionCompleted  EventType = "execution_completed"
-	EventExecutionFailed     EventType = "execution_failed"
-	EventPhaseStarted        EventType = "phase_started"
-	EventPhaseCompleted      EventType = "phase_completed"
-	EventPhaseFailed         EventType = "phase_failed"
+	// PR #25 / CONN-005: emitted by approveTask when a state_change_prod
+	// plan's first approval has been recorded but a second, distinct
+	// approver is still required to release execution. The second approver
+	// must hit POST /api/v1/ai/tasks/{id}/co-approve (PR #21).
+	EventTaskAwaitingSecondApproval EventType = "task_awaiting_second_approval"
+	EventExecutionStarted           EventType = "execution_started"
+	EventExecutionCompleted         EventType = "execution_completed"
+	EventExecutionFailed            EventType = "execution_failed"
+	EventPhaseStarted               EventType = "phase_started"
+	EventPhaseCompleted             EventType = "phase_completed"
+	EventPhaseFailed                EventType = "phase_failed"
 
 	// CVE/Vulnerability events
-	EventCVEAlertCreated       EventType = "cve_alert_created"
-	EventCVEAlertCritical      EventType = "cve_alert_critical"
-	EventCVEAlertSLABreaching  EventType = "cve_alert_sla_breaching"
-	EventCVEAlertResolved      EventType = "cve_alert_resolved"
+	EventCVEAlertCreated      EventType = "cve_alert_created"
+	EventCVEAlertCritical     EventType = "cve_alert_critical"
+	EventCVEAlertSLABreaching EventType = "cve_alert_sla_breaching"
+	EventCVEAlertResolved     EventType = "cve_alert_resolved"
 
 	// Patch campaign events
 	EventCampaignCreated       EventType = "campaign_created"
@@ -68,17 +73,17 @@ const (
 
 // Event represents a notification event.
 type Event struct {
-	Type        EventType              `json:"type"`
-	TaskID      string                 `json:"task_id"`
-	TaskType    string                 `json:"task_type,omitempty"`
-	Environment string                 `json:"environment,omitempty"`
-	RiskLevel   string                 `json:"risk_level,omitempty"`
-	Summary     string                 `json:"summary,omitempty"`
-	UserID      string                 `json:"user_id,omitempty"`
-	Execution   *executor.Execution    `json:"execution,omitempty"`
+	Type        EventType                `json:"type"`
+	TaskID      string                   `json:"task_id"`
+	TaskType    string                   `json:"task_type,omitempty"`
+	Environment string                   `json:"environment,omitempty"`
+	RiskLevel   string                   `json:"risk_level,omitempty"`
+	Summary     string                   `json:"summary,omitempty"`
+	UserID      string                   `json:"user_id,omitempty"`
+	Execution   *executor.Execution      `json:"execution,omitempty"`
 	Phase       *executor.PhaseExecution `json:"phase,omitempty"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Timestamp   time.Time                `json:"timestamp"`
+	Metadata    map[string]interface{}   `json:"metadata,omitempty"`
 }
 
 // Notify sends a notification for an event.
@@ -144,6 +149,23 @@ func (n *Notifier) NotifyTaskApproved(ctx context.Context, taskID, userID string
 		Type:   EventTaskApproved,
 		TaskID: taskID,
 		UserID: userID,
+	})
+}
+
+// NotifyTaskAwaitingSecondApproval sends notification when a state_change_prod
+// task has been first-approved and is waiting on a second, distinct approver.
+//
+// PR #25 / CONN-005. firstApproverID is the user who already approved
+// (recipients in shared channels read this to confirm they're not the same
+// person). The summary is the task intent so a channel viewer sees what's
+// being requested without clicking through.
+func (n *Notifier) NotifyTaskAwaitingSecondApproval(ctx context.Context, taskID, firstApproverID, environment, summary string) error {
+	return n.Notify(ctx, Event{
+		Type:        EventTaskAwaitingSecondApproval,
+		TaskID:      taskID,
+		UserID:      firstApproverID,
+		Environment: environment,
+		Summary:     summary,
 	})
 }
 
@@ -256,6 +278,15 @@ func (n *Notifier) buildSlackMessage(event Event) map[string]interface{} {
 		title = "Task Approved"
 		text = fmt.Sprintf("Task `%s` was approved by %s", event.TaskID[:8], event.UserID)
 
+	case EventTaskAwaitingSecondApproval:
+		// PR #25 / CONN-005. Amber to mirror the Mission Control "Awaiting
+		// second approval" badge color. The summary holds the user_intent.
+		color = "#FFA500" // Amber
+		emoji = ":hourglass_flowing_sand:"
+		title = "Awaiting second approval"
+		text = fmt.Sprintf("Task `%s` first-approved by %s — a different reviewer must hit /co-approve to release.\n*Environment:* %s\n*Task:* %s",
+			event.TaskID[:8], event.UserID, event.Environment, event.Summary)
+
 	case EventTaskRejected:
 		color = "#FF0000" // Red
 		emoji = ":x:"
@@ -324,18 +355,18 @@ func (n *Notifier) buildSlackMessage(event Event) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"channel":  n.cfg.SlackChannel,
-		"username": "QL-RF AI Orchestrator",
+		"channel":    n.cfg.SlackChannel,
+		"username":   "QL-RF AI Orchestrator",
 		"icon_emoji": ":robot_face:",
 		"attachments": []map[string]interface{}{
 			{
-				"color":      color,
-				"title":      emoji + " " + title,
-				"text":       text,
-				"footer":     "QL-RF Orchestrator",
+				"color":       color,
+				"title":       emoji + " " + title,
+				"text":        text,
+				"footer":      "QL-RF Orchestrator",
 				"footer_icon": "https://platform.slack-edge.com/img/default_application_icon.png",
-				"ts":         event.Timestamp.Unix(),
-				"mrkdwn_in":  []string{"text"},
+				"ts":          event.Timestamp.Unix(),
+				"mrkdwn_in":   []string{"text"},
 			},
 		},
 	}
@@ -408,6 +439,24 @@ func (n *Notifier) buildEmailContent(event Event) (subject, body string) {
 </body>
 </html>
 `, event.TaskID, event.UserID)
+
+	case EventTaskAwaitingSecondApproval:
+		// PR #25 / CONN-005. Subject calls out that a co-approval is
+		// needed so recipients filtering by subject can spot it.
+		subject = fmt.Sprintf("[QL-RF] Awaiting second approval: %s", event.TaskID[:8])
+		body = fmt.Sprintf(`
+<html>
+<body>
+<h2>Awaiting second approval</h2>
+<p><strong>Task ID:</strong> %s</p>
+<p><strong>Task:</strong> %s</p>
+<p><strong>Environment:</strong> %s</p>
+<p><strong>First approver:</strong> %s</p>
+<p>A different reviewer with execute-ai-tasks permission must call <code>POST /api/v1/ai/tasks/%s/co-approve</code> to release execution.</p>
+<p><a href="%s/ai/tasks/%s">View Task</a></p>
+</body>
+</html>
+`, event.TaskID, event.Summary, event.Environment, event.UserID, event.TaskID, baseURL, event.TaskID)
 
 	case EventTaskRejected:
 		subject = fmt.Sprintf("[QL-RF] Task Rejected: %s", event.TaskID[:8])
@@ -571,6 +620,14 @@ func (n *Notifier) buildTeamsMessage(event Event) map[string]interface{} {
 		title = "✅ Task Approved"
 		text = fmt.Sprintf("Task `%s` was approved by **%s**\n\nExecution will begin shortly.", event.TaskID[:8], event.UserID)
 
+	case EventTaskAwaitingSecondApproval:
+		// PR #25 / CONN-005. Hourglass icon mirrors the Mission Control
+		// "Awaiting second approval" badge intent.
+		iconURL = "https://adaptivecards.io/content/pending.png"
+		title = "⏳ Awaiting second approval"
+		text = fmt.Sprintf("Task `%s` first-approved by **%s** — a different reviewer must call `/co-approve` to release.\n\n**Environment:** %s\n\n**Task:** %s",
+			event.TaskID[:8], event.UserID, event.Environment, event.Summary)
+
 	case EventTaskRejected:
 		iconURL = "https://adaptivecards.io/content/error.png"
 		title = "❌ Task Rejected"
@@ -650,12 +707,12 @@ func (n *Notifier) buildTeamsMessage(event Event) map[string]interface{} {
 					},
 					"body": []map[string]interface{}{
 						{
-							"type":   "Container",
-							"style":  "emphasis",
-							"bleed":  true,
+							"type":  "Container",
+							"style": "emphasis",
+							"bleed": true,
 							"items": []map[string]interface{}{
 								{
-									"type":   "ColumnSet",
+									"type": "ColumnSet",
 									"columns": []map[string]interface{}{
 										{
 											"type":  "Column",
@@ -734,6 +791,12 @@ func (n *Notifier) buildTeamsMessageCard(event Event) map[string]interface{} {
 		themeColor = "36A64F"
 		title = "Task Approved"
 		text = fmt.Sprintf("Task %s was approved by %s", event.TaskID[:8], event.UserID)
+	case EventTaskAwaitingSecondApproval:
+		// PR #25 / CONN-005. Amber matches the Mission Control badge.
+		themeColor = "FFA500"
+		title = "Awaiting second approval"
+		text = fmt.Sprintf("Task %s first-approved by %s — a different reviewer must call /co-approve to release.<br>**Environment:** %s<br>**Task:** %s",
+			event.TaskID[:8], event.UserID, event.Environment, event.Summary)
 	case EventTaskRejected:
 		themeColor = "FF0000"
 		title = "Task Rejected"
@@ -801,13 +864,13 @@ func (n *Notifier) buildTeamsMessageCard(event Event) map[string]interface{} {
 
 // CVEAlertInfo contains information about a CVE alert for notifications.
 type CVEAlertInfo struct {
-	AlertID        string
-	CVEID          string
-	Severity       string
-	UrgencyScore   int
-	AffectedAssets int
+	AlertID          string
+	CVEID            string
+	Severity         string
+	UrgencyScore     int
+	AffectedAssets   int
 	ProductionAssets int
-	Description    string
+	Description      string
 }
 
 // NotifyCVEAlertCreated sends notification when a new CVE alert is created.
@@ -818,9 +881,9 @@ func (n *Notifier) NotifyCVEAlertCreated(ctx context.Context, alert CVEAlertInfo
 		RiskLevel: alert.Severity,
 		Summary:   fmt.Sprintf("%s: %s", alert.CVEID, alert.Description),
 		Metadata: map[string]interface{}{
-			"cve_id":           alert.CVEID,
-			"urgency_score":    alert.UrgencyScore,
-			"affected_assets":  alert.AffectedAssets,
+			"cve_id":            alert.CVEID,
+			"urgency_score":     alert.UrgencyScore,
+			"affected_assets":   alert.AffectedAssets,
 			"production_assets": alert.ProductionAssets,
 		},
 	})
@@ -834,9 +897,9 @@ func (n *Notifier) NotifyCVEAlertCritical(ctx context.Context, alert CVEAlertInf
 		RiskLevel: "critical",
 		Summary:   fmt.Sprintf("CRITICAL: %s affecting %d assets (%d production)", alert.CVEID, alert.AffectedAssets, alert.ProductionAssets),
 		Metadata: map[string]interface{}{
-			"cve_id":           alert.CVEID,
-			"urgency_score":    alert.UrgencyScore,
-			"affected_assets":  alert.AffectedAssets,
+			"cve_id":            alert.CVEID,
+			"urgency_score":     alert.UrgencyScore,
+			"affected_assets":   alert.AffectedAssets,
 			"production_assets": alert.ProductionAssets,
 		},
 	})
@@ -850,7 +913,7 @@ func (n *Notifier) NotifyCVEAlertSLABreaching(ctx context.Context, alert CVEAler
 		RiskLevel: alert.Severity,
 		Summary:   fmt.Sprintf("SLA BREACHING: %s - %d hours remaining", alert.CVEID, hoursRemaining),
 		Metadata: map[string]interface{}{
-			"cve_id":         alert.CVEID,
+			"cve_id":          alert.CVEID,
 			"hours_remaining": hoursRemaining,
 			"affected_assets": alert.AffectedAssets,
 		},
@@ -895,8 +958,8 @@ func (n *Notifier) NotifyCampaignCreated(ctx context.Context, campaign CampaignI
 		Summary: fmt.Sprintf("Patch Campaign Created: %s for %s", campaign.Name, campaign.CVEID),
 		Metadata: map[string]interface{}{
 			"campaign_name": campaign.Name,
-			"cve_id":       campaign.CVEID,
-			"total_assets": campaign.TotalAssets,
+			"cve_id":        campaign.CVEID,
+			"total_assets":  campaign.TotalAssets,
 		},
 	})
 }
