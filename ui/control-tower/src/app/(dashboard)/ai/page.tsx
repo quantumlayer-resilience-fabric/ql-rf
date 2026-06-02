@@ -25,6 +25,7 @@ import {
   useRun,
   useTools,
   useInvokeTool,
+  useDryRunTool,
   type ConversationMessage,
   type RunSummary,
   type RunAuditEntry,
@@ -686,19 +687,39 @@ function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
 //     _simulated marker. Distinguishable from the B.3 simulator's output.
 // -----------------------------------------------------------------------------
 
+// Demo defaults for state-change tools' dry-run params. The mock SSM client
+// ignores these; the real SSM client validates strictly. The IDs are
+// well-formed real-looking EC2 IDs so both paths accept them.
+const ssmDryRunDefaultParams: Record<string, Record<string, unknown>> = {
+  ssm_send_patch_command: {
+    region: "us-east-1",
+    instance_ids: ["i-0a1b2c3d4e5f6a7b8", "i-1234567890abcdef0"],
+    operation: "Scan",
+  },
+};
+
 function RealToolsCard() {
   const tools = useTools();
   const invoke = useInvokeTool();
+  const dryRun = useDryRunTool();
   const [lastResult, setLastResult] = useState<{ tool: string; ok: boolean; message: string } | null>(null);
 
   const allTools = tools.data ?? [];
-  // Cloud / read-only tools first; plan-only and state-change shown below as
-  // "approval required" badges so the viewer sees the gradient of risk.
+  // Read-only tools (invocable via /invoke), state-change tools (dry-run-able
+  // via /dry-run). Plan-only tools are shown as informational badges only —
+  // they have no /invoke or /dry-run path in PR #20.
   const readOnly = allTools.filter((t) => t.risk === "read_only");
   const planOnly = allTools.filter((t) => t.risk === "plan_only");
-  const stateChange = allTools.filter(
-    (t) => t.risk === "state_change_nonprod" || t.risk === "state_change_prod",
-  );
+  // State-change tools sorted so the ones we have dry-run handlers for
+  // (currently just ssm_send_patch_command) come first — the slice(0, 3)
+  // below would otherwise drop them depending on registration order.
+  const stateChange = allTools
+    .filter((t) => t.risk === "state_change_nonprod" || t.risk === "state_change_prod")
+    .sort((a, b) => {
+      const aHandled = a.name in ssmDryRunDefaultParams ? 0 : 1;
+      const bHandled = b.name in ssmDryRunDefaultParams ? 0 : 1;
+      return aHandled - bHandled;
+    });
 
   const onInvoke = async (toolName: string) => {
     setLastResult(null);
@@ -711,6 +732,22 @@ function RealToolsCard() {
       setLastResult({ tool: toolName, ok: true, message: summary });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Invoke failed";
+      setLastResult({ tool: toolName, ok: false, message: msg });
+    }
+  };
+
+  const onDryRun = async (toolName: string) => {
+    setLastResult(null);
+    try {
+      const params = ssmDryRunDefaultParams[toolName] ?? {};
+      const resp = await dryRun.mutateAsync({ toolName, params });
+      const result = resp.result as { command_plan?: { document_name?: string; instance_ids?: string[] } } | undefined;
+      const summary = result?.command_plan
+        ? `Constructed ${result.command_plan.document_name} for ${result.command_plan.instance_ids?.length ?? 0} instance(s). No SendCommand fired.`
+        : `Dry-run completed in ${resp.duration_ms}ms. No SendCommand fired.`;
+      setLastResult({ tool: toolName, ok: true, message: summary });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Dry-run failed";
       setLastResult({ tool: toolName, ok: false, message: msg });
     }
   };
@@ -761,7 +798,36 @@ function RealToolsCard() {
           </div>
         )}
 
-        {(planOnly.length > 0 || stateChange.length > 0) && (
+        {stateChange.length > 0 && (
+          <div className="mt-2 space-y-1 border-t pt-2">
+            {stateChange.slice(0, 3).map((t) => (
+              <div
+                key={t.name}
+                data-testid={`real-tools-${t.name}`}
+                className="flex items-center justify-between gap-2 rounded-md border bg-card px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-mono text-xs">{t.name}</div>
+                  <div className="text-[10px] uppercase tracking-wider text-status-amber">
+                    {t.risk.replace(/_/g, " ")}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-testid={`real-tools-dry-run-${t.name}`}
+                  onClick={() => void onDryRun(t.name)}
+                  disabled={dryRun.isPending}
+                  title="Dry-run (constructs command, never calls SSM SendCommand)"
+                >
+                  {dryRun.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Dry-run"}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {planOnly.length > 0 && (
           <div className="mt-2 space-y-1 border-t pt-2">
             {planOnly.slice(0, 2).map((t) => (
               <div
@@ -770,15 +836,6 @@ function RealToolsCard() {
               >
                 <span className="truncate font-mono">{t.name}</span>
                 <span className="uppercase">plan-only</span>
-              </div>
-            ))}
-            {stateChange.slice(0, 2).map((t) => (
-              <div
-                key={t.name}
-                className="flex items-center justify-between gap-2 rounded-md px-3 py-1 text-xs text-muted-foreground"
-              >
-                <span className="truncate font-mono">{t.name}</span>
-                <span className="uppercase text-status-amber">approval required</span>
               </div>
             ))}
           </div>

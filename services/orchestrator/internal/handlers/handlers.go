@@ -148,6 +148,10 @@ func (h *Handler) Router() http.Handler {
 				// State-change tools cannot be invoked via this endpoint —
 				// they must flow through the approval pipeline.
 				r.Post("/tools/{toolName}/invoke", h.invokeTool)
+				// PR #20 / CONN-002: dry-run for state-change tools. Strict
+				// gate symmetric to /invoke — only state_change_* tools are
+				// accepted; read-only and plan-only return 403.
+				r.Post("/tools/{toolName}/dry-run", h.dryRunTool)
 			})
 
 			// Task approval/rejection - requires approve:ai-tasks permission

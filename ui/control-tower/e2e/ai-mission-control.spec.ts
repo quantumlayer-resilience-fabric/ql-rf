@@ -117,6 +117,37 @@ test.describe("Mission Control (AI-001 Phase A)", () => {
   });
 });
 
+test.describe("Mission Control (CONN-002 — state-change dry-run)", () => {
+  test("dry-running ssm_send_patch_command inserts a row in the activity stream", async ({ page }) => {
+    await page.goto("/ai");
+    await expect(
+      page.getByRole("heading", { name: "Mission Control", exact: true }),
+    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    // The orchestrator boots with RF_CONNECTORS_AWS_FALLBACK_TO_MOCK=true
+    // in CI, so both query_aws_instances and ssm_send_patch_command are
+    // registered. The state-change tool gets a "Dry-run" button.
+    const card = page.getByTestId("real-tools-ssm_send_patch_command");
+    await expect(card).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    await card.getByTestId("real-tools-dry-run-ssm_send_patch_command").click();
+
+    // The dry-run lands in the activity stream as a tool_invocation row
+    // keyed by the tool name. The dry_run/_simulated distinction lives in
+    // the audit row's JSONB, not in the DOM selector.
+    const stream = page.getByRole("main");
+    await expect(
+      stream.locator('[data-testid="activity-ssm_send_patch_command"]').first(),
+    ).toBeVisible({ timeout: 20_000 });
+
+    // Inline result confirms a SendCommand was NOT fired (the strongest
+    // user-facing safety guarantee in PR #20).
+    await expect(
+      page.getByTestId("real-tools-result-ssm_send_patch_command"),
+    ).toContainText(/No SendCommand fired|Dry-run completed/, { timeout: 20_000 });
+  });
+});
+
 test.describe("Mission Control (CONN-001 — real tools panel)", () => {
   test("invoking query_aws_instances inserts a real (non-simulated) row in the activity stream", async ({ page }) => {
     await page.goto("/ai");

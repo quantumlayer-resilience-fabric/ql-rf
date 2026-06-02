@@ -595,6 +595,51 @@ loud WARN at boot is the safety net; a misconfigured production deployment
 would silently serve fake instance lists. CI sets it explicitly to true to
 keep the demo working without real AWS credentials.
 
+## State-change dry-run (PR #20 / CONN-002)
+
+The orchestrator's tool registry now includes the first state-change cloud
+tool — `ssm_send_patch_command`. Risk level `state_change_prod`. Invocable
+only via a new endpoint `POST /api/v1/ai/tools/{toolName}/dry-run` that
+strictly accepts state-change tools (read-only and plan-only return 403,
+symmetric to PR #19's `/invoke` gating).
+
+**The tool is dry-run only in PR #20.** It builds an `SSMCommandPlan`
+struct describing the AWS-RunPatchBaseline command that WOULD be sent, but
+never calls `ssm:SendCommand`. The structural guarantee:
+
+- `services/orchestrator/internal/tools/ssm_client.go` deliberately does
+  NOT import `github.com/aws/aws-sdk-go-v2/service/ssm`.
+- A Go test (`no_ssm_sdk_import_test.go`) parses every non-test file in
+  the tools package at test time and fails if the forbidden import shows
+  up. CI runs this test as part of `go test ./services/orchestrator/...`.
+
+**Three-way SQL audit distinction** — every `ai_tool_invocations` row in
+the product falls into exactly one of:
+
+```sql
+-- Synthetic (B.3 simulator):
+WHERE parameters @> '{"_simulated": true}'::jsonb
+
+-- Real read-only (PR #19):
+WHERE risk_level = 'read_only'
+  AND NOT (parameters @> '{"_simulated": true}'::jsonb)
+
+-- State-change dry-run (PR #20):
+WHERE risk_level IN ('state_change_nonprod', 'state_change_prod')
+  AND parameters @> '{"dry_run": true}'::jsonb
+```
+
+A future fourth kind — state-change live (PR #21) — will be queryable as
+`risk_level LIKE 'state_change_%' AND parameters @> '{"dry_run": false}'`.
+The audit shape is forward-compatible.
+
+**Live mode (PR #21)** will introduce a new file
+(e.g., `live_ssm_client.go`) that does import the SDK and exposes a
+SendCommand path. That file will be the single exception in
+`no_ssm_sdk_import_test.go`. Live mode will additionally require:
+`RF_CONNECTORS_AWS_ALLOW_LIVE_PATCH=true`, instance ID on a per-org
+whitelist, and a two-approver workflow.
+
 ## License
 
 Copyright © 2024 QuantumLayer. All rights reserved.
