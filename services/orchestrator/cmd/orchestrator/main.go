@@ -182,6 +182,11 @@ func run() error {
 	// explicitly opted in. Mirrors the SSM/Azure/GCP live boot hooks.
 	registerVSphereLiveGuestOpsTools(ctx, cfg, toolRegistry, log)
 
+	// PR #40 / CONN-017: register the LIVE K8s server-side-apply tool
+	// when explicitly opted in. Final connector arc PR — completes the
+	// 5 platforms × 3 risk tiers = 15-tool matrix.
+	registerK8sLiveApplyTools(ctx, cfg, toolRegistry, log)
+
 	// Initialize agent registry
 	agentRegistry := agents.NewRegistry(llmClient, toolRegistry, validator, log)
 	log.Info("initialized agent registry", "agents", agentRegistry.ListAgents())
@@ -927,6 +932,69 @@ func registerVSphereLiveGuestOpsTools(
 	}
 
 	reg.RegisterVSphereLiveGuestOpsTools(tools.NewRealVSphereGuestOpsClient(log), liveClient)
+}
+
+// registerK8sLiveApplyTools is the PR #40 / CONN-017 boot hook — the
+// FINAL connector-arc boot hook. Completes the 5 platforms × 3 risk
+// tiers = 15-tool matrix. Mirrors PR #21/#28/#31/#35 exactly.
+// Four gates, evaluated in order:
+//
+//  1. AllowLiveApply off (default): silent no-op.
+//  2. AllowLiveApply on + FallbackToMock on: REFUSE TO START.
+//  3. AllowLiveApply on + whitelist empty: REFUSE TO START.
+//  4. All gates pass: emit a loud WARN and register the live tool.
+func registerK8sLiveApplyTools(
+	ctx context.Context,
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	k8sCfg := cfg.Connectors.K8s
+	if !k8sCfg.AllowLiveApply {
+		return
+	}
+
+	if k8sCfg.FallbackToMock {
+		log.Error("REFUSING TO START: RF_CONNECTORS_K8S_ALLOW_LIVE_APPLY=true and RF_CONNECTORS_K8S_FALLBACK_TO_MOCK=true are incoherent. Pick one.",
+			"hint", "Production live mode requires real kubeconfig, not the mock client.",
+		)
+		os.Exit(1)
+	}
+
+	whitelist := tools.LoadK8sLiveWhitelistFromEnv(os.Getenv)
+	if len(whitelist) == 0 {
+		whitelist = k8sCfg.LiveApplyWhitelistTargets
+	}
+	if len(whitelist) == 0 {
+		log.Error("REFUSING TO START: RF_CONNECTORS_K8S_ALLOW_LIVE_APPLY=true but no targets on the whitelist.",
+			"hint", "Set RF_CONNECTORS_K8S_LIVE_APPLY_WHITELIST_TARGETS=ns/Kind,ns2/Kind2 or connectors.k8s.live_apply_whitelist_targets in config.",
+		)
+		os.Exit(1)
+	}
+
+	log.Warn("LIVE K8S APPLY MODE ENABLED — real cluster mutations possible after two-approver workflow",
+		"client_mode", k8sCfg.LiveApplyClientMode,
+		"whitelist_count", len(whitelist),
+		"whitelist", whitelist,
+	)
+
+	var liveClient tools.LiveK8sApplyClient
+	if k8sCfg.LiveApplyClientMode == "mock" {
+		log.Warn("k8s live apply tools: MOCK CLIENT ACTIVE — Apply returns mock UIDs without touching the cluster. DO NOT USE IN PRODUCTION.")
+		liveClient = tools.NewMockLiveK8sApplyClient(whitelist)
+	} else {
+		realLive, err := tools.NewLiveK8sApplyClient(ctx, k8sCfg, whitelist, log)
+		if err != nil {
+			log.Error("REFUSING TO START: cannot construct live K8s apply client",
+				"error", err.Error(),
+				"hint", "Check kubeconfig.",
+			)
+			os.Exit(1)
+		}
+		liveClient = realLive
+	}
+
+	reg.RegisterK8sLiveApplyTools(tools.NewRealK8sApplyClient(log), liveClient)
 }
 
 // registerGCPLivePatchTools is the PR #31 / CONN-011 boot hook for the

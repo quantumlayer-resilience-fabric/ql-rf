@@ -858,6 +858,45 @@ and positive structural tests enforce this.
 (#33/#34/#35). Four platforms × three risk tiers × the four-gate live
 pattern = 12 cloud tools all sharing one audit-by-grep discipline.
 
+## K8s server-side-apply live (PR #40 / CONN-017)
+
+The first **live** K8s cloud-mutating tool — `k8s_apply_live` — and the
+FINAL connector arc PR. Completes the 5 platforms × 3 risk tiers =
+**15-tool matrix**. Fires `dynamic.ResourceInterface.Apply` with
+`metav1.ApplyOptions` against whitelisted (namespace, kind) pairs after
+the PR #21 two-approver workflow completes. Four independent gates,
+matching SSM (PR #21), Azure (PR #28), GCP (PR #31), and vSphere (PR #35):
+
+| Gate | Where | Trigger |
+|------|-------|---------|
+| Env opt-in | `cmd/orchestrator/main.go:registerK8sLiveApplyTools` | `RF_CONNECTORS_K8S_ALLOW_LIVE_APPLY=true`. Default off. |
+| Mock-conflict refusal | same | Boot exits 1 if `FALLBACK_TO_MOCK=true` is also set. |
+| Per-(ns, kind) whitelist | same + `live_k8s_apply_client.go` | `RF_CONNECTORS_K8S_LIVE_APPLY_WHITELIST_TARGETS=prod/Deployment,stage/ConfigMap`. Non-empty required at boot. |
+| Two-approver workflow | `handlers/co_approve.go` + `policy/tool_authorization.rego` (PR #21) | First approver via `/approve`; second via `/co-approve`. OPA also enforces. |
+
+**Structural isolation:** `live_k8s_apply_client.go` is the ONLY file in
+the tools package that contains `metav1.ApplyOptions{` (the unique
+SDK token for server-side apply). Both the negative and positive
+structural tests enforce this.
+
+**Supported kinds:** Deployment, StatefulSet, DaemonSet, ConfigMap,
+Service, Secret, Job, CronJob. Add rows to `liveK8sSupportedGVRs` to
+extend.
+
+**The full 15-tool matrix on main after this PR:**
+
+| Cloud | Read-only | Dry-run | Live + 2-approver |
+|-------|-----------|---------|-------------------|
+| AWS | #19 | #20 | #21 |
+| Azure | #26 | #27 | #28 |
+| GCP | #29 | #30 | #31 |
+| vSphere | #33 | #34 | #35 |
+| K8s | #38 | #39 | **#40 (this)** |
+
+Patch agent (PR #36)'s platform catalog is updated in this PR to include
+the k8s row — the agent now recommends `k8s_apply` / `k8s_apply_live`
+per environment for K8s assets.
+
 ## Patch agent platform-awareness (PR #36 / OPS-AGENT-001)
 
 Before PR #36 the `patch_agent` only knew about "SSM" by name and had

@@ -93,3 +93,18 @@ func TestK8sApplyClient_DocumentsTheGuarantee(t *testing.T) {
 		t.Errorf("k8s_apply_client.go is missing its SAFETY comment about NOT calling the state-change SDK path; restore it before merging")
 	}
 }
+
+// TestLiveK8sApplyClient_IsTheOnlyFileReferencingSDKToken — PR #40's
+// positive complement: the live file MUST reference
+// the K8s apply struct literal. Otherwise live mode is unreachable
+// and the allowlist exception is mis-pointed.
+func TestLiveK8sApplyClient_IsTheOnlyFileReferencingSDKToken(t *testing.T) {
+	body, err := os.ReadFile(filepath.Clean(k8sLiveApplyFile))
+	if err != nil {
+		t.Fatalf("read %s: %v — PR #40's live mode requires this file. If you intentionally removed live mode, also remove this test.", k8sLiveApplyFile, err)
+	}
+	if !strings.Contains(string(body), k8sApplyStateChangeToken) {
+		t.Errorf("%s must reference %q — PR #40's live mode is unreachable without it.",
+			k8sLiveApplyFile, k8sApplyStateChangeToken)
+	}
+}

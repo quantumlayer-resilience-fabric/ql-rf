@@ -259,6 +259,21 @@ type K8sConfig struct {
 	// MUST be false in production so a misconfiguration is surfaced loudly
 	// at boot instead of silently using fake data.
 	FallbackToMock bool `mapstructure:"fallback_to_mock"`
+
+	// AllowLiveApply is the PR #40 / CONN-017 env opt-in for the live K8s
+	// server-side-apply tool. MUST be false in dev/CI. If true and
+	// FallbackToMock is also true, boot refuses (incoherent combination,
+	// mirrors SSM/Azure/GCP/vSphere live gates).
+	AllowLiveApply bool `mapstructure:"allow_live_apply"`
+
+	// LiveApplyWhitelistTargets is the per-(namespace,kind) allowlist
+	// for live K8s apply invocations. Format: "ns1/Kind1,ns2/Kind2".
+	// Empty + AllowLiveApply=true also fails boot.
+	LiveApplyWhitelistTargets []string `mapstructure:"live_apply_whitelist_targets"`
+
+	// LiveApplyClientMode picks between "real" (default) and "mock".
+	// Production MUST be "real".
+	LiveApplyClientMode string `mapstructure:"live_apply_client_mode"`
 }
 
 // DriftConfig holds drift service configuration.
@@ -569,6 +584,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("connectors.k8s.cluster_name", "")
 	// PR #38 / CONN-015 K8s orchestrator-tool default. Off everywhere by default.
 	v.SetDefault("connectors.k8s.fallback_to_mock", false)
+	// PR #40 / CONN-017 K8s live-mode defaults. Off everywhere by default.
+	v.SetDefault("connectors.k8s.allow_live_apply", false)
+	v.SetDefault("connectors.k8s.live_apply_whitelist_targets", []string{})
+	v.SetDefault("connectors.k8s.live_apply_client_mode", "real")
 
 	// Drift
 	v.SetDefault("drift.host", "0.0.0.0")
@@ -703,6 +722,10 @@ func bindEnvVars(v *viper.Viper) error {
 		"connectors.vsphere.live_guest_ops_client_mode",
 		// PR #38 / CONN-015 — K8s connector orchestrator-tool env binding.
 		"connectors.k8s.fallback_to_mock",
+		// PR #40 / CONN-017 — live K8s apply env bindings.
+		"connectors.k8s.allow_live_apply",
+		"connectors.k8s.live_apply_whitelist_targets",
+		"connectors.k8s.live_apply_client_mode",
 		"drift.host",
 		"drift.port",
 		"drift.calculation_interval",
