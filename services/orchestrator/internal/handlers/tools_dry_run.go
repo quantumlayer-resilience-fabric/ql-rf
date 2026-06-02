@@ -113,6 +113,10 @@ func (h *Handler) dryRunTool(w http.ResponseWriter, r *http.Request) {
 		errText = execErr.Error()
 	}
 
+	paramsJSON, _ := json.Marshal(req.Params)
+	resultJSON, _ := json.Marshal(result)
+	h.tryEmitComplianceEvidence(ctx, invID, toolName, string(risk), orgID, paramsJSON, resultJSON)
+
 	resp := InvokeToolResponse{
 		InvocationID: invID,
 		ToolName:     toolName,

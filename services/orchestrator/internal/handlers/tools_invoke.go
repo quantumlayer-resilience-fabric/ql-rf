@@ -151,6 +151,8 @@ func (h *Handler) invokeTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.tryEmitComplianceEvidence(ctx, invID, toolName, string(tool.Risk()), orgID, paramsJSON, resultJSON)
+
 	resp := InvokeToolResponse{
 		InvocationID: invID,
 		ToolName:     toolName,
