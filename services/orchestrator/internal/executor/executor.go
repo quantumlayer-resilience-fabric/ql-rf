@@ -10,11 +10,38 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/quantumlayerhq/ql-rf/pkg/database"
 	"github.com/quantumlayerhq/ql-rf/pkg/logger"
 	"github.com/quantumlayerhq/ql-rf/pkg/models"
+	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/compliance"
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/tools"
 )
+
+// executorEvidenceEmitter is a function-typed shim around
+// compliance.EmitToolEvidence so executor tests can swap in a fake
+// without seeding the full mapping table. Production wires it to the
+// real emitter; tests can override via SetEvidenceEmitter (package-
+// scoped).
+//
+// Marshaled JSON bytes are passed through unchanged.
+var executorEvidenceEmitter = func(
+	ctx context.Context,
+	db *pgxpool.Pool,
+	log *logger.Logger,
+	invocationID, toolName, riskLevel, orgID string,
+	paramsJSON, resultJSON []byte,
+) (string, error) {
+	return compliance.EmitToolEvidence(ctx, db, log, compliance.EmitOpts{
+		InvocationID: invocationID,
+		ToolName:     toolName,
+		RiskLevel:    riskLevel,
+		OrgID:        orgID,
+		ParamsJSON:   paramsJSON,
+		ResultJSON:   resultJSON,
+	})
+}
 
 // ExecutionStatus represents the status of an execution.
 type ExecutionStatus string
@@ -97,13 +124,13 @@ type ExecutionPlan struct {
 
 // ExecutionPhase defines a phase in the execution plan.
 type ExecutionPhase struct {
-	Name          string                   `json:"name"`
-	Assets        []map[string]interface{} `json:"assets"`
-	WaitTime      string                   `json:"wait_time,omitempty"` // e.g., "30m"
-	RollbackIf    string                   `json:"rollback_if,omitempty"`
-	HealthChecks  []HealthCheck            `json:"health_checks,omitempty"`
-	Actions       []PhaseAction            `json:"actions,omitempty"`
-	ContinueOnFail bool                    `json:"continue_on_fail,omitempty"`
+	Name           string                   `json:"name"`
+	Assets         []map[string]interface{} `json:"assets"`
+	WaitTime       string                   `json:"wait_time,omitempty"` // e.g., "30m"
+	RollbackIf     string                   `json:"rollback_if,omitempty"`
+	HealthChecks   []HealthCheck            `json:"health_checks,omitempty"`
+	Actions        []PhaseAction            `json:"actions,omitempty"`
+	ContinueOnFail bool                     `json:"continue_on_fail,omitempty"`
 }
 
 // PhaseAction defines an action to perform in a phase.
@@ -115,12 +142,12 @@ type PhaseAction struct {
 
 // HealthCheck defines a health check to run.
 type HealthCheck struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"` // http, tcp, command
-	Target    string `json:"target"`
-	Expected  string `json:"expected,omitempty"`
-	Timeout   string `json:"timeout,omitempty"`
-	Retries   int    `json:"retries,omitempty"`
+	Name     string `json:"name"`
+	Type     string `json:"type"` // http, tcp, command
+	Target   string `json:"target"`
+	Expected string `json:"expected,omitempty"`
+	Timeout  string `json:"timeout,omitempty"`
+	Retries  int    `json:"retries,omitempty"`
 }
 
 // RollbackPlan defines how to rollback the execution.
@@ -440,6 +467,14 @@ func (e *Engine) executePhase(ctx context.Context, exec *Execution, phaseExec *P
 }
 
 // executeAction executes a phase action using tools.
+//
+// PR #24 / CONN-004: the executor now records every tool invocation in
+// ai_tool_invocations (previously this path fired tools without
+// auditing — a live SSM tool fired via co-approve produced no audit row
+// at all). After the audit row, the compliance evidence emitter runs as
+// a best-effort hook so the operation lands in the compliance trail
+// when a mapping exists. Both writes happen even when the tool returns
+// an error so the audit trail records the failed attempt.
 func (e *Engine) executeAction(ctx context.Context, exec *Execution, action *PhaseAction) error {
 	if action.Tool == "" {
 		return nil // No tool to execute
@@ -450,7 +485,28 @@ func (e *Engine) executeAction(ctx context.Context, exec *Execution, action *Pha
 		return fmt.Errorf("tool not found: %s", action.Tool)
 	}
 
+	started := time.Now()
 	result, err := tool.Execute(ctx, action.Parameters)
+	durationMs := int(time.Since(started) / time.Millisecond)
+
+	// PR #24: record the invocation in ai_tool_invocations. Best-effort —
+	// a failure here logs and continues so a working tool isn't blocked
+	// by a transient DB issue, but the executor returns the tool's
+	// original error (if any) unchanged.
+	invID, auditErr := e.recordToolInvocation(ctx, exec, action.Tool, string(tool.Risk()),
+		action.Parameters, result, err, durationMs)
+	if auditErr != nil {
+		e.log.Warn("executor: audit row insert failed",
+			"tool", action.Tool, "execution_id", exec.ID, "error", auditErr)
+	}
+
+	// PR #24: emit compliance evidence if a mapping exists. Best-effort —
+	// imported lazily here to avoid an import cycle (executor → compliance)
+	// becoming a hard dependency for the unit tests that build executor.
+	if invID != "" {
+		e.emitComplianceEvidence(ctx, invID, action.Tool, string(tool.Risk()), exec.OrgID, action.Parameters, result)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -1097,5 +1153,76 @@ func mapDBStateToStatus(dbState string) ExecutionStatus {
 		return StatusFailed
 	default:
 		return StatusPending
+	}
+}
+
+// recordToolInvocation writes an ai_tool_invocations row for the tool
+// fired in executeAction. Returns the new invocation id on success;
+// empty + error on failure. Callers treat the error as best-effort.
+//
+// PR #24 / CONN-004: closes the audit gap where tools fired via the
+// executor (post-approval) produced no audit trail. The shape mirrors
+// the inserts in handlers/tools_invoke.go and handlers/tools_dry_run.go.
+func (e *Engine) recordToolInvocation(
+	ctx context.Context,
+	exec *Execution,
+	toolName, riskLevel string,
+	params map[string]any,
+	result any,
+	execErr error,
+	durationMs int,
+) (string, error) {
+	paramsJSON, mErr := json.Marshal(params)
+	if mErr != nil {
+		paramsJSON = []byte("{}")
+	}
+	resultJSON := []byte("null")
+	if result != nil {
+		if b, jErr := json.Marshal(result); jErr == nil {
+			resultJSON = b
+		}
+	}
+	errText := ""
+	if execErr != nil {
+		errText = execErr.Error()
+	}
+	const insertQ = `
+		INSERT INTO ai_tool_invocations
+			(task_id, run_id, tool_name, risk_level, duration_ms,
+			 parameters, result, error, created_at)
+		VALUES ($1, NULL, $2, $3, $4, $5::jsonb, $6::jsonb, NULLIF($7, ''), clock_timestamp())
+		RETURNING id`
+	var invID string
+	if err := e.db.Pool.QueryRow(ctx, insertQ,
+		exec.TaskID, toolName, riskLevel, durationMs,
+		string(paramsJSON), string(resultJSON), errText,
+	).Scan(&invID); err != nil {
+		return "", err
+	}
+	return invID, nil
+}
+
+// emitComplianceEvidence is the executor's hook into the compliance
+// evidence emitter. It re-marshals the params/result the same way
+// recordToolInvocation did; the small duplication keeps the evidence
+// emitter's signature driver-agnostic. The emitter silently skips when
+// no mapping is configured, so this is always safe to call.
+func (e *Engine) emitComplianceEvidence(
+	ctx context.Context,
+	invocationID, toolName, riskLevel, orgID string,
+	params map[string]any,
+	result any,
+) {
+	// Defensive: emitter requires non-empty org id; the executor receives
+	// an Execution with OrgID populated by the caller (handlers/co_approve
+	// → startExecution → newExecution). If somehow empty, skip silently.
+	if orgID == "" {
+		return
+	}
+	paramsJSON, _ := json.Marshal(params)
+	resultJSON, _ := json.Marshal(result)
+	if _, err := executorEvidenceEmitter(ctx, e.db.Pool, e.log, invocationID, toolName, riskLevel, orgID, paramsJSON, resultJSON); err != nil {
+		e.log.Warn("executor: evidence emission failed; audit row preserved",
+			"invocation_id", invocationID, "tool", toolName, "error", err)
 	}
 }

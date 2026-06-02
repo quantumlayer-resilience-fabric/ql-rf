@@ -705,6 +705,95 @@ registered and no live calls are possible regardless of credentials.
 **Mission Control UI for co-approval** is the next PR — until it lands,
 the `/co-approve` endpoint is API-only.
 
+## Compliance evidence emission (PR #24 / CONN-004)
+
+Every real (non-synthetic) `ai_tool_invocations` row now produces a
+`compliance_evidence` attestation when a `tool_compliance_mappings` row
+maps the tool name to a `compliance_controls.id` for the row's org.
+Mappings are **opt-in** — a tool without a mapping silently produces no
+evidence.
+
+The four-way audit kind distinction from PR #21 still holds; PR #24 adds
+the auditor layer on top:
+
+| Audit kind | Evidence emitted? | Notes |
+|---|---|---|
+| Synthetic (B.3) | No | `_simulated:true` in params skips the emitter |
+| Real read-only (PR #19) | Yes if mapped | `query_aws_instances` ships unmapped by default; ops can add an SOC2-CC7.1 mapping per-org |
+| State-change dry-run (PR #20) | Yes if mapped | Seed maps `ssm_send_patch_command*` → CIS-1.4 |
+| Live state-change (PR #21) | Yes if mapped | Same `ssm_send_patch_command*` mapping covers the live tool |
+
+### Lookup precedence
+
+For each invocation the emitter walks `tool_compliance_mappings`:
+
+1. Org-specific exact-name match (`org_id=X, tool_name_pattern=tool_name`)
+2. Org-specific wildcard match (`org_id=X, tool_name_pattern=prefix*`)
+3. Global exact-name match (`org_id IS NULL, tool_name_pattern=tool_name`)
+4. Global wildcard match (`org_id IS NULL, tool_name_pattern=prefix*`)
+
+A customer can override the global default for a specific tool by
+inserting an org-specific row — it wins by precedence even if it maps
+to a different control.
+
+### Schema
+
+`tool_compliance_mappings` (migration `000020`):
+
+```sql
+id, org_id, tool_name_pattern, control_id, notes, created_at, updated_at
+```
+
+`compliance_evidence` gains one column:
+
+```sql
+ai_tool_invocation_id UUID REFERENCES ai_tool_invocations(id) ON DELETE SET NULL
+```
+
+### Adding a new mapping
+
+```sql
+-- Global default — applies to all orgs unless overridden.
+INSERT INTO tool_compliance_mappings (org_id, tool_name_pattern, control_id, notes)
+VALUES (NULL, 'azure_run_command*', '<control_uuid>', 'Azure VM patch operations');
+
+-- Org-specific override.
+INSERT INTO tool_compliance_mappings (org_id, tool_name_pattern, control_id, notes)
+VALUES ('<org_uuid>', 'ssm_send_patch_command_live', '<soc2_control_uuid>',
+        'Customer X also tracks SSM patches against SOC2 CC7.1');
+```
+
+### Audit trail (SQL view)
+
+```sql
+SELECT
+  CASE
+    WHEN p.parameters @> '{"_simulated":true}'::jsonb       THEN 'synthetic'
+    WHEN p.risk_level = 'read_only'                          THEN 'real_readonly'
+    WHEN p.parameters @> '{"dry_run":true}'::jsonb           THEN 'dry_run_statechange'
+    WHEN p.parameters @> '{"dry_run":false}'::jsonb
+         AND p.risk_level = 'state_change_prod'              THEN 'live_statechange'
+    ELSE 'unknown'
+  END AS audit_kind,
+  COUNT(p.id)              AS invocations,
+  COUNT(e.id)              AS attested,
+  COUNT(p.id) - COUNT(e.id) AS unmapped
+FROM ai_tool_invocations p
+LEFT JOIN compliance_evidence e ON e.ai_tool_invocation_id = p.id
+GROUP BY 1
+ORDER BY 1;
+```
+
+### Executor audit gap (closed by PR #24)
+
+Before PR #24, tools fired via the executor's `executeAction` path
+(post-approval, e.g. via the co-approve workflow) produced **no audit
+row at all** — the executor called `tool.Execute()` without writing to
+`ai_tool_invocations`. PR #24 fixes this incidentally because the
+compliance emitter needs the audit row to link to. Both the audit and
+the evidence emission are now best-effort: a DB failure logs a Warn and
+the tool's original return value is preserved unchanged.
+
 ## License
 
 Copyright © 2024 QuantumLayer. All rights reserved.

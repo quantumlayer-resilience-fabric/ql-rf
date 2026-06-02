@@ -115,7 +115,7 @@ func run() error {
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=6 sboms=1 sbom_packages=6 ai_tasks=5 ai_plans=5 ai_runs=2 ai_tool_invocations=6 llm_usage=4 ai_conversations=2 ai_conversation_messages=4\n", orgID)
+	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=7 mappings=2 sboms=1 sbom_packages=6 ai_tasks=5 ai_plans=5 ai_runs=2 ai_tool_invocations=6 llm_usage=4 ai_conversations=2 ai_conversation_messages=4\n", orgID)
 	return nil
 }
 
@@ -544,13 +544,30 @@ func seedCompliance(ctx context.Context, tx pgx.Tx) error {
 		id, frameworkID, controlID, title, severity, recommendation, resultStatus string
 		affectedAssets                                                            int
 		score                                                                     float64
+		// skipResult excludes the control from the compliance_results
+		// scoring fixture. The control still exists in the registry (so
+		// mappings can reference it) but doesn't move the overall score.
+		// Used for controls introduced as evidence-emission targets that
+		// don't have an active scan result on the demo dashboard.
+		skipResult bool
 	}{
-		{"eeeeeeee-1000-0000-0000-000000000001", cisFrameworkID, "CIS-1.1", "Ensure SSH root login is disabled", "high", "Set PermitRootLogin no in /etc/ssh/sshd_config.", "failing", 3, 0},
-		{"eeeeeeee-1000-0000-0000-000000000002", cisFrameworkID, "CIS-1.2", "Ensure password expiration is configured", "medium", "Set PASS_MAX_DAYS to 90 in /etc/login.defs.", "failing", 2, 0},
-		{"eeeeeeee-1000-0000-0000-000000000003", cisFrameworkID, "CIS-2.1", "Ensure auditd is enabled and running", "medium", "Enable the auditd service.", "passing", 0, 100},
-		{"eeeeeeee-1000-0000-0000-000000000004", cisFrameworkID, "CIS-2.2", "Ensure firewalld is active", "medium", "systemctl enable --now firewalld.", "passing", 0, 100},
-		{"eeeeeeee-1000-0000-0000-000000000005", cisFrameworkID, "CIS-3.1", "Ensure system is up to date", "low", "Run package updates.", "passing", 0, 100},
-		{"eeeeeeee-1000-0000-0000-000000000006", slsaFrameworkID, "SLSA-L3", "Source and build platform meet SLSA Level 3", "high", "Use a hardened build platform.", "passing", 0, 100},
+		{"eeeeeeee-1000-0000-0000-000000000001", cisFrameworkID, "CIS-1.1", "Ensure SSH root login is disabled", "high", "Set PermitRootLogin no in /etc/ssh/sshd_config.", "failing", 3, 0, false},
+		{"eeeeeeee-1000-0000-0000-000000000002", cisFrameworkID, "CIS-1.2", "Ensure password expiration is configured", "medium", "Set PASS_MAX_DAYS to 90 in /etc/login.defs.", "failing", 2, 0, false},
+		{"eeeeeeee-1000-0000-0000-000000000003", cisFrameworkID, "CIS-2.1", "Ensure auditd is enabled and running", "medium", "Enable the auditd service.", "passing", 0, 100, false},
+		{"eeeeeeee-1000-0000-0000-000000000004", cisFrameworkID, "CIS-2.2", "Ensure firewalld is active", "medium", "systemctl enable --now firewalld.", "passing", 0, 100, false},
+		{"eeeeeeee-1000-0000-0000-000000000005", cisFrameworkID, "CIS-3.1", "Ensure system is up to date", "low", "Run package updates.", "passing", 0, 100, false},
+		{"eeeeeeee-1000-0000-0000-000000000006", slsaFrameworkID, "SLSA-L3", "Source and build platform meet SLSA Level 3", "high", "Use a hardened build platform.", "passing", 0, 100, false},
+		// PR #24 / CONN-004: new patch-management control. This is the
+		// control the SSM tools map to via tool_compliance_mappings, so
+		// dry-run and live invocations of ssm_send_patch_command produce
+		// compliance_evidence rows under this control. Status=passing
+		// with score=100; this shifts CIS from 60.0% to 66.7% and overall
+		// from 80.0% to 83.3% (Playwright expectations updated to match).
+		// Skipping the result row entirely would make the control show
+		// up as "failing" (the failing-controls SQL counts cr.status IS
+		// NULL as failing), which would break the "2 Compliance Gaps
+		// Detected" test.
+		{"eeeeeeee-1000-0000-0000-000000000007", cisFrameworkID, "CIS-1.4", "Ensure systems are patched against known vulnerabilities", "high", "Apply patches via approved orchestration tooling (e.g., AWS SSM, Azure Update Manager).", "passing", 0, 100, false},
 	}
 	for i := range controls {
 		c := &controls[i]
@@ -562,6 +579,9 @@ func seedCompliance(ctx context.Context, tx pgx.Tx) error {
 		); err != nil {
 			return fmt.Errorf("insert control %s: %w", c.controlID, err)
 		}
+		if c.skipResult {
+			continue
+		}
 		resultID := "eeeeeeee-2000-0000-0000-0000000000" + c.id[len(c.id)-2:]
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO compliance_results (id, org_id, framework_id, control_id, status, affected_assets, score)
@@ -571,6 +591,32 @@ func seedCompliance(ctx context.Context, tx pgx.Tx) error {
 			resultID, orgID, c.frameworkID, c.id, c.resultStatus, c.affectedAssets, c.score,
 		); err != nil {
 			return fmt.Errorf("insert result for %s: %w", c.controlID, err)
+		}
+	}
+
+	// PR #24 / CONN-004: tool → compliance control mappings. The SSM
+	// tool family (dry-run from PR #20, live from PR #21) maps to the new
+	// CIS-1.4 patch-management control. NULL org_id = global default; any
+	// org can override by inserting an org-specific row, which wins by the
+	// emitter's precedence order. ON CONFLICT (...) DO NOTHING keeps the
+	// seed idempotent.
+	const cisPatchControlID = "eeeeeeee-1000-0000-0000-000000000007"
+	mappings := []struct {
+		toolPattern, controlID, notes string
+	}{
+		{"ssm_send_patch_command", cisPatchControlID,
+			"PR #20 dry-run tool. Records an attestation that a patch plan was constructed (proof of intent + approval flow)."},
+		{"ssm_send_patch_command_live", cisPatchControlID,
+			"PR #21 live tool. Records an attestation that ssm:SendCommand fired against whitelisted instances after two-approver workflow."},
+	}
+	for _, m := range mappings {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO tool_compliance_mappings (org_id, tool_name_pattern, control_id, notes)
+			VALUES (NULL, $1, $2, $3)
+			ON CONFLICT DO NOTHING`,
+			m.toolPattern, m.controlID, m.notes,
+		); err != nil {
+			return fmt.Errorf("insert tool mapping %s: %w", m.toolPattern, err)
 		}
 	}
 	return nil
