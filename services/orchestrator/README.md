@@ -746,9 +746,23 @@ Boot validates the credential by advancing the aggregated-list iterator
 one page. Falls back to mock client (loud WARN) when fallback enabled,
 otherwise the tool simply doesn't register.
 
-PR #30/#31 will add GCP state-change tools (`gcp_os_config_patch`
-dry-run + `gcp_os_config_patch_live` with two-approver) following the
-same arc PR #27/#28 used for Azure.
+## GCP OS Config patch dry-run (PR #30 / CONN-010)
+
+The first GCP state-change tool — dry-run only. `gcp_os_config_patch`
+constructs a GCP OS Config patch job plan (project + zone + instance
+filter + reboot config) and records it as audit; no call to the
+state-change SDK is made.
+
+Same SDK-isolation discipline as PR #27's Azure dry-run: the structural
+test uses **function-name matching** for the state-change constructor
+rather than import-path forbidding. PR #31 will introduce
+`live_gcp_patch_client.go` as the single allowlist exception.
+
+The seeded compliance mapping links both `gcp_os_config_patch` (dry-run)
+and `gcp_os_config_patch_live` (PR #31 placeholder) to CIS-1.4.
+
+**PR #31** will introduce the live variant with the same four-gate
+pattern PR #21 (SSM) and PR #28 (Azure) used.
 
 ## State-change dry-run (PR #20 / CONN-002)
 
