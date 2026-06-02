@@ -633,12 +633,77 @@ A future fourth kind — state-change live (PR #21) — will be queryable as
 `risk_level LIKE 'state_change_%' AND parameters @> '{"dry_run": false}'`.
 The audit shape is forward-compatible.
 
-**Live mode (PR #21)** will introduce a new file
-(e.g., `live_ssm_client.go`) that does import the SDK and exposes a
-SendCommand path. That file will be the single exception in
-`no_ssm_sdk_import_test.go`. Live mode will additionally require:
-`RF_CONNECTORS_AWS_ALLOW_LIVE_PATCH=true`, instance ID on a per-org
-whitelist, and a two-approver workflow.
+## Live state-change (PR #21 / CONN-003)
+
+The first cloud-mutating call in the orchestrator. `ssm_send_patch_command_live`
+actually fires `ssm:SendCommand`. Four independent gates control reachability:
+
+| Gate | Where | Trigger |
+|------|-------|---------|
+| Env opt-in | `cmd/orchestrator/main.go:registerSSMLiveTools` | `RF_CONNECTORS_AWS_ALLOW_LIVE_PATCH=true`. Default off everywhere. |
+| Mock-conflict refusal | same | Boot fails if `FALLBACK_TO_MOCK=true` is also set. |
+| Per-instance whitelist | same + `live_ssm_client.go` | `RF_CONNECTORS_AWS_LIVE_PATCH_WHITELIST_INSTANCE_IDS=i-001,i-002,...` — non-empty required at boot. Tool re-validates before SDK call. |
+| Two-approver workflow | `handlers/co_approve.go` + `policy/tool_authorization.rego` | First approver hits `/approve`; second, distinct approver hits `/co-approve`. OPA also enforces. |
+
+**Structural isolation:** `live_ssm_client.go` is the ONLY file in the
+tools package allowed to import `aws-sdk-go-v2/service/ssm`. The negative
+half (no other file may import) is enforced by
+`TestNoSSMSDKImportInToolsPackage`; the positive half (this file MUST
+import) is enforced by `TestLiveSSMClient_IsTheOnlyFileImportingSDK`.
+Both run on every push.
+
+**Four-way SQL audit distinction** — every `ai_tool_invocations` row now
+falls into exactly one of:
+
+```sql
+-- Synthetic (B.3 simulator):
+WHERE parameters @> '{"_simulated": true}'::jsonb
+
+-- Real read-only (PR #19):
+WHERE risk_level = 'read_only'
+  AND NOT (parameters @> '{"_simulated": true}'::jsonb)
+
+-- State-change dry-run (PR #20):
+WHERE risk_level = 'state_change_prod'
+  AND parameters @> '{"dry_run": true}'::jsonb
+
+-- Live state-change (PR #21):
+WHERE risk_level = 'state_change_prod'
+  AND parameters @> '{"dry_run": false}'::jsonb
+```
+
+**Two-approver flow:**
+
+1. Plan generated. State `awaiting_approval`. `approved_by` and
+   `second_approver` both NULL.
+2. First user: `POST /api/v1/ai/tasks/{id}/approve`. The handler detects
+   the plan references a `state_change_prod` tool and DIVERTS: records
+   `approved_by` but state stays `awaiting_approval`. Response includes
+   `status: awaiting_second_approval`.
+3. Second user (must differ): `POST /api/v1/ai/tasks/{id}/co-approve`.
+   Atomic UPDATE sets `second_approver`, `second_approved_at`, flips
+   state to `approved`. Executor fires.
+4. Executor invokes `ssm_send_patch_command_live`. Live client validates
+   whitelist, calls `ssm:SendCommand`, returns command_id. Audit row has
+   `dry_run:false`, `real_changes:true`, `command_id` set.
+
+**Local smoke (mock live client):**
+
+```sh
+export RF_CONNECTORS_AWS_FALLBACK_TO_MOCK=false
+export RF_CONNECTORS_AWS_ALLOW_LIVE_PATCH=true
+export RF_CONNECTORS_AWS_LIVE_PATCH_WHITELIST_INSTANCE_IDS=i-0a1b2c3d4e5f6a7b8
+export RF_CONNECTORS_AWS_LIVE_PATCH_CLIENT_MODE=mock  # avoids real AWS in dev
+go run ./services/orchestrator/cmd/orchestrator
+# Look for: "LIVE SSM MODE ENABLED — real cloud mutations possible after two-approver workflow"
+```
+
+In production, set `LIVE_PATCH_CLIENT_MODE=real` (or omit — `real` is the
+default). CI keeps `ALLOW_LIVE_PATCH=false`, so the live tool isn't
+registered and no live calls are possible regardless of credentials.
+
+**Mission Control UI for co-approval** is the next PR — until it lands,
+the `/co-approve` endpoint is API-only.
 
 ## License
 

@@ -109,6 +109,26 @@ type AWSConfig struct {
 	// AWS account; MUST be false in production so a misconfiguration is
 	// surfaced loudly at boot instead of silently using fake data.
 	FallbackToMock bool `mapstructure:"fallback_to_mock"`
+
+	// AllowLivePatch is the env opt-in for PR #21 / CONN-003 — the first
+	// live cloud-mutating tool (ssm_send_patch_command_live). MUST be
+	// false in dev/CI; true ONLY in production deployments that want the
+	// live SSM SendCommand path. If true and FallbackToMock is also true,
+	// the orchestrator REFUSES to start (the combination is incoherent —
+	// you cannot mock real cloud mutations).
+	AllowLivePatch bool `mapstructure:"allow_live_patch"`
+
+	// LivePatchWhitelistInstanceIDs is the per-instance allowlist for live
+	// SSM patches. Parsed from comma-separated env at boot. The tool
+	// rejects any instance ID not on this list. Empty + AllowLivePatch=true
+	// is also a boot-time refusal: live mode without targets is meaningless.
+	LivePatchWhitelistInstanceIDs []string `mapstructure:"live_patch_whitelist_instance_ids"`
+
+	// LivePatchClientMode picks between the real SSM SDK ("real", default)
+	// and the deterministic mock ("mock"). "mock" is for local smoke and
+	// integration tests where we want to exercise the full live-mode boot
+	// path without firing real AWS calls. Production MUST be "real".
+	LivePatchClientMode string `mapstructure:"live_patch_client_mode"`
 }
 
 // AzureConfig holds Azure connector configuration.
@@ -423,6 +443,12 @@ func setDefaults(v *viper.Viper) {
 	// rather than silently serving fake data). Dev/CI override to true.
 	v.SetDefault("connectors.aws.region", "us-east-1")
 	v.SetDefault("connectors.aws.fallback_to_mock", false)
+	// PR #21 / CONN-003 live-mode defaults. Off everywhere by default; opt
+	// in per-deployment via env var. "real" client mode is the prod path;
+	// "mock" is for local smoke and CI tests of the boot path.
+	v.SetDefault("connectors.aws.allow_live_patch", false)
+	v.SetDefault("connectors.aws.live_patch_whitelist_instance_ids", []string{})
+	v.SetDefault("connectors.aws.live_patch_client_mode", "real")
 
 	// K8s connector defaults
 	v.SetDefault("connectors.k8s.kubeconfig", "")
@@ -530,6 +556,10 @@ func bindEnvVars(v *viper.Viper) error {
 		"connectors.aws.assume_role_arn",
 		"connectors.aws.assume_role_external_id",
 		"connectors.aws.fallback_to_mock",
+		// PR #21 / CONN-003 — live patch mode env bindings.
+		"connectors.aws.allow_live_patch",
+		"connectors.aws.live_patch_whitelist_instance_ids",
+		"connectors.aws.live_patch_client_mode",
 		"drift.host",
 		"drift.port",
 		"drift.calculation_interval",

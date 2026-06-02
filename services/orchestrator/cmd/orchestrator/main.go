@@ -114,6 +114,12 @@ func run() error {
 	// PR with explicit env opt-in.
 	registerSSMStateChangeTools(cfg, toolRegistry, log)
 
+	// PR #21 / CONN-003: register the LIVE SSM patch tool when explicitly
+	// opted in via RF_CONNECTORS_AWS_ALLOW_LIVE_PATCH=true. Refuses to
+	// register (and may exit boot loudly) if the configuration is
+	// incoherent — see registerSSMLiveTools for the exact gates.
+	registerSSMLiveTools(ctx, cfg, toolRegistry, log)
+
 	// Initialize agent registry
 	agentRegistry := agents.NewRegistry(llmClient, toolRegistry, validator, log)
 	log.Info("initialized agent registry", "agents", agentRegistry.ListAgents())
@@ -530,4 +536,95 @@ func registerSSMStateChangeTools(
 		log.Info("ssm tools: real client initialized (dry-run only in PR #20)")
 	}
 	reg.RegisterStateChangeTools(ssmClient)
+}
+
+// registerSSMLiveTools is the PR #21 / CONN-003 boot hook for the LIVE
+// state-change cloud surface. The first code path in the orchestrator
+// that can fire a real cloud-mutating API call.
+//
+// Four gates, evaluated in order:
+//
+//  1. AllowLivePatch off (default): silent no-op. Production deployments
+//     that don't want live mode never see anything from this function.
+//  2. AllowLivePatch on + FallbackToMock on: REFUSE TO START. The
+//     combination is incoherent and the only safe response is to fail
+//     loudly at boot rather than serve mixed real/mock behavior.
+//  3. AllowLivePatch on + whitelist empty: REFUSE TO START. Live mode
+//     without targets is meaningless and probably indicates a missing
+//     env var.
+//  4. All gates pass: emit a loud WARN log with the whitelist contents
+//     and a "real cloud mutations possible" string, then register the
+//     live tool with either the real SDK client (default) or a
+//     deterministic mock (LivePatchClientMode="mock", for local smoke
+//     and integration tests where we want to exercise the full live-mode
+//     boot path without firing real AWS calls).
+//
+// The OPA tool_authorization policy adds the runtime gate (two distinct
+// approvers required) at invocation time.
+func registerSSMLiveTools(
+	ctx context.Context,
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	awsCfg := cfg.Connectors.AWS
+	if !awsCfg.AllowLivePatch {
+		// Silent no-op. The dry-run tool from PR #20 stays the only
+		// state-change SSM surface in this deployment.
+		return
+	}
+
+	if awsCfg.FallbackToMock {
+		log.Error("REFUSING TO START: RF_CONNECTORS_AWS_ALLOW_LIVE_PATCH=true and RF_CONNECTORS_AWS_FALLBACK_TO_MOCK=true are incoherent. Pick one.",
+			"hint", "Production live mode requires real AWS credentials, not the mock client.",
+		)
+		os.Exit(1)
+	}
+
+	// Pull whitelist from env (preferred — keeps secrets out of config
+	// files) with config-derived list as the documented fallback.
+	whitelist := tools.LoadInstanceWhitelistFromEnv()
+	if len(whitelist) == 0 {
+		whitelist = awsCfg.LivePatchWhitelistInstanceIDs
+	}
+	if len(whitelist) == 0 {
+		log.Error("REFUSING TO START: RF_CONNECTORS_AWS_ALLOW_LIVE_PATCH=true but no instances on the whitelist.",
+			"hint", "Set RF_CONNECTORS_AWS_LIVE_PATCH_WHITELIST_INSTANCE_IDS=i-xxx,i-yyy or connectors.aws.live_patch_whitelist_instance_ids in config.",
+		)
+		os.Exit(1)
+	}
+
+	// LOUD WARN: by the time we reach here, real cloud mutations are
+	// possible. Log every relevant boot-state field so post-incident
+	// triage has the configuration verbatim.
+	log.Warn("LIVE SSM MODE ENABLED — real cloud mutations possible after two-approver workflow",
+		"client_mode", awsCfg.LivePatchClientMode,
+		"whitelist_count", len(whitelist),
+		"whitelist", whitelist,
+		"region", awsCfg.Region,
+		"assume_role_arn", awsCfg.AssumeRoleARN,
+	)
+
+	// Build the live client. "mock" mode short-circuits the SDK so local
+	// smoke + integration tests exercise the full boot path without
+	// touching AWS. Production MUST run with client_mode="real".
+	var liveClient tools.LiveSSMClient
+	if awsCfg.LivePatchClientMode == "mock" {
+		log.Warn("ssm live tools: MOCK CLIENT ACTIVE — SendCommand returns cmd-mock-* without calling AWS. DO NOT USE IN PRODUCTION.")
+		liveClient = tools.NewMockLiveSSMClient(whitelist)
+	} else {
+		realLive, err := tools.NewLiveSSMClient(ctx, awsCfg, whitelist, log)
+		if err != nil {
+			log.Error("REFUSING TO START: cannot construct live SSM client",
+				"error", err.Error(),
+				"hint", "Check AWS credentials, region, and assume_role_arn.",
+			)
+			os.Exit(1)
+		}
+		liveClient = realLive
+	}
+
+	// The dry client is reused from PR #20 for plan construction; the
+	// live client takes over for the actual SendCommand call.
+	reg.RegisterLiveStateChangeTools(tools.NewRealSSMClient(log), liveClient)
 }
