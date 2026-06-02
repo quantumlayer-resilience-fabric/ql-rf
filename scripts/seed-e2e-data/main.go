@@ -115,7 +115,7 @@ func run() error {
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=7 mappings=6 sboms=1 sbom_packages=6 ai_tasks=5 ai_plans=5 ai_runs=2 ai_tool_invocations=6 llm_usage=4 ai_conversations=2 ai_conversation_messages=4\n", orgID)
+	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=7 mappings=8 sboms=1 sbom_packages=6 ai_tasks=5 ai_plans=5 ai_runs=2 ai_tool_invocations=6 llm_usage=4 ai_conversations=2 ai_conversation_messages=4\n", orgID)
 	return nil
 }
 
@@ -615,7 +615,11 @@ func seedCompliance(ctx context.Context, tx pgx.Tx) error {
 		{"gcp_os_config_patch", cisPatchControlID,
 			"PR #30 dry-run tool. Records an attestation that a GCP OS Config patch job plan was constructed (proof of intent + approval flow)."},
 		{"gcp_os_config_patch_live", cisPatchControlID,
-			"PR #31 live tool (planned). Records an attestation that osconfig.ExecutePatchJob fired against whitelisted instances after two-approver workflow."},
+			"PR #31 live tool. Records an attestation that osconfig.ExecutePatchJob fired against whitelisted instances after two-approver workflow."},
+		{"vsphere_run_guest_program", cisPatchControlID,
+			"PR #34 dry-run tool. Records an attestation that a vSphere guest-program-run plan was constructed (proof of intent + approval flow)."},
+		{"vsphere_run_guest_program_live", cisPatchControlID,
+			"PR #35 live tool (planned). Records an attestation that ProcessManager.StartProgramInGuest fired against whitelisted VMs after two-approver workflow."},
 	}
 	for _, m := range mappings {
 		if _, err := tx.Exec(ctx, `

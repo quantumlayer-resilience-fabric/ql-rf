@@ -811,9 +811,30 @@ Boot validates the credential by establishing a govmomi session. Falls
 back to mock (loud WARN) when fallback enabled, otherwise the tool
 doesn't register.
 
-PR #34/#35 will add vSphere state-change tools (vsphere guest-ops
-dry-run + live with two-approver) following the same arc the AWS,
-Azure, and GCP connectors used.
+## vSphere guest-ops dry-run (PR #34 / CONN-013)
+
+The first vSphere state-change tool — dry-run only. `vsphere_run_guest_program`
+constructs a guest-program-run plan (VM + program path + guest creds +
+arguments) and records it as audit; no call to the state-change SDK is
+made.
+
+Same SDK-isolation discipline as PR #27 (Azure) and PR #30 (GCP):
+function-name matching for the state-change method. PR #35 will
+introduce `live_vsphere_guest_ops_client.go` as the single allowlist
+exception.
+
+The seeded compliance mapping links both `vsphere_run_guest_program`
+(dry-run) and `vsphere_run_guest_program_live` (PR #35 placeholder) to
+CIS-1.4.
+
+**Credentials handling**: `guest_password` is intentionally NOT
+serialized to the audit log's `result` JSONB — the field has `json:"-"`.
+The live path reads it from the in-memory plan struct and passes it
+through to govmomi's `NamePasswordAuthentication`; auditors never see
+it in `ai_tool_invocations`.
+
+**PR #35** will introduce the live variant with the same four-gate
+pattern PR #21 (SSM), PR #28 (Azure), and PR #31 (GCP) used.
 
 ## State-change dry-run (PR #20 / CONN-002)
 

@@ -161,6 +161,12 @@ func run() error {
 	// is incoherent. Mirrors registerSSMLiveTools + registerAzureLiveRunCommandTools.
 	registerGCPLivePatchTools(ctx, cfg, toolRegistry, log)
 
+	// PR #34 / CONN-013: register the vSphere guest-ops dry-run tool.
+	// Both real and mock clients make ZERO network calls — the
+	// state-change vSphere SDK method is excluded from this file by a
+	// structural Go test (no_vsphere_guest_ops_sdk_import_test.go).
+	registerVSphereGuestOpsDryRunTools(cfg, toolRegistry, log)
+
 	// Initialize agent registry
 	agentRegistry := agents.NewRegistry(llmClient, toolRegistry, validator, log)
 	log.Info("initialized agent registry", "agents", agentRegistry.ListAgents())
@@ -763,6 +769,26 @@ func registerGCPPatchDryRunTools(
 		log.Info("gcp patch tools: real client initialized (dry-run only in PR #30)")
 	}
 	reg.RegisterGCPPatchDryRunTools(gcpClient)
+}
+
+// registerVSphereGuestOpsDryRunTools is the PR #34 / CONN-013 boot
+// hook. Mirrors registerGCPPatchDryRunTools.
+func registerVSphereGuestOpsDryRunTools(
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	var vsClient tools.VSphereGuestOpsClient
+	if cfg.Connectors.VSphere.FallbackToMock {
+		log.Warn("vsphere guest-ops tools: MOCK CLIENT ACTIVE — plans use a fixed mock VM. DO NOT USE IN PRODUCTION.",
+			"reason", "RF_CONNECTORS_VSPHERE_FALLBACK_TO_MOCK=true",
+		)
+		vsClient = tools.NewMockVSphereGuestOpsClient()
+	} else {
+		vsClient = tools.NewRealVSphereGuestOpsClient(log)
+		log.Info("vsphere guest-ops tools: real client initialized (dry-run only in PR #34)")
+	}
+	reg.RegisterVSphereGuestOpsDryRunTools(vsClient)
 }
 
 // registerGCPLivePatchTools is the PR #31 / CONN-011 boot hook for the
