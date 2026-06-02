@@ -206,6 +206,13 @@ type VSphereConfig struct {
 	User     string `mapstructure:"user"`
 	Password string `mapstructure:"password"`
 	Insecure bool   `mapstructure:"insecure"`
+
+	// FallbackToMock controls whether the orchestrator's real-tool path
+	// (PR #33 / CONN-012) falls back to a deterministic mock client when
+	// real vSphere credentials are absent or invalid. true in dev/CI so
+	// the query_vsphere_vms tool stays registered and demoable without a
+	// vSphere environment; MUST be false in production.
+	FallbackToMock bool `mapstructure:"fallback_to_mock"`
 }
 
 // K8sConfig holds Kubernetes connector configuration.
@@ -525,6 +532,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("connectors.gcp.live_patch_whitelist_instance_filters", []string{})
 	v.SetDefault("connectors.gcp.live_patch_client_mode", "real")
 
+	// PR #33 / CONN-012 vSphere connector defaults.
+	v.SetDefault("connectors.vsphere.fallback_to_mock", false)
+
 	// K8s connector defaults
 	v.SetDefault("connectors.k8s.kubeconfig", "")
 	v.SetDefault("connectors.k8s.context", "")
@@ -656,6 +666,12 @@ func bindEnvVars(v *viper.Viper) error {
 		"connectors.gcp.allow_live_patch",
 		"connectors.gcp.live_patch_whitelist_instance_filters",
 		"connectors.gcp.live_patch_client_mode",
+		// PR #33 / CONN-012 — vSphere connector env bindings.
+		"connectors.vsphere.url",
+		"connectors.vsphere.user",
+		"connectors.vsphere.password",
+		"connectors.vsphere.insecure",
+		"connectors.vsphere.fallback_to_mock",
 		"drift.host",
 		"drift.port",
 		"drift.calculation_interval",

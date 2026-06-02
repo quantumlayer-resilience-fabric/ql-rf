@@ -784,11 +784,36 @@ the tools package that calls `osconfig.NewClient`. The negative half
 `TestLiveGCPPatchClient_IsTheOnlyFileReferencingSDKConstructor`. Both
 run on every push.
 
-**The connector arc is complete after this PR**: AWS (#19/#20/#21),
-Azure (#26/#27/#28), GCP (#29/#30/#31). Three clouds × three risk
-tiers × the four-gate live pattern = 9 cloud tools all sharing one
-audit-by-grep discipline. vSphere or other cloud generalizations follow
-the same mechanical template.
+**The public-cloud connector arc is complete after PR #31**: AWS
+(#19/#20/#21), Azure (#26/#27/#28), GCP (#29/#30/#31). Three clouds ×
+three risk tiers × the four-gate live pattern = 9 cloud tools all
+sharing one audit-by-grep discipline. vSphere follows in PR #33+.
+
+## Real vSphere tools (PR #33 / CONN-012)
+
+Same registration discipline, fourth platform. `query_vsphere_vms`
+uses govmomi's container view + property collector (read-only) and
+lands in `ai_tool_invocations` with `risk_level='read_only'`. Returns
+a redacted projection — no NIC IDs, no datastore URLs, no annotation
+text — so an audit-log leak is low-risk.
+
+Credentials are vCenter URL + username + password:
+
+```
+RF_CONNECTORS_VSPHERE_URL=https://vcsa.example.local/sdk
+RF_CONNECTORS_VSPHERE_USER=ql-rf-readonly@vsphere.local
+RF_CONNECTORS_VSPHERE_PASSWORD=...
+RF_CONNECTORS_VSPHERE_INSECURE=false  # set true only for self-signed certs in dev
+RF_CONNECTORS_VSPHERE_FALLBACK_TO_MOCK=true  # dev/CI only
+```
+
+Boot validates the credential by establishing a govmomi session. Falls
+back to mock (loud WARN) when fallback enabled, otherwise the tool
+doesn't register.
+
+PR #34/#35 will add vSphere state-change tools (vsphere guest-ops
+dry-run + live with two-approver) following the same arc the AWS,
+Azure, and GCP connectors used.
 
 ## State-change dry-run (PR #20 / CONN-002)
 

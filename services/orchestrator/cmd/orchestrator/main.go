@@ -117,6 +117,11 @@ func run() error {
 	// credentials are absent and fallback_to_mock=true.
 	registerGCPCloudTools(ctx, cfg, toolRegistry, log)
 
+	// PR #33 / CONN-012: same pattern for vSphere. Real client
+	// validated by establishing a govmomi session; falls back to mock
+	// when credentials are absent and fallback_to_mock=true.
+	registerVSphereCloudTools(ctx, cfg, toolRegistry, log)
+
 	// PR #20 / CONN-002: register the state-change SSM patch tool in
 	// dry-run mode. Neither the real nor mock SSM client makes any network
 	// call (the SDK isn't even imported in this PR's code), so this is
@@ -633,6 +638,44 @@ func registerGCPCloudTools(
 		"fallback_reason", realErr.Error(),
 	)
 	reg.RegisterGCPCloudTools(tools.NewMockGCPClient())
+}
+
+// registerVSphereCloudTools is the PR #33 / CONN-012 boot hook for the
+// vSphere read-only tool surface. Mirrors registerAWSCloudTools,
+// registerAzureCloudTools, and registerGCPCloudTools exactly.
+func registerVSphereCloudTools(
+	ctx context.Context,
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	vsCfg := cfg.Connectors.VSphere
+
+	bootCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	realClient, realErr := tools.NewRealVSphereClient(bootCtx, vsCfg, log)
+	if realErr == nil {
+		log.Info("vsphere tools: real client initialized",
+			"url", vsCfg.URL,
+			"insecure", vsCfg.Insecure,
+		)
+		reg.RegisterVSphereCloudTools(realClient)
+		return
+	}
+
+	if !vsCfg.FallbackToMock {
+		log.Info("vsphere tools: real client unavailable and fallback_to_mock=false, not registering vsphere tools",
+			"hint", "set RF_CONNECTORS_VSPHERE_FALLBACK_TO_MOCK=true for dev/CI",
+			"error", realErr.Error(),
+		)
+		return
+	}
+
+	log.Warn("vsphere tools: MOCK CLIENT ACTIVE — VMs returned are FAKE. DO NOT USE IN PRODUCTION.",
+		"fallback_reason", realErr.Error(),
+	)
+	reg.RegisterVSphereCloudTools(tools.NewMockVSphereClient())
 }
 
 // registerSSMStateChangeTools is the PR #20 / CONN-002 boot hook for the
