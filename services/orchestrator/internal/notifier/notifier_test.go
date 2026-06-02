@@ -153,6 +153,38 @@ func TestNotifyTaskApproved(t *testing.T) {
 	assert.Equal(t, "admin@example.com", received.UserID)
 }
 
+// TestNotifyTaskAwaitingSecondApproval — PR #25 / CONN-005. Confirms the
+// new method emits an Event with the right Type, TaskID, first-approver
+// UserID, environment, and summary so downstream channels surface enough
+// context for the second approver to act without clicking through.
+func TestNotifyTaskAwaitingSecondApproval(t *testing.T) {
+	var received Event
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received) //nolint:errcheck // test webhook decoder; failure shows up as zero-value assertion below
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	log := logger.New("debug", "json")
+	cfg := config.NotificationConfig{
+		WebhookEnabled: true,
+		WebhookURL:     server.URL,
+	}
+
+	n := New(cfg, log)
+	ctx := context.Background()
+
+	err := n.NotifyTaskAwaitingSecondApproval(ctx,
+		"task-awaiting-2nd", "first@example.com", "production", "Live-patch fleet via SSM")
+
+	require.NoError(t, err)
+	assert.Equal(t, EventTaskAwaitingSecondApproval, received.Type)
+	assert.Equal(t, "task-awaiting-2nd", received.TaskID)
+	assert.Equal(t, "first@example.com", received.UserID)
+	assert.Equal(t, "production", received.Environment)
+	assert.Equal(t, "Live-patch fleet via SSM", received.Summary)
+}
+
 func TestNotifyTaskRejected(t *testing.T) {
 	var received Event
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

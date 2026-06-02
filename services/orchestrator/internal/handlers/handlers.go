@@ -843,6 +843,26 @@ func (h *Handler) approveTask(w http.ResponseWriter, r *http.Request) {
 		}
 		h.log.Info("first approval recorded; awaiting second approver",
 			"task_id", taskID, "approved_by", userID)
+
+		// PR #25 / CONN-005: ping notifier so the second approver knows
+		// they're needed. Same fire-and-forget detached-context pattern
+		// as the existing NotifyTaskApproved call further down. We pull
+		// task intent + environment in a best-effort query — if either
+		// fetch fails, the notifier still fires with empty fields so
+		// recipients at least see the task id.
+		if h.notifier != nil {
+			intent, env := h.fetchTaskContextForNotify(ctx, taskID)
+			//nolint:contextcheck // intentional detached context for fire-and-forget notifier
+			go func() {
+				notifyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if nErr := h.notifier.NotifyTaskAwaitingSecondApproval(notifyCtx, taskID, userID, env, intent); nErr != nil {
+					h.log.Error("failed to send awaiting-second-approval notification",
+						"task_id", taskID, "error", nErr)
+				}
+			}()
+		}
+
 		h.respond(w, http.StatusOK, map[string]any{
 			"task_id":     taskID,
 			"status":      "awaiting_second_approval",

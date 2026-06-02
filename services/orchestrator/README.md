@@ -204,6 +204,27 @@ notification:
   webhook_url: "https://api.example.com/webhooks/ql-rf"
 ```
 
+### Notification events
+
+| Event type | When | Who should care |
+|---|---|---|
+| `task_pending_approval` | Plan generated, awaiting first approval | First approver |
+| `task_awaiting_second_approval` (PR #25) | First approval recorded; state_change_prod plan needs a second, distinct approver | Anyone with execute-ai-tasks permission (must differ from first approver) |
+| `task_approved` | Plan fully approved; executor about to fire | Operators monitoring execution start |
+| `task_rejected` | Plan rejected | Requester |
+| `execution_started` / `execution_completed` / `execution_failed` | Run lifecycle | Operators |
+| `phase_started` / `phase_completed` / `phase_failed` | Phase lifecycle | Detail-watchers |
+| `cve_alert_*` / `campaign_*` | Vulnerability response events | Security + ops |
+
+The `task_awaiting_second_approval` event carries:
+
+- `task_id` — links to the pending decision card in Mission Control
+- `user_id` — the first approver (recipients confirm they're not the same person)
+- `environment` — pulled from the plan's `blast_radius.environment` field
+- `summary` — the task's `user_intent` so a channel viewer sees what's being requested without clicking through
+
+Fire-and-forget: a notifier failure logs a Warn and the approval response is unaffected.
+
 ## Development
 
 ### Prerequisites

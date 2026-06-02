@@ -280,6 +280,26 @@ func (h *Handler) firstApprovalState(ctx context.Context, taskID string) (exists
 	return true, *approver, nil
 }
 
+// fetchTaskContextForNotify returns the task's user_intent and the plan
+// payload's environment (best-effort). Used by approveTask's awaiting-
+// second-approval notifier hook to populate the message body. Errors are
+// swallowed — empty strings flow through to the notifier rather than
+// blocking the approve response on a context query.
+func (h *Handler) fetchTaskContextForNotify(ctx context.Context, taskID string) (intent, environment string) {
+	row := h.db.Pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(t.user_intent, ''),
+			COALESCE(p.payload->'blast_radius'->>'environment', '')
+		FROM ai_tasks t
+		LEFT JOIN ai_plans p ON p.task_id = t.id
+		WHERE t.id = $1
+		ORDER BY p.created_at DESC
+		LIMIT 1
+	`, taskID)
+	_ = row.Scan(&intent, &environment) //nolint:errcheck // best-effort enrichment for notifier message body
+	return intent, environment
+}
+
 // collectToolNames extracts tool names from the plan payload's phases.
 // The payload shape varies by plan type; this helper walks the JSON
 // generically and pulls strings keyed by "tool" or "tool_name".
