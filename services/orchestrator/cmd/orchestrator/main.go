@@ -122,6 +122,11 @@ func run() error {
 	// when credentials are absent and fallback_to_mock=true.
 	registerVSphereCloudTools(ctx, cfg, toolRegistry, log)
 
+	// PR #38 / CONN-015: same pattern for Kubernetes. Real client
+	// validated by a minimal pod list against the API server; falls
+	// back to mock when kubeconfig is absent and fallback_to_mock=true.
+	registerK8sCloudTools(ctx, cfg, toolRegistry, log)
+
 	// PR #20 / CONN-002: register the state-change SSM patch tool in
 	// dry-run mode. Neither the real nor mock SSM client makes any network
 	// call (the SDK isn't even imported in this PR's code), so this is
@@ -686,6 +691,45 @@ func registerVSphereCloudTools(
 		"fallback_reason", realErr.Error(),
 	)
 	reg.RegisterVSphereCloudTools(tools.NewMockVSphereClient())
+}
+
+// registerK8sCloudTools is the PR #38 / CONN-015 boot hook for the
+// Kubernetes read-only tool surface. Mirrors registerAWSCloudTools,
+// registerAzureCloudTools, registerGCPCloudTools, and
+// registerVSphereCloudTools exactly.
+func registerK8sCloudTools(
+	ctx context.Context,
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	k8sCfg := cfg.Connectors.K8s
+
+	bootCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	realClient, realErr := tools.NewRealKubernetesClient(bootCtx, k8sCfg, log)
+	if realErr == nil {
+		log.Info("k8s tools: real client initialized",
+			"kubeconfig", k8sCfg.Kubeconfig,
+			"context", k8sCfg.Context,
+		)
+		reg.RegisterK8sCloudTools(realClient)
+		return
+	}
+
+	if !k8sCfg.FallbackToMock {
+		log.Info("k8s tools: real client unavailable and fallback_to_mock=false, not registering k8s tools",
+			"hint", "set RF_CONNECTORS_K8S_FALLBACK_TO_MOCK=true for dev/CI",
+			"error", realErr.Error(),
+		)
+		return
+	}
+
+	log.Warn("k8s tools: MOCK CLIENT ACTIVE — pods returned are FAKE. DO NOT USE IN PRODUCTION.",
+		"fallback_reason", realErr.Error(),
+	)
+	reg.RegisterK8sCloudTools(tools.NewMockKubernetesClient())
 }
 
 // registerSSMStateChangeTools is the PR #20 / CONN-002 boot hook for the

@@ -251,6 +251,14 @@ type K8sConfig struct {
 
 	// ClusterName is an optional friendly name for the cluster.
 	ClusterName string `mapstructure:"cluster_name"`
+
+	// FallbackToMock controls whether the orchestrator's real-tool path
+	// (PR #38 / CONN-015) falls back to a deterministic mock client when
+	// real kubeconfig credentials are absent or invalid. true in dev/CI so
+	// the query_pods tool stays registered and demoable without a cluster;
+	// MUST be false in production so a misconfiguration is surfaced loudly
+	// at boot instead of silently using fake data.
+	FallbackToMock bool `mapstructure:"fallback_to_mock"`
 }
 
 // DriftConfig holds drift service configuration.
@@ -559,6 +567,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("connectors.k8s.discover_deployments", true)
 	v.SetDefault("connectors.k8s.label_selector", "")
 	v.SetDefault("connectors.k8s.cluster_name", "")
+	// PR #38 / CONN-015 K8s orchestrator-tool default. Off everywhere by default.
+	v.SetDefault("connectors.k8s.fallback_to_mock", false)
 
 	// Drift
 	v.SetDefault("drift.host", "0.0.0.0")
@@ -691,6 +701,8 @@ func bindEnvVars(v *viper.Viper) error {
 		"connectors.vsphere.allow_live_guest_ops",
 		"connectors.vsphere.live_guest_ops_whitelist_vms",
 		"connectors.vsphere.live_guest_ops_client_mode",
+		// PR #38 / CONN-015 — K8s connector orchestrator-tool env binding.
+		"connectors.k8s.fallback_to_mock",
 		"drift.host",
 		"drift.port",
 		"drift.calculation_interval",
