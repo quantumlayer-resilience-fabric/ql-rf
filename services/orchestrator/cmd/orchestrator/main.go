@@ -167,6 +167,10 @@ func run() error {
 	// structural Go test (no_vsphere_guest_ops_sdk_import_test.go).
 	registerVSphereGuestOpsDryRunTools(cfg, toolRegistry, log)
 
+	// PR #35 / CONN-014: register the LIVE vSphere guest-ops tool when
+	// explicitly opted in. Mirrors the SSM/Azure/GCP live boot hooks.
+	registerVSphereLiveGuestOpsTools(ctx, cfg, toolRegistry, log)
+
 	// Initialize agent registry
 	agentRegistry := agents.NewRegistry(llmClient, toolRegistry, validator, log)
 	log.Info("initialized agent registry", "agents", agentRegistry.ListAgents())
@@ -789,6 +793,69 @@ func registerVSphereGuestOpsDryRunTools(
 		log.Info("vsphere guest-ops tools: real client initialized (dry-run only in PR #34)")
 	}
 	reg.RegisterVSphereGuestOpsDryRunTools(vsClient)
+}
+
+// registerVSphereLiveGuestOpsTools is the PR #35 / CONN-014 boot hook
+// — the final connector-arc boot hook. Mirrors PR #21/#28/#31 exactly.
+// Four gates, evaluated in order:
+//
+//  1. AllowLiveGuestOps off (default): silent no-op.
+//  2. AllowLiveGuestOps on + FallbackToMock on: REFUSE TO START.
+//  3. AllowLiveGuestOps on + whitelist empty: REFUSE TO START.
+//  4. All gates pass: emit a loud WARN and register the live tool.
+func registerVSphereLiveGuestOpsTools(
+	ctx context.Context,
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	vsCfg := cfg.Connectors.VSphere
+	if !vsCfg.AllowLiveGuestOps {
+		return
+	}
+
+	if vsCfg.FallbackToMock {
+		log.Error("REFUSING TO START: RF_CONNECTORS_VSPHERE_ALLOW_LIVE_GUEST_OPS=true and RF_CONNECTORS_VSPHERE_FALLBACK_TO_MOCK=true are incoherent. Pick one.",
+			"hint", "Production live mode requires real vSphere credentials, not the mock client.",
+		)
+		os.Exit(1)
+	}
+
+	whitelist := tools.LoadVSphereLiveWhitelistFromEnv()
+	if len(whitelist) == 0 {
+		whitelist = vsCfg.LiveGuestOpsWhitelistVMs
+	}
+	if len(whitelist) == 0 {
+		log.Error("REFUSING TO START: RF_CONNECTORS_VSPHERE_ALLOW_LIVE_GUEST_OPS=true but no VMs on the whitelist.",
+			"hint", "Set RF_CONNECTORS_VSPHERE_LIVE_GUEST_OPS_WHITELIST_VMS=vm-1,vm-2 or connectors.vsphere.live_guest_ops_whitelist_vms in config.",
+		)
+		os.Exit(1)
+	}
+
+	log.Warn("LIVE VSPHERE GUEST-OPS MODE ENABLED — real cloud mutations possible after two-approver workflow",
+		"client_mode", vsCfg.LiveGuestOpsClientMode,
+		"whitelist_count", len(whitelist),
+		"whitelist", whitelist,
+		"url", vsCfg.URL,
+	)
+
+	var liveClient tools.LiveVSphereGuestOpsClient
+	if vsCfg.LiveGuestOpsClientMode == "mock" {
+		log.Warn("vsphere live guest-ops tools: MOCK CLIENT ACTIVE — RunGuestProgram returns mock PIDs without calling vSphere. DO NOT USE IN PRODUCTION.")
+		liveClient = tools.NewMockLiveVSphereGuestOpsClient(whitelist)
+	} else {
+		realLive, err := tools.NewLiveVSphereGuestOpsClient(ctx, vsCfg, whitelist, log)
+		if err != nil {
+			log.Error("REFUSING TO START: cannot construct live vSphere guest-ops client",
+				"error", err.Error(),
+				"hint", "Check vSphere credentials and URL.",
+			)
+			os.Exit(1)
+		}
+		liveClient = realLive
+	}
+
+	reg.RegisterVSphereLiveGuestOpsTools(tools.NewRealVSphereGuestOpsClient(log), liveClient)
 }
 
 // registerGCPLivePatchTools is the PR #31 / CONN-011 boot hook for the

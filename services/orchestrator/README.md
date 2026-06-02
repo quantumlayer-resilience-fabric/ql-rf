@@ -833,8 +833,30 @@ The live path reads it from the in-memory plan struct and passes it
 through to govmomi's `NamePasswordAuthentication`; auditors never see
 it in `ai_tool_invocations`.
 
-**PR #35** will introduce the live variant with the same four-gate
-pattern PR #21 (SSM), PR #28 (Azure), and PR #31 (GCP) used.
+## vSphere guest-ops live (PR #35 / CONN-014)
+
+The first **live** vSphere cloud-mutating tool. `vsphere_run_guest_program_live`
+fires `ProcessManager.StartProgram` against whitelisted VMs after the
+two-approver workflow from PR #21 completes. Four independent gates,
+matching the SSM (PR #21), Azure (PR #28), and GCP (PR #31) live
+patterns:
+
+| Gate | Where | Trigger |
+|------|-------|---------|
+| Env opt-in | `cmd/orchestrator/main.go:registerVSphereLiveGuestOpsTools` | `RF_CONNECTORS_VSPHERE_ALLOW_LIVE_GUEST_OPS=true`. Default off. |
+| Mock-conflict refusal | same | Boot exits 1 if `FALLBACK_TO_MOCK=true` is also set. |
+| Per-VM whitelist | same + `live_vsphere_guest_ops_client.go` | `RF_CONNECTORS_VSPHERE_LIVE_GUEST_OPS_WHITELIST_VMS=vm-1,vm-2`. Non-empty required at boot. |
+| Two-approver workflow | `handlers/co_approve.go` + `policy/tool_authorization.rego` (PR #21) | First approver via `/approve`; second via `/co-approve`. OPA also enforces. |
+
+**Structural isolation:** `live_vsphere_guest_ops_client.go` is the ONLY
+file in the tools package that contains `.StartProgram(` (govmomi's
+wrapper for the VMODL StartProgramInGuest operation). Both the negative
+and positive structural tests enforce this.
+
+**The full multi-cloud connector arc is complete after this PR**: AWS
+(#19/#20/#21), Azure (#26/#27/#28), GCP (#29/#30/#31), vSphere
+(#33/#34/#35). Four platforms × three risk tiers × the four-gate live
+pattern = 12 cloud tools all sharing one audit-by-grep discipline.
 
 ## State-change dry-run (PR #20 / CONN-002)
 

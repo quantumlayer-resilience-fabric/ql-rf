@@ -19,9 +19,16 @@ import (
 	"testing"
 )
 
-// vsphereGuestOpsStateChangeMethod is the govmomi method name PR #34
-// must never reference. PR #35 will allow live_vsphere_guest_ops_client.go.
-const vsphereGuestOpsStateChangeMethod = "StartProgramInGuest"
+// vsphereGuestOpsStateChangeMethod is the govmomi method-call signature
+// that PR #34 must never reference. govmomi exposes
+// `ProcessManager.StartProgram(ctx, auth, spec)` as the wrapper around
+// the VMODL `StartProgramInGuest` operation; the leading dot disambiguates
+// it from accidentally matching variable / function names that happen to
+// contain "StartProgram".
+//
+// PR #35 introduces `live_vsphere_guest_ops_client.go` as the single
+// allowlisted caller.
+const vsphereGuestOpsStateChangeMethod = ".StartProgram("
 
 // vsphereLiveGuestOpsFile is the file PR #35 will introduce.
 const vsphereLiveGuestOpsFile = "live_vsphere_guest_ops_client.go"
@@ -83,5 +90,20 @@ func TestVSphereGuestOpsClient_DocumentsTheGuarantee(t *testing.T) {
 	if !strings.Contains(string(body), "never calls the state-change") &&
 		!strings.Contains(string(body), "never reaches the state-change") {
 		t.Errorf("vsphere_guest_ops_client.go is missing its SAFETY comment about NOT calling the state-change SDK path; restore it before merging")
+	}
+}
+
+// TestLiveVSphereGuestOpsClient_IsTheOnlyFileReferencingSDKMethod —
+// PR #35's positive complement: the live file MUST reference
+// `.StartProgram(`. Otherwise live mode is unreachable and the
+// allowlist exception is mis-pointed.
+func TestLiveVSphereGuestOpsClient_IsTheOnlyFileReferencingSDKMethod(t *testing.T) {
+	body, err := os.ReadFile(filepath.Clean(vsphereLiveGuestOpsFile))
+	if err != nil {
+		t.Fatalf("read %s: %v — PR #35's live mode requires this file. If you intentionally removed live mode, also remove this test.", vsphereLiveGuestOpsFile, err)
+	}
+	if !strings.Contains(string(body), vsphereGuestOpsStateChangeMethod) {
+		t.Errorf("%s must reference %q — PR #35's live mode is unreachable without it.",
+			vsphereLiveGuestOpsFile, vsphereGuestOpsStateChangeMethod)
 	}
 }

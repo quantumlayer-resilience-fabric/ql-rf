@@ -213,6 +213,17 @@ type VSphereConfig struct {
 	// the query_vsphere_vms tool stays registered and demoable without a
 	// vSphere environment; MUST be false in production.
 	FallbackToMock bool `mapstructure:"fallback_to_mock"`
+
+	// AllowLiveGuestOps is the PR #35 / CONN-014 env opt-in for the
+	// live vSphere guest-ops tool. MUST be false in dev/CI.
+	AllowLiveGuestOps bool `mapstructure:"allow_live_guest_ops"`
+
+	// LiveGuestOpsWhitelistVMs is the per-VM allowlist. Parsed from
+	// comma-separated env at boot.
+	LiveGuestOpsWhitelistVMs []string `mapstructure:"live_guest_ops_whitelist_vms"`
+
+	// LiveGuestOpsClientMode picks between "real" (default) and "mock".
+	LiveGuestOpsClientMode string `mapstructure:"live_guest_ops_client_mode"`
 }
 
 // K8sConfig holds Kubernetes connector configuration.
@@ -534,6 +545,10 @@ func setDefaults(v *viper.Viper) {
 
 	// PR #33 / CONN-012 vSphere connector defaults.
 	v.SetDefault("connectors.vsphere.fallback_to_mock", false)
+	// PR #35 / CONN-014 vSphere live-mode defaults. Off everywhere by default.
+	v.SetDefault("connectors.vsphere.allow_live_guest_ops", false)
+	v.SetDefault("connectors.vsphere.live_guest_ops_whitelist_vms", []string{})
+	v.SetDefault("connectors.vsphere.live_guest_ops_client_mode", "real")
 
 	// K8s connector defaults
 	v.SetDefault("connectors.k8s.kubeconfig", "")
@@ -672,6 +687,10 @@ func bindEnvVars(v *viper.Viper) error {
 		"connectors.vsphere.password",
 		"connectors.vsphere.insecure",
 		"connectors.vsphere.fallback_to_mock",
+		// PR #35 / CONN-014 — live vSphere guest-ops env bindings.
+		"connectors.vsphere.allow_live_guest_ops",
+		"connectors.vsphere.live_guest_ops_whitelist_vms",
+		"connectors.vsphere.live_guest_ops_client_mode",
 		"drift.host",
 		"drift.port",
 		"drift.calculation_interval",
