@@ -710,9 +710,16 @@ function RealToolsCard() {
   // they have no /invoke or /dry-run path in PR #20.
   const readOnly = allTools.filter((t) => t.risk === "read_only");
   const planOnly = allTools.filter((t) => t.risk === "plan_only");
-  const stateChange = allTools.filter(
-    (t) => t.risk === "state_change_nonprod" || t.risk === "state_change_prod",
-  );
+  // State-change tools sorted so the ones we have dry-run handlers for
+  // (currently just ssm_send_patch_command) come first — the slice(0, 3)
+  // below would otherwise drop them depending on registration order.
+  const stateChange = allTools
+    .filter((t) => t.risk === "state_change_nonprod" || t.risk === "state_change_prod")
+    .sort((a, b) => {
+      const aHandled = a.name in ssmDryRunDefaultParams ? 0 : 1;
+      const bHandled = b.name in ssmDryRunDefaultParams ? 0 : 1;
+      return aHandled - bHandled;
+    });
 
   const onInvoke = async (toolName: string) => {
     setLastResult(null);
