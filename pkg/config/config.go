@@ -181,6 +181,23 @@ type GCPConfig struct {
 	// GCP project; MUST be false in production so a misconfiguration is
 	// surfaced loudly at boot instead of silently using fake data.
 	FallbackToMock bool `mapstructure:"fallback_to_mock"`
+
+	// AllowLivePatch is the PR #31 / CONN-011 env opt-in — the first
+	// live GCP cloud-mutating tool (gcp_os_config_patch_live). MUST be
+	// false in dev/CI. If true and FallbackToMock is also true, boot
+	// refuses (incoherent combination, mirrors SSM/Azure live gates).
+	AllowLivePatch bool `mapstructure:"allow_live_patch"`
+
+	// LivePatchWhitelistInstanceFilters is the per-zone+filter allowlist
+	// for live GCP patch jobs. Parsed from comma-separated env at boot.
+	// Format: "zone:filter" pairs (e.g. "us-central1-a:labels.env=prod").
+	// The tool rejects any pair not on this list.
+	LivePatchWhitelistInstanceFilters []string `mapstructure:"live_patch_whitelist_instance_filters"`
+
+	// LivePatchClientMode picks between the real GCP SDK ("real",
+	// default) and the deterministic mock ("mock"). Production MUST be
+	// "real".
+	LivePatchClientMode string `mapstructure:"live_patch_client_mode"`
 }
 
 // VSphereConfig holds vSphere connector configuration.
@@ -503,6 +520,10 @@ func setDefaults(v *viper.Viper) {
 	// PR #29 / CONN-009 GCP connector defaults. Same fallback_to_mock
 	// pattern: false in production, dev/CI sets true via env.
 	v.SetDefault("connectors.gcp.fallback_to_mock", false)
+	// PR #31 / CONN-011 GCP live-mode defaults. Off everywhere by default.
+	v.SetDefault("connectors.gcp.allow_live_patch", false)
+	v.SetDefault("connectors.gcp.live_patch_whitelist_instance_filters", []string{})
+	v.SetDefault("connectors.gcp.live_patch_client_mode", "real")
 
 	// K8s connector defaults
 	v.SetDefault("connectors.k8s.kubeconfig", "")
@@ -631,6 +652,10 @@ func bindEnvVars(v *viper.Viper) error {
 		"connectors.gcp.project_id",
 		"connectors.gcp.credentials_file",
 		"connectors.gcp.fallback_to_mock",
+		// PR #31 / CONN-011 — live GCP patch env bindings.
+		"connectors.gcp.allow_live_patch",
+		"connectors.gcp.live_patch_whitelist_instance_filters",
+		"connectors.gcp.live_patch_client_mode",
 		"drift.host",
 		"drift.port",
 		"drift.calculation_interval",

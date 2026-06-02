@@ -97,3 +97,19 @@ func TestGCPPatchClient_DocumentsTheGuarantee(t *testing.T) {
 		t.Errorf("gcp_patch_client.go is missing its SAFETY comment about NOT calling the state-change SDK path; restore it before merging")
 	}
 }
+
+// TestLiveGCPPatchClient_IsTheOnlyFileReferencingSDKConstructor — PR #31
+// strengthens the structural safety guarantee. The "no constructor"
+// half is enforced by TestNoGCPPatchStateChangeConstructorInToolsPackage;
+// THIS test is the positive half. Both must pass for the invariant
+// ("constructor reachable from exactly ONE named file") to hold.
+func TestLiveGCPPatchClient_IsTheOnlyFileReferencingSDKConstructor(t *testing.T) {
+	body, err := os.ReadFile(filepath.Clean(gcpLivePatchFile))
+	if err != nil {
+		t.Fatalf("read %s: %v — PR #31's live mode requires this file. If you intentionally removed live mode, also remove this test.", gcpLivePatchFile, err)
+	}
+	if !strings.Contains(string(body), gcpPatchStateChangeConstructor) {
+		t.Errorf("%s must reference %q — PR #31's live mode is unreachable without it.",
+			gcpLivePatchFile, gcpPatchStateChangeConstructor)
+	}
+}
