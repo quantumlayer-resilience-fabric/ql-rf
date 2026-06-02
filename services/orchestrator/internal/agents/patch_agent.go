@@ -16,24 +16,32 @@ type PatchAgent struct {
 }
 
 // NewPatchAgent creates a new patch agent.
+//
+// PR #36: tools list now includes the platform-specific catalog entries
+// (all 12 cloud tools across 4 platforms × 3 risk tiers). These are
+// declarative — they signal to the registry / docs / UI that this agent
+// is AWARE of these tools and may name them in plans. The agent's
+// Execute method does NOT invoke the state-change tools; live execution
+// remains gated by the existing 2-approver workflow.
 func NewPatchAgent(llmClient llm.Client, toolReg *tools.Registry, log *logger.Logger) *PatchAgent {
+	baseTools := []string{
+		"query_assets",
+		"get_golden_image",
+		"compare_versions",
+		"generate_patch_plan",
+		"generate_rollout_plan",
+		"simulate_rollout",
+		"calculate_risk_score",
+	}
 	return &PatchAgent{
 		BaseAgent: BaseAgent{
 			name:        "patch_agent",
-			description: "Orchestrates patch rollouts across infrastructure",
+			description: "Orchestrates patch rollouts across infrastructure. Generates platform-aware plans that name the appropriate per-cloud tool (SSM / Azure Run Command / GCP OS Config / vSphere ProcessManager) for each asset.",
 			tasks:       []TaskType{TaskTypePatchRollout},
-			tools: []string{
-				"query_assets",
-				"get_golden_image",
-				"compare_versions",
-				"generate_patch_plan",
-				"generate_rollout_plan",
-				"simulate_rollout",
-				"calculate_risk_score",
-			},
-			llm:     llmClient,
-			toolReg: toolReg,
-			log:     log.WithComponent("patch-agent"),
+			tools:       append(baseTools, AllCatalogToolNames()...),
+			llm:         llmClient,
+			toolReg:     toolReg,
+			log:         log.WithComponent("patch-agent"),
 		},
 	}
 }
@@ -57,7 +65,16 @@ func (a *PatchAgent) Execute(ctx context.Context, task *TaskSpec) (*AgentResult,
 	}
 
 	assetCount := countAssets(assets)
-	a.log.Info("found assets for patching", "count", assetCount)
+	// PR #36: per-platform grouping. Catalog drives the LLM prompt so
+	// the agent can name the right tool per platform. SAFETY: this is
+	// pure inspection of the read-only query_assets response — no SDK
+	// calls and no state-change tools are invoked here.
+	platformGroups := GroupAssetsByPlatform(assets)
+	platformCounts := PlatformCountSummary(platformGroups)
+	a.log.Info("found assets for patching",
+		"count", assetCount,
+		"platforms", platformCounts,
+	)
 
 	// Step 2: Get target golden image (if specified)
 	var goldenImage interface{}
@@ -93,7 +110,7 @@ func (a *PatchAgent) Execute(ctx context.Context, task *TaskSpec) (*AgentResult,
 	}
 
 	// Step 4: Generate the patch rollout plan using LLM
-	plan, tokensUsed, err := a.generatePatchPlan(ctx, assets, goldenImage, riskLevel, task)
+	plan, tokensUsed, err := a.generatePatchPlan(ctx, assets, platformCounts, goldenImage, riskLevel, task)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate patch plan: %w", err)
 	}
@@ -138,7 +155,12 @@ func (a *PatchAgent) Execute(ctx context.Context, task *TaskSpec) (*AgentResult,
 }
 
 // generatePatchPlan uses LLM to create a detailed phased rollout plan.
-func (a *PatchAgent) generatePatchPlan(ctx context.Context, assets, goldenImage interface{}, riskLevel string, task *TaskSpec) (interface{}, int, error) {
+//
+// PR #36: platformCounts feeds the prompt's per-platform catalog block so
+// the LLM names the right tool tier (read-only / dry-run / live) for each
+// asset platform. The catalog is data-driven from PlatformToolsFor() —
+// when K8s lands (PRs #38-#40), this prompt picks up its tools automatically.
+func (a *PatchAgent) generatePatchPlan(ctx context.Context, assets any, platformCounts map[string]int, goldenImage any, riskLevel string, task *TaskSpec) (any, int, error) {
 	// Determine batch sizes based on risk level
 	canarySize := 5
 	waveSize := 25
@@ -159,6 +181,11 @@ func (a *PatchAgent) generatePatchPlan(ctx context.Context, assets, goldenImage 
 		canarySize = int(canary)
 	}
 
+	// PR #36: render the platform catalog ONLY for platforms actually
+	// present in this rollout. Keeps the prompt tight and the LLM focused
+	// on the tools it will actually need to name.
+	platformBlock := renderPlatformCatalogForPrompt(platformCounts)
+
 	prompt := fmt.Sprintf(`You are the QL-RF Patch Agent. Generate a safe, phased patch rollout plan.
 
 ## User Goal
@@ -173,6 +200,9 @@ func (a *PatchAgent) generatePatchPlan(ctx context.Context, assets, goldenImage 
 ## Current Assets Summary
 %v
 
+## Asset Platforms in Scope
+%s
+
 ## Target Golden Image
 %v
 
@@ -182,6 +212,16 @@ func (a *PatchAgent) generatePatchPlan(ctx context.Context, assets, goldenImage 
 - Environment: %s
 - Require health checks: true
 - Auto-rollback on failure: true
+
+## Tool Selection Rules
+- For each phase that actually changes asset state, name the appropriate
+  platform-specific tool in a "recommended_tools" array on the phase.
+- In NON-production environments (dev/staging) you MAY name the live
+  tool. In PRODUCTION you MUST name the dry-run tool — the live tool
+  requires the two-approver workflow which is invoked separately.
+- For rollback procedures, name the SAME platform-specific tool tier
+  (the rollback uses the same SDK path).
+- For pre-flight / inventory phases, name the read-only tool.
 
 ## Your Task
 Generate a detailed phased rollout plan with:
@@ -229,7 +269,7 @@ Output ONLY valid JSON with this structure:
     "on_failure": ["slack", "email", "pagerduty"],
     "on_complete": ["slack", "email"]
   }
-}`, task.Goal, task.Environment, riskLevel, assets, goldenImage, canarySize, waveSize, task.Environment, canarySize, waveSize, canarySize)
+}`, task.Goal, task.Environment, riskLevel, assets, platformBlock, goldenImage, canarySize, waveSize, task.Environment, canarySize, waveSize, canarySize)
 
 	resp, err := a.llm.Complete(ctx, &llm.CompletionRequest{
 		SystemPrompt: "You are an infrastructure patch management specialist. Generate safe, validated rollout plans. Output ONLY valid JSON, no markdown or explanation.",
@@ -255,20 +295,32 @@ Output ONLY valid JSON with this structure:
 	if err := parseJSON(content, &plan); err != nil {
 		// Fallback to a sensible default plan
 		a.log.Warn("failed to parse LLM response, using default plan", "error", err)
-		plan = a.defaultPatchPlan(countAssets(assets), riskLevel, canarySize, waveSize)
+		plan = a.defaultPatchPlan(countAssets(assets), riskLevel, canarySize, waveSize, platformCounts, task.Environment)
 	}
 
 	return plan, resp.Usage.TotalTokens, nil
 }
 
 // defaultPatchPlan creates a safe default plan when LLM parsing fails.
-func (a *PatchAgent) defaultPatchPlan(assetCount int, riskLevel string, canarySize, waveSize int) map[string]interface{} {
+//
+// PR #36: platformCounts + environment drive a platform-aware rollback
+// procedure. The phases themselves remain platform-agnostic by intent —
+// when this fallback fires, the LLM has already failed once, and a stable
+// generic phase shape is more useful than synthesizing per-platform
+// recommendations from a fallback path.
+func (a *PatchAgent) defaultPatchPlan(assetCount int, riskLevel string, canarySize, waveSize int, platformCounts map[string]int, environment string) map[string]any {
 	canaryCount := (assetCount * canarySize) / 100
 	if canaryCount < 1 {
 		canaryCount = 1
 	}
 	remainingAfterCanary := assetCount - canaryCount
 	wavesNeeded := (remainingAfterCanary + waveSize - 1) / waveSize // Ceiling division
+
+	// PR #36: derive the recommended tool tier per platform present.
+	// In production, name the dry-run tool — live execution is the
+	// two-approver workflow's responsibility, not the planner's.
+	useDryRun := environment == "production" || environment == "prod"
+	recommendedTools := platformRecommendedTools(platformCounts, useDryRun)
 
 	phases := []map[string]interface{}{
 		{
@@ -290,6 +342,7 @@ func (a *PatchAgent) defaultPatchPlan(assetCount int, riskLevel string, canarySi
 			"health_check_wait":   "5m",
 			"success_criteria":    map[string]interface{}{"error_rate": "<1%", "health_status": "healthy"},
 			"rollback_on_failure": true,
+			"recommended_tools":   recommendedTools,
 		},
 	}
 
@@ -309,6 +362,7 @@ func (a *PatchAgent) defaultPatchPlan(assetCount int, riskLevel string, canarySi
 			"health_check_wait":   "5m",
 			"success_criteria":    map[string]interface{}{"error_rate": "<2%", "health_status": "healthy"},
 			"rollback_on_failure": true,
+			"recommended_tools":   recommendedTools,
 		})
 	}
 
@@ -330,7 +384,8 @@ func (a *PatchAgent) defaultPatchPlan(assetCount int, riskLevel string, canarySi
 		"phases":             phases,
 		"rollback_plan": map[string]interface{}{
 			"triggers":           []string{"error_rate > 5%", "health_check_failure", "manual"},
-			"procedure":          "Revert patched assets to previous image version using SSM or platform-specific rollback",
+			"procedure":          platformAwareRollbackProcedure(platformCounts),
+			"recommended_tools":  recommendedTools,
 			"estimated_duration": "15m",
 		},
 		"notifications": map[string]interface{}{
