@@ -137,6 +137,14 @@ type AzureConfig struct {
 	ClientID       string `mapstructure:"client_id"`
 	ClientSecret   string `mapstructure:"client_secret"`
 	SubscriptionID string `mapstructure:"subscription_id"`
+
+	// FallbackToMock controls whether the orchestrator's real-tool path
+	// (PR #26 / CONN-006) falls back to a deterministic mock client when
+	// real Azure credentials are absent or invalid. true in dev/CI so the
+	// query_azure_vms tool stays registered and demoable without an Azure
+	// subscription; MUST be false in production so a misconfiguration is
+	// surfaced loudly at boot instead of silently using fake data.
+	FallbackToMock bool `mapstructure:"fallback_to_mock"`
 }
 
 // GCPConfig holds GCP connector configuration.
@@ -450,6 +458,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("connectors.aws.live_patch_whitelist_instance_ids", []string{})
 	v.SetDefault("connectors.aws.live_patch_client_mode", "real")
 
+	// PR #26 / CONN-006 Azure connector defaults. Same fallback_to_mock
+	// pattern as AWS: false in production so missing credentials surface
+	// loudly; dev/CI sets true via env to keep the query_azure_vms tool
+	// demoable without a real subscription.
+	v.SetDefault("connectors.azure.fallback_to_mock", false)
+
 	// K8s connector defaults
 	v.SetDefault("connectors.k8s.kubeconfig", "")
 	v.SetDefault("connectors.k8s.context", "")
@@ -560,6 +574,15 @@ func bindEnvVars(v *viper.Viper) error {
 		"connectors.aws.allow_live_patch",
 		"connectors.aws.live_patch_whitelist_instance_ids",
 		"connectors.aws.live_patch_client_mode",
+		// PR #26 / CONN-006 — Azure connector for the query_azure_vms
+		// orchestrator tool. Credentials (tenant/client/secret/subscription)
+		// piggyback on existing connectors.azure.* bindings used by the
+		// connectors service.
+		"connectors.azure.tenant_id",
+		"connectors.azure.client_id",
+		"connectors.azure.client_secret",
+		"connectors.azure.subscription_id",
+		"connectors.azure.fallback_to_mock",
 		"drift.host",
 		"drift.port",
 		"drift.calculation_interval",
