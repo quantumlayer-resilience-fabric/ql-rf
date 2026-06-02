@@ -108,3 +108,28 @@ func TestAzureRunCommandClient_DocumentsTheGuarantee(t *testing.T) {
 		t.Errorf("azure_run_command_client.go is missing its SAFETY comment about NOT calling the state-change SDK path; restore it before merging")
 	}
 }
+
+// TestLiveAzureRunCommandClient_IsTheOnlyFileReferencingSDKConstructor —
+// PR #28 / CONN-008 strengthens the structural safety guarantee. The
+// "no constructor" half is enforced by
+// TestNoAzureRunCommandStateChangeConstructorInToolsPackage above; THIS
+// test is the positive half: live_azure_runcommand_client.go MUST
+// reference the constructor. If it doesn't, PR #28's live mode is
+// structurally unreachable — either the file was deleted without
+// removing the live tool, or a refactor moved the constructor into a
+// different file and the negative test would now mis-allowlist the
+// wrong file.
+//
+// Both halves must pass for the safety invariant ("the state-change
+// constructor is reachable from exactly ONE file in the package, with
+// that file's name fixed") to hold.
+func TestLiveAzureRunCommandClient_IsTheOnlyFileReferencingSDKConstructor(t *testing.T) {
+	body, err := os.ReadFile(filepath.Clean(azureLiveRunCommandFile))
+	if err != nil {
+		t.Fatalf("read %s: %v — PR #28's live mode requires this file. If you intentionally removed live mode, also remove this test and the allowlist constant.", azureLiveRunCommandFile, err)
+	}
+	if !strings.Contains(string(body), azureRunCommandStateChangeConstructor) {
+		t.Errorf("%s must reference %q — PR #28's live mode is unreachable without it. If you intentionally removed live mode, also remove this test.",
+			azureLiveRunCommandFile, azureRunCommandStateChangeConstructor)
+	}
+}

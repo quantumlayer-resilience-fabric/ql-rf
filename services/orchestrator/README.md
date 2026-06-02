@@ -679,10 +679,51 @@ and `azure_run_command_live` (PR #28 placeholder) to CIS-1.4, so
 dry-run invocations of the Azure tool produce `compliance_evidence`
 attestations the same way SSM dry-run does.
 
-**PR #28** will introduce `live_azure_runcommand_client.go` — the sole
-allowlisted caller of the state-change SDK constructor — with the same
-four-gate safety pattern PR #21 used for SSM live (env opt-in,
-mock-conflict refusal, per-VM whitelist, two-approver workflow).
+## Azure Run Command live (PR #28 / CONN-008)
+
+The first **live** Azure cloud-mutating tool. `azure_run_command_live`
+fires `armcompute.VirtualMachineRunCommandsClient.BeginCreateOrUpdate`
+against whitelisted VMs after the two-approver workflow from PR #21
+completes. Four independent gates control reachability, matching the
+SSM live pattern from PR #21:
+
+| Gate | Where | Trigger |
+|------|-------|---------|
+| Env opt-in | `cmd/orchestrator/main.go:registerAzureLiveRunCommandTools` | `RF_CONNECTORS_AZURE_ALLOW_LIVE_RUN_COMMAND=true`. Default off everywhere. |
+| Mock-conflict refusal | same | Boot exits 1 if `FALLBACK_TO_MOCK=true` is also set. |
+| Per-VM whitelist | same + `live_azure_runcommand_client.go` | `RF_CONNECTORS_AZURE_LIVE_RUN_COMMAND_WHITELIST_VMS=rg-a/vm-1,rg-b/vm-2` — non-empty required at boot. Tool re-validates before SDK call. |
+| Two-approver workflow | `handlers/co_approve.go` + `policy/tool_authorization.rego` (PR #21) | First approver via `/approve`; second, distinct approver via `/co-approve`. OPA also enforces. |
+
+**Structural isolation:** `live_azure_runcommand_client.go` is the
+ONLY file in the tools package that references
+`armcompute.NewVirtualMachineRunCommandsClient`. The negative half (no
+other file may reference) is enforced by
+`TestNoAzureRunCommandStateChangeConstructorInToolsPackage`; the
+positive half (this file MUST reference) is enforced by
+`TestLiveAzureRunCommandClient_IsTheOnlyFileReferencingSDKConstructor`.
+Both run on every push.
+
+**Local smoke (mock live client):**
+
+```sh
+export RF_CONNECTORS_AZURE_FALLBACK_TO_MOCK=false
+export RF_CONNECTORS_AZURE_ALLOW_LIVE_RUN_COMMAND=true
+export RF_CONNECTORS_AZURE_LIVE_RUN_COMMAND_WHITELIST_VMS=rg-prod/vm-app-01
+export RF_CONNECTORS_AZURE_LIVE_RUN_COMMAND_CLIENT_MODE=mock  # avoids real Azure in dev
+go run ./services/orchestrator/cmd/orchestrator
+# Look for: "LIVE AZURE RUN COMMAND MODE ENABLED — real cloud mutations possible after two-approver workflow"
+```
+
+In production, set `LIVE_RUN_COMMAND_CLIENT_MODE=real` (or omit — `real`
+is the default). CI keeps `ALLOW_LIVE_RUN_COMMAND=false`, so the live
+tool isn't registered and no live calls are possible regardless of
+credentials.
+
+**The Azure connector arc is complete after this PR**: PR #26 (read-only
+`query_azure_vms`) → PR #27 (state-change dry-run `azure_run_command`)
+→ PR #28 (live state-change `azure_run_command_live`). The same pattern
+generalizes to GCP OS Config and vSphere guest-ops — each is a new
+client file + tool + four gates.
 
 ## State-change dry-run (PR #20 / CONN-002)
 

@@ -132,6 +132,13 @@ func run() error {
 	// Registration is unconditional and safe.
 	registerAzureRunCommandDryRunTools(cfg, toolRegistry, log)
 
+	// PR #28 / CONN-008: register the LIVE Azure Run Command tool when
+	// explicitly opted in via RF_CONNECTORS_AZURE_ALLOW_LIVE_RUN_COMMAND=true.
+	// Refuses to register (and may exit boot loudly) if the configuration
+	// is incoherent — see registerAzureLiveRunCommandTools for the exact
+	// gates. Mirrors registerSSMLiveTools exactly.
+	registerAzureLiveRunCommandTools(ctx, cfg, toolRegistry, log)
+
 	// Initialize agent registry
 	agentRegistry := agents.NewRegistry(llmClient, toolRegistry, validator, log)
 	log.Info("initialized agent registry", "agents", agentRegistry.ListAgents())
@@ -720,4 +727,92 @@ func registerSSMLiveTools(
 	// The dry client is reused from PR #20 for plan construction; the
 	// live client takes over for the actual SendCommand call.
 	reg.RegisterLiveStateChangeTools(tools.NewRealSSMClient(log), liveClient)
+}
+
+// registerAzureLiveRunCommandTools is the PR #28 / CONN-008 boot hook
+// for the LIVE Azure state-change cloud surface. Mirrors PR #21's
+// registerSSMLiveTools exactly. Four gates, evaluated in order:
+//
+//  1. AllowLiveRunCommand off (default): silent no-op. Production
+//     deployments that don't want live mode never see anything from
+//     this function.
+//  2. AllowLiveRunCommand on + FallbackToMock on: REFUSE TO START.
+//     The combination is incoherent and the only safe response is to
+//     fail loudly at boot rather than serve mixed real/mock behavior.
+//  3. AllowLiveRunCommand on + whitelist empty: REFUSE TO START. Live
+//     mode without targets is meaningless and probably indicates a
+//     missing env var.
+//  4. All gates pass: emit a loud WARN log with the whitelist contents
+//     and a "real cloud mutations possible" string, then register the
+//     live tool with either the real SDK client (default) or a
+//     deterministic mock (LiveRunCommandClientMode="mock", for local
+//     smoke and integration tests).
+//
+// The OPA tool_authorization policy (PR #21) adds the runtime gate
+// (two distinct approvers required) at invocation time.
+func registerAzureLiveRunCommandTools(
+	ctx context.Context,
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	azCfg := cfg.Connectors.Azure
+	if !azCfg.AllowLiveRunCommand {
+		// Silent no-op. The dry-run tool from PR #27 stays the only
+		// state-change Azure surface in this deployment.
+		return
+	}
+
+	if azCfg.FallbackToMock {
+		log.Error("REFUSING TO START: RF_CONNECTORS_AZURE_ALLOW_LIVE_RUN_COMMAND=true and RF_CONNECTORS_AZURE_FALLBACK_TO_MOCK=true are incoherent. Pick one.",
+			"hint", "Production live mode requires real Azure credentials, not the mock client.",
+		)
+		os.Exit(1)
+	}
+
+	// Pull whitelist from env (preferred — keeps secrets out of config
+	// files) with config-derived list as the documented fallback.
+	whitelist := tools.LoadAzureLiveWhitelistFromEnv()
+	if len(whitelist) == 0 {
+		whitelist = azCfg.LiveRunCommandWhitelistVMs
+	}
+	if len(whitelist) == 0 {
+		log.Error("REFUSING TO START: RF_CONNECTORS_AZURE_ALLOW_LIVE_RUN_COMMAND=true but no VMs on the whitelist.",
+			"hint", "Set RF_CONNECTORS_AZURE_LIVE_RUN_COMMAND_WHITELIST_VMS=rg-a/vm-1,rg-b/vm-2 or connectors.azure.live_run_command_whitelist_vms in config.",
+		)
+		os.Exit(1)
+	}
+
+	// LOUD WARN: by the time we reach here, real cloud mutations are
+	// possible. Log every relevant boot-state field for post-incident triage.
+	log.Warn("LIVE AZURE RUN COMMAND MODE ENABLED — real cloud mutations possible after two-approver workflow",
+		"client_mode", azCfg.LiveRunCommandClientMode,
+		"whitelist_count", len(whitelist),
+		"whitelist", whitelist,
+		"subscription_id", azCfg.SubscriptionID,
+		"tenant_id", azCfg.TenantID,
+	)
+
+	// Build the live client. "mock" mode short-circuits the SDK so
+	// local smoke + integration tests exercise the full boot path
+	// without touching Azure. Production MUST run with client_mode="real".
+	var liveClient tools.LiveAzureRunCommandClient
+	if azCfg.LiveRunCommandClientMode == "mock" {
+		log.Warn("azure live run-command tools: MOCK CLIENT ACTIVE — SendRunCommand returns op-azmock-* without calling Azure. DO NOT USE IN PRODUCTION.")
+		liveClient = tools.NewMockLiveAzureRunCommandClient(whitelist)
+	} else {
+		realLive, err := tools.NewLiveAzureRunCommandClient(ctx, azCfg, whitelist, log)
+		if err != nil {
+			log.Error("REFUSING TO START: cannot construct live Azure Run Command client",
+				"error", err.Error(),
+				"hint", "Check Azure credentials and subscription.",
+			)
+			os.Exit(1)
+		}
+		liveClient = realLive
+	}
+
+	// The dry client is reused from PR #27 for plan construction; the
+	// live client takes over for the actual BeginCreateOrUpdate call.
+	reg.RegisterAzureLiveRunCommandTools(tools.NewRealAzureRunCommandClient(log), liveClient)
 }
