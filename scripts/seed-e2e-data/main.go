@@ -115,7 +115,7 @@ func run() error {
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=6 sboms=1 sbom_packages=6 ai_tasks=4 ai_plans=4 ai_runs=2 ai_tool_invocations=6 llm_usage=4 ai_conversations=2 ai_conversation_messages=4\n", orgID)
+	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=6 sboms=1 sbom_packages=6 ai_tasks=5 ai_plans=5 ai_runs=2 ai_tool_invocations=6 llm_usage=4 ai_conversations=2 ai_conversation_messages=4\n", orgID)
 	return nil
 }
 
@@ -628,10 +628,16 @@ func seedSBOM(ctx context.Context, tx pgx.Tx) error {
 func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 	const (
 		userID = "e0000000-0000-0000-0000-000000000001"
-		task1  = "e1000000-0000-0000-0000-000000000001" // CVE patch, awaiting approval
-		task2  = "e1000000-0000-0000-0000-000000000002" // drift analysis, executing
-		task3  = "e1000000-0000-0000-0000-000000000003" // cert rotation, completed
-		task4  = "e1000000-0000-0000-0000-000000000004" // DR failover, rejected
+		// firstApproverID is a second seeded user used as the recorded first
+		// approver on task5 (the PR #22 "awaiting second approval" fixture).
+		// The Mission Control UI shows their UUID prefix in the "1st: ..."
+		// chip; co-approve will be triggered by userID, which is distinct.
+		firstApproverID = "e0000000-0000-0000-0000-0000000000aa"
+		task1           = "e1000000-0000-0000-0000-000000000001" // CVE patch, awaiting approval
+		task2           = "e1000000-0000-0000-0000-000000000002" // drift analysis, executing
+		task3           = "e1000000-0000-0000-0000-000000000003" // cert rotation, completed
+		task4           = "e1000000-0000-0000-0000-000000000004" // DR failover, rejected
+		task5           = "e1000000-0000-0000-0000-000000000005" // PR #22: SSM live patch, awaiting SECOND approval
 	)
 
 	// Mission Control user under the orchestrator dev org (the org the
@@ -647,6 +653,20 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		return fmt.Errorf("insert mission control user: %w", err)
 	}
 
+	// PR #22 / CONN-003 (UI): seed a second user who plays the role of
+	// "first approver" on the awaiting-second-approval fixture. The
+	// co-approve flow requires the second approver to differ from the
+	// first, so we need a real second user_id in the DB to FK against.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, external_id, email, name, role, org_id)
+		VALUES ($1, 'mission-control-first-approver', 'first-approver@example.com',
+		        'First Approver Dev User', 'admin', $2)
+		ON CONFLICT (id) DO NOTHING`,
+		firstApproverID, orchestratorDevOrgID,
+	); err != nil {
+		return fmt.Errorf("insert first approver user: %w", err)
+	}
+
 	tasks := []struct {
 		id, intent string
 	}{
@@ -654,6 +674,7 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		{task2, "Analyze drift across azure production sites"},
 		{task3, "Rotate api.quantumlayer.io certificate before expiry"},
 		{task4, "Failover production database to DR site immediately"},
+		{task5, "Live-patch production fleet via SSM (CONN-003 demo fixture)"},
 	}
 	for i := range tasks {
 		t := &tasks[i]
@@ -668,6 +689,14 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 	}
 
 	// Plans: one per task. State + quality + OPA result vary by lifecycle stage.
+	//
+	// PR #22 / CONN-003 (UI) adds plan #5: a CONN-003 "live SSM" plan that
+	// references ssm_send_patch_command (state_change_prod risk in the
+	// registry, always registered since PR #20). State is still
+	// awaiting_approval, but approved_by is pre-populated with a DIFFERENT
+	// user. The fleet status response computes requires_two_approvers=true
+	// from the payload + tool registry, and the UI renders the "Awaiting
+	// second approval" badge + Co-approve button instead of Approve.
 	plans := []struct {
 		id, taskID, planType, state, payload string
 		quality                              int
@@ -675,20 +704,27 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		opaViolations                        string
 		approved                             bool
 		rejectionReason                      string
+		approvedByOverride                   string // PR #22: pre-set first approver for the two-approver fixture
 	}{
 		{"e2000000-0000-0000-0000-000000000001", task1, "patch_plan", "awaiting_approval",
 			`{"summary":"Patch CVE-2024-3094","blast_radius":{"assets":4,"environment":"production"},"phases":["canary","monitor","full_rollout"],"rollback":"available"}`,
-			87, true, `[]`, false, ""},
+			87, true, `[]`, false, "", ""},
 		{"e2000000-0000-0000-0000-000000000002", task2, "drift_plan", "approved",
 			`{"summary":"Bring azure production assets back to golden image","blast_radius":{"assets":3,"environment":"production"},"phases":["canary","monitor","full_rollout"]}`,
-			92, true, `[]`, true, ""},
+			92, true, `[]`, true, "", ""},
 		{"e2000000-0000-0000-0000-000000000003", task3, "patch_plan", "approved",
 			`{"summary":"Rotate api.quantumlayer.io certificate","blast_radius":{"assets":1,"environment":"production"},"phases":["issue","stage","cutover"]}`,
-			90, true, `[]`, true, ""},
+			90, true, `[]`, true, "", ""},
 		{"e2000000-0000-0000-0000-000000000004", task4, "dr_runbook", "rejected",
 			`{"summary":"Failover prod DB to DR site","blast_radius":{"assets":12,"environment":"production"},"phases":["snapshot","cutover","reroute"]}`,
 			65, false, `["production failover blocked by policy: requires two-approver override"]`, false,
-			"OPA policy blocked: production_failover_requires_dual_approval"},
+			"OPA policy blocked: production_failover_requires_dual_approval", ""},
+		{"e2000000-0000-0000-0000-000000000005", task5, "patch_plan", "awaiting_approval",
+			// Payload references ssm_send_patch_command — state_change_prod
+			// in the tool registry. fleet_status's planPayloadNeedsTwoApprovers
+			// walks "tool"/"tool_name" keys and finds this one.
+			`{"summary":"Live-patch fleet via SSM","blast_radius":{"assets":2,"environment":"production"},"phases":[{"tool":"ssm_send_patch_command","operation":"Install"}],"rollback":"available"}`,
+			88, true, `[]`, false, "", firstApproverID},
 	}
 	for i := range plans {
 		p := &plans[i]
@@ -699,6 +735,13 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		now := time.Now()
 		if p.approved {
 			approvedBy = ptrString(userID)
+			approvedAt = &now
+		}
+		// PR #22 / CONN-003 (UI): for the two-approver fixture plan, record
+		// first approval up-front so the awaiting-second-approval shape is
+		// already on screen when the seeded dashboard loads.
+		if p.approvedByOverride != "" {
+			approvedBy = ptrString(p.approvedByOverride)
 			approvedAt = &now
 		}
 		var rejReason *string

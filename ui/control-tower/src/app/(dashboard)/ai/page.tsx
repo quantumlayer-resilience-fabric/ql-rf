@@ -20,6 +20,7 @@ import {
   useLatestConversation,
   useConversationMessages,
   useApproveTask,
+  useCoApproveTask,
   useRejectTask,
   useRecentRuns,
   useRun,
@@ -64,6 +65,13 @@ interface PendingDecision {
   blast_radius_assets: number;
   environment: string;
   created_at: string;
+  // PR #22 / CONN-003 (UI): two-approver workflow fields. Empty string
+  // means "not yet set"; requires_two_approvers is the registry-derived
+  // flag so the UI doesn't have to know which tool risks need two
+  // approvers.
+  approved_by?: string;
+  second_approver?: string;
+  requires_two_approvers?: boolean;
 }
 
 interface ToolInvocation {
@@ -503,6 +511,7 @@ function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
   // status + conversation queries so the dock thread and pending count
   // refresh immediately rather than waiting for the 15s poll.
   const approve = useApproveTask();
+  const coApprove = useCoApproveTask();
   const reject = useRejectTask();
   const [errorByPlan, setErrorByPlan] = useState<Record<string, string>>({});
 
@@ -535,8 +544,16 @@ function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
           ) : (
             <div className="space-y-3">
               {decisions.map((d) => {
-                const pending = approve.isPending || reject.isPending;
+                const pending = approve.isPending || coApprove.isPending || reject.isPending;
                 const errMsg = errorByPlan[d.plan_id];
+                // PR #22 / CONN-003 (UI): a card is "awaiting second
+                // approval" when the plan needs two approvers AND the first
+                // one has been recorded but the second hasn't. The Approve
+                // button hides in that state (it would 409 server-side
+                // anyway) and the Co-approve button takes its place.
+                const needsTwo = d.requires_two_approvers === true;
+                const firstApprover = d.approved_by ?? "";
+                const awaitingSecond = needsTwo && firstApprover !== "" && (d.second_approver ?? "") === "";
                 return (
                   <div
                     key={d.plan_id}
@@ -546,6 +563,22 @@ function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
                     <div className="mb-2 text-sm font-medium text-foreground">
                       {d.user_intent}
                     </div>
+                    {awaitingSecond && (
+                      <div
+                        data-testid={`pending-awaiting-second-${d.plan_id}`}
+                        className="mb-2 flex items-center justify-between rounded-md border border-status-amber/40 bg-status-amber/10 px-2 py-1 text-[11px]"
+                      >
+                        <span className="font-medium uppercase tracking-wider text-status-amber">
+                          Awaiting second approval
+                        </span>
+                        <span
+                          className="font-mono text-muted-foreground"
+                          title={`First approver: ${firstApprover}`}
+                        >
+                          1st: {firstApprover.slice(0, 8)}…
+                        </span>
+                      </div>
+                    )}
                     <div className="mb-2 grid grid-cols-2 gap-1 text-xs">
                       <span className="text-muted-foreground">Blast radius</span>
                       <span className="text-right">
@@ -568,18 +601,43 @@ function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
                           </span>
                         </>
                       )}
+                      {needsTwo && (
+                        <>
+                          <span className="text-muted-foreground">Approvers</span>
+                          <span
+                            className="text-right font-mono text-[11px]"
+                            data-testid={`pending-approvers-${d.plan_id}`}
+                            title="Two distinct approvers required for state_change_prod tools"
+                          >
+                            2 required
+                          </span>
+                        </>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={pending}
-                        data-testid={`pending-approve-${d.plan_id}`}
-                        onClick={() => void handleAction(d.plan_id, d.task_id, approve.mutateAsync)}
-                        title="Approve and start simulated execution"
-                      >
-                        {approve.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Approve"}
-                      </Button>
+                      {awaitingSecond ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={pending}
+                          data-testid={`pending-co-approve-${d.plan_id}`}
+                          onClick={() => void handleAction(d.plan_id, d.task_id, coApprove.mutateAsync)}
+                          title="Co-approve (must be a different user from the first approver)"
+                        >
+                          {coApprove.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Co-approve"}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={pending}
+                          data-testid={`pending-approve-${d.plan_id}`}
+                          onClick={() => void handleAction(d.plan_id, d.task_id, approve.mutateAsync)}
+                          title={needsTwo ? "Approve (first of two approvers required)" : "Approve and start simulated execution"}
+                        >
+                          {approve.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Approve"}
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
