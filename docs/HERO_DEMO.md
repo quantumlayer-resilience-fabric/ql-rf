@@ -2,11 +2,13 @@
 
 **Audience:** anyone delivering a 90-second QuantumSRE live demo or recording.
 **Purpose:** make the demo repeatable, beat by beat, against the deterministic E2E seed.
-**Last updated:** PR #41 (`ai/030-hero-demo-k8s-cleanup`) — the connector
-arc is now complete across all 5 clouds (AWS + Azure + GCP + vSphere +
-K8s, PRs #19–#40). 5 platforms × 3 risk tiers = 15 cloud tools.
-The 90-second hero beats are unchanged; the 30-second bonus arc now
-optionally walks all five clouds.
+**Last updated:** PR #45 (`ai/034-hero-demo-agent-layer-beat`) — the
+connector arc is now complete across all 5 clouds (AWS + Azure + GCP +
+vSphere + K8s, PRs #19–#40). 5 platforms × 3 risk tiers = 15 cloud
+tools. PR #45 adds a callout to BEAT 3 for the now-visible
+patch-agent recommendation layer (PRs #36/#43/#44) — every pending
+patch plan now carries an "Agent recommends" section listing the
+right per-cloud tool tier for each platform in scope.
 
 This document is the *spec* for the demo. It does NOT take screenshots — those are a recording-day task. If a beat below doesn't match what's on screen, the seed is dirty or the product drifted; fix the seed/product, not the doc.
 
@@ -119,10 +121,12 @@ Each beat: timing · screen position · action · narration.
 
 ### BEAT 3 — Plan · 0:15–0:25 · Right rail (Pending decisions)
 
-**Action:** point at the seeded pending decision card in the right column. Same intent text as the dock thread.
+**Action:** point at the seeded pending decision card in the right column. Same intent text as the dock thread. Then trace down to the "Agent recommends" section.
 
 **Narration:**
-> "And here it is on the pending decisions rail. Same intent. Quality 87. OPA policy: pass. Blast radius: 4 assets in production. This isn't a recommendation — it's a *plan* that already passed our schema validator, our policy engine, and our quality scorer. Waiting on me."
+> "And here it is on the pending decisions rail. Same intent. Quality 87. OPA policy: pass. Blast radius: 4 assets in production. This isn't a recommendation — it's a *plan* that already passed our schema validator, our policy engine, and our quality scorer. Waiting on me.
+>
+> See the 'Agent recommends' panel? The patch agent's already picked the right tool per platform: SSM for AWS, Run Command for Azure, server-side apply for Kubernetes. It picks dry-run tools in production — live execution is a separate two-approver workflow. That mapping isn't hardcoded in the prompt; it's read from a single platform → tool catalog. New clouds plug in without re-tuning the agent."
 
 ---
 
@@ -245,7 +249,7 @@ All fifteen tools share:
 
 - **Governed cross-domain remediation.** Drift, CVE, certificates, DR — the same approval loop, the same evidence trail, regardless of domain.
 - **Multi-cloud connector arc.** PRs #19–#40 ship a complete matrix: 5 clouds (AWS / Azure / GCP / vSphere / Kubernetes) × 3 risk tiers (read-only / dry-run / live + 2-approver) = 15 cloud tools. Same UI, same audit table, same OPA policy, same compliance evidence emission.
-- **Platform-aware patch agent.** PR #36 wires the patch agent into a single platform → tool-tier catalog (`patch_platform_catalog.go`). When the agent generates a rollout plan, each phase carries a `recommended_tools` map naming the right per-cloud tool tier — dry-run for production, live for non-production. The agent itself never invokes a state-change tool; it only names them. Live execution remains gated by the two-approver workflow.
+- **Platform-aware patch agent, visibly on screen.** PR #36 wires the patch agent into a single platform → tool-tier catalog (`patch_platform_catalog.go`). PR #43 seeds the demo plans with the agent's per-phase `recommended_tools`. PR #44 surfaces those on the pending decision card as an "Agent recommends" section — operators see the per-cloud tool choice (SSM for AWS, Run Command for Azure, server-side apply for K8s) before they click Approve. The agent itself never invokes a state-change tool; it only names them. Live execution remains gated by the two-approver workflow.
 - **Four-way audit distinction.** Synthetic (B.3 `_simulated:true`), real read-only (PR #19/#26/#29/#33/#38), state-change dry-run (PR #20/#27/#30/#34/#39 `dry_run:true`), live state-change (PR #21/#28/#31/#35/#40 `dry_run:false` + `risk='state_change_prod'`). One SQL view classifies the entire ledger across all clouds.
 - **Compliance attestations are automatic.** PR #24's `tool_compliance_mappings` ties every real invocation to a compliance control; the demo dashboard's CIS-1.4 evidence panel populates from real and dry-run tool fires alike.
 - **Deterministic evidence.** Every transition has a microsecond timestamp and a JSONB marker. The marker is the only difference between the simulator and the live path.
@@ -370,7 +374,7 @@ Tear this off, tape it to the second monitor:
 
 - [ ] **0:00** Open `/ai`. Read fleet bar metrics.
 - [ ] **0:05** Point at dock thread — CVE conversation.
-- [ ] **0:15** Point at pending decision — same intent, quality 87, OPA pass.
+- [ ] **0:15** Point at pending decision — same intent, quality 87, OPA pass. Trace down to the "Agent recommends" section (AWS / Azure / K8s rows).
 - [ ] **0:25** Point at activity stream — three read-only invocations.
 - [ ] **0:30** Click **Approve** on the **CVE-2024-3094 card** (the one without the amber "Awaiting second approval" badge).
 - [ ] **0:35** Watch the new run card animate queued → executing → completed.
