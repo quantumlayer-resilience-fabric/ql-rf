@@ -582,6 +582,45 @@ export function useApproveTask() {
 }
 
 /**
+ * Hook to co-approve a state_change_prod task — the second-approver step
+ * for PR #21 / CONN-003. The caller must differ from the first approver;
+ * the backend returns 403 if they match. On success the executor fires
+ * (same invalidations as useApproveTask so the UI reflects the new
+ * activity stream rows and run card).
+ */
+export function useCoApproveTask() {
+  const queryClient = useQueryClient();
+  const { getToken } = useAuth();
+
+  return useMutation<AITask, Error, { taskId: string; reason?: string }>({
+    mutationFn: async ({ taskId, reason }) => {
+      const response = await orchestratorFetch(
+        `/api/v1/ai/tasks/${taskId}/co-approve`,
+        {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        },
+        getToken
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Co-approval failed: ${response.status}`);
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai-tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "fleet", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "conversations", "latest"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "conversations", "messages"] });
+      queryClient.invalidateQueries({ queryKey: ["ai", "runs", "recent"] });
+    },
+  });
+}
+
+/**
  * Hook to reject a task
  */
 export function useRejectTask() {

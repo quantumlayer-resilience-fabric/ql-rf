@@ -1,12 +1,98 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/middleware"
+	"github.com/quantumlayerhq/ql-rf/services/orchestrator/internal/tools"
 )
+
+// loadPendingApprovals fetches plans in awaiting_approval state for the
+// org and decorates each with the registry-derived RequiresTwoApprovers
+// flag. Extracted from getFleetStatus so the latter stays under the
+// cyclomatic complexity limit; also avoids the shadowed-err pattern that
+// the inline version triggered.
+//
+// PR #22 / CONN-003 (UI): surfaces approved_by + second_approver so the
+// UI can render an "awaiting second approval" badge + Co-approve button
+// on cards that need a second approver.
+func (h *Handler) loadPendingApprovals(ctx context.Context, orgID string) []PendingDecision {
+	rows, err := h.db.Pool.Query(ctx, `
+		SELECT
+			t.id, p.id, t.user_intent, p.type, p.quality_score,
+			COALESCE((p.validation->>'opa_valid')::bool, false) AS opa_pass,
+			COALESCE((p.payload->'blast_radius'->>'assets')::int, 0) AS blast_assets,
+			COALESCE(p.payload->'blast_radius'->>'environment', '') AS environment,
+			p.created_at,
+			COALESCE(p.approved_by::text, '') AS approved_by,
+			COALESCE(p.second_approver::text, '') AS second_approver,
+			p.payload AS plan_payload
+		FROM ai_tasks t
+		JOIN ai_plans p ON p.task_id = t.id
+		WHERE t.org_id = $1 AND p.state = 'awaiting_approval'
+		ORDER BY p.created_at DESC
+		LIMIT 20`, orgID)
+	if err != nil {
+		h.log.Warn("fleet status: pending approvals query failed", "error", err)
+		return nil
+	}
+	defer rows.Close()
+
+	// Pre-allocate for the documented LIMIT 20 upper bound; the actual
+	// slice tracks rows.Next() iterations and stays correct if fewer rows
+	// come back.
+	out := make([]PendingDecision, 0, 20)
+	for rows.Next() {
+		var (
+			d           PendingDecision
+			quality     *int
+			createdAt   time.Time
+			planPayload []byte
+		)
+		if scanErr := rows.Scan(&d.TaskID, &d.PlanID, &d.UserIntent, &d.PlanType,
+			&quality, &d.OPAPass, &d.BlastRadiusAssets, &d.Environment, &createdAt,
+			&d.ApprovedBy, &d.SecondApprover, &planPayload); scanErr != nil {
+			h.log.Warn("fleet status: scan pending failed", "error", scanErr)
+			continue
+		}
+		d.QualityScore = quality
+		d.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		d.RequiresTwoApprovers = h.planPayloadNeedsTwoApprovers(planPayload)
+		out = append(out, d)
+	}
+	return out
+}
+
+// planPayloadNeedsTwoApprovers walks the plan's JSONB payload and returns
+// true if any referenced tool's risk level is state_change_prod (the OPA
+// policy + co-approve handler treat this as the two-approver trigger).
+//
+// Reused by fleetStatus to populate the RequiresTwoApprovers flag without
+// the caller having to re-fetch the payload. The same logic lives in
+// co_approve.go's planRequiresTwoApprovers but takes a task_id; that
+// function does the DB read, this one takes the bytes directly.
+func (h *Handler) planPayloadNeedsTwoApprovers(payload []byte) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(payload, &doc); err != nil {
+		return false
+	}
+	for _, name := range collectToolNames(doc) {
+		t, ok := h.tools.Get(name)
+		if !ok {
+			continue
+		}
+		if t.Risk() == tools.RiskStateChangeProd {
+			return true
+		}
+	}
+	return false
+}
 
 // FleetStatus is the response shape for GET /api/v1/ai/fleet/status. It is a
 // small read-only aggregation that powers the Mission Control page header,
@@ -70,6 +156,16 @@ type PendingDecision struct {
 	BlastRadiusAssets int    `json:"blast_radius_assets"`
 	Environment       string `json:"environment"`
 	CreatedAt         string `json:"created_at"`
+
+	// PR #22 / CONN-003 (UI): two-approver workflow fields.
+	// ApprovedBy is the UUID of the first approver (empty until /approve fires).
+	// SecondApprover is the UUID of the co-approver (empty until /co-approve fires).
+	// RequiresTwoApprovers is true if the plan references a state_change_prod
+	// tool — surfaced as a flag so the UI doesn't have to re-derive it from
+	// the plan payload.
+	ApprovedBy           string `json:"approved_by,omitempty"`
+	SecondApprover       string `json:"second_approver,omitempty"`
+	RequiresTwoApprovers bool   `json:"requires_two_approvers"`
 }
 
 // ToolInvocation is one row of the activity stream — a recent tool call.
@@ -123,40 +219,7 @@ func (h *Handler) getFleetStatus(w http.ResponseWriter, r *http.Request) {
 		resp.Agents.Idle = 0
 	}
 
-	// Pending approvals: plans in awaiting_approval state for this org, joined
-	// with their task and validation/quality fields.
-	pendingRows, err := h.db.Pool.Query(ctx, `
-		SELECT
-			t.id, p.id, t.user_intent, p.type, p.quality_score,
-			COALESCE((p.validation->>'opa_valid')::bool, false) AS opa_pass,
-			COALESCE((p.payload->'blast_radius'->>'assets')::int, 0) AS blast_assets,
-			COALESCE(p.payload->'blast_radius'->>'environment', '') AS environment,
-			p.created_at
-		FROM ai_tasks t
-		JOIN ai_plans p ON p.task_id = t.id
-		WHERE t.org_id = $1 AND p.state = 'awaiting_approval'
-		ORDER BY p.created_at DESC
-		LIMIT 20`, orgID)
-	if err != nil {
-		h.log.Warn("fleet status: pending approvals query failed", "error", err)
-	} else {
-		defer pendingRows.Close()
-		for pendingRows.Next() {
-			var (
-				d         PendingDecision
-				quality   *int
-				createdAt time.Time
-			)
-			if err := pendingRows.Scan(&d.TaskID, &d.PlanID, &d.UserIntent, &d.PlanType,
-				&quality, &d.OPAPass, &d.BlastRadiusAssets, &d.Environment, &createdAt); err != nil {
-				h.log.Warn("fleet status: scan pending failed", "error", err)
-				continue
-			}
-			d.QualityScore = quality
-			d.CreatedAt = createdAt.UTC().Format(time.RFC3339)
-			resp.PendingApprovals = append(resp.PendingApprovals, d)
-		}
-	}
+	resp.PendingApprovals = h.loadPendingApprovals(ctx, orgID)
 
 	// Recent tool invocations (activity stream).
 	invRows, err := h.db.Pool.Query(ctx, `

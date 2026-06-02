@@ -40,7 +40,10 @@ test.describe("Mission Control (AI-001 Phase A)", () => {
     await expect(page.getByTestId("fleet-working")).toContainText("1");
     await expect(page.getByTestId("fleet-working")).toContainText("working");
     await expect(page.getByTestId("fleet-idle")).toContainText("11");
-    await expect(page.getByTestId("fleet-pending")).toContainText("1");
+    // PR #22 / CONN-003: seed now creates 2 awaiting_approval plans (the
+    // existing CVE-2024-3094 plan and the new SSM-live two-approver
+    // fixture for the co-approve UI test).
+    await expect(page.getByTestId("fleet-pending")).toContainText("2");
     await expect(page.getByTestId("fleet-actions-today")).toContainText("6");
     await expect(page.getByTestId("fleet-spend")).toContainText("$1.82");
     await expect(page.getByTestId("fleet-spend")).toContainText("$50.00");
@@ -90,17 +93,19 @@ test.describe("Mission Control (AI-001 Phase A)", () => {
   });
 
   test("should show the seeded pending decision with OPA result and quality score", async ({ page }) => {
-    // Scope to the pending rail — the seeded CVE text now also appears in the
-    // activity stream (Phase B.2 conversation event), so a `main.getByText(...)`
-    // would resolve to two elements.
-    const pendingCard = page.locator('[data-testid^="pending-e2"]').first();
+    // Scope to the specific CVE plan id — PR #22 added a second
+    // awaiting_approval plan (the SSM-live two-approver fixture) so
+    // `.first()` is no longer deterministic across the two cards.
+    const cvePlanID = "e2000000-0000-0000-0000-000000000001";
+    const pendingCard = page.getByTestId(`pending-${cvePlanID}`);
     await expect(pendingCard).toContainText(
       "Patch CVE-2024-3094 (xz backdoor) on production assets",
       { timeout: WIDGET_TIMEOUT },
     );
-    // OPA pass + quality 87.
-    await expect(page.getByTestId("pending-opa")).toHaveText("pass");
-    await expect(page.getByTestId("pending-quality")).toHaveText("87/100");
+    // OPA pass + quality 87 are scoped to the CVE card; without scoping
+    // the page-level testids would now match both seeded pending cards.
+    await expect(pendingCard.getByTestId("pending-opa")).toHaveText("pass");
+    await expect(pendingCard.getByTestId("pending-quality")).toHaveText("87/100");
   });
 
   test("should render an enabled conversation dock", async ({ page }) => {
@@ -114,6 +119,46 @@ test.describe("Mission Control (AI-001 Phase A)", () => {
     const submit = page.getByTestId("conversation-submit");
     await expect(submit).toBeVisible();
     await expect(submit).toBeDisabled();
+  });
+});
+
+test.describe("Mission Control (CONN-003 — two-approver workflow)", () => {
+  test("seeded SSM live plan shows awaiting-second-approval badge and Co-approve button", async ({ page }) => {
+    await page.goto("/ai");
+    await expect(
+      page.getByRole("heading", { name: "Mission Control", exact: true }),
+    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    // The seeded fixture (scripts/seed-e2e-data/main.go) inserts plan #5
+    // — "Live-patch production fleet via SSM" — with approved_by already
+    // set to the first-approver user and second_approver still null. The
+    // fleet status response computes requires_two_approvers=true from the
+    // payload + tool registry, so the UI renders the awaiting-second
+    // badge in place of a normal Approve button.
+    const planID = "e2000000-0000-0000-0000-000000000005";
+    const card = page.getByTestId(`pending-${planID}`);
+    await expect(card).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    // The awaiting-second-approval indicator is the surface user-facing
+    // signal that this plan is mid-flight in the two-approver workflow.
+    await expect(
+      card.getByTestId(`pending-awaiting-second-${planID}`),
+    ).toBeVisible({ timeout: WIDGET_TIMEOUT });
+
+    // The "Approvers: 2 required" metadata row appears for any plan that
+    // requires two approvers, regardless of which approval is pending.
+    await expect(
+      card.getByTestId(`pending-approvers-${planID}`),
+    ).toContainText("2 required");
+
+    // The Co-approve button replaces the Approve button while the plan is
+    // awaiting the second approver — the data-testid distinguishes the two.
+    await expect(
+      card.getByTestId(`pending-co-approve-${planID}`),
+    ).toBeVisible();
+    await expect(
+      card.getByTestId(`pending-approve-${planID}`),
+    ).toHaveCount(0);
   });
 });
 
