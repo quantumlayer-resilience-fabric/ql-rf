@@ -37,6 +37,11 @@ func TestPlatformToolsFor_KnownPlatforms(t *testing.T) {
 			DryRun:   "vsphere_run_guest_program",
 			Live:     "vsphere_run_guest_program_live",
 		}},
+		{"k8s", PlatformToolTier{
+			ReadOnly: "query_pods",
+			DryRun:   "k8s_apply",
+			Live:     "k8s_apply_live",
+		}},
 	}
 
 	for _, c := range cases {
@@ -53,9 +58,9 @@ func TestPlatformToolsFor_KnownPlatforms(t *testing.T) {
 }
 
 func TestPlatformToolsFor_UnknownPlatform(t *testing.T) {
-	_, ok := PlatformToolsFor("k8s")
+	_, ok := PlatformToolsFor("openstack")
 	if ok {
-		t.Error("k8s should not yet be in the catalog (lands in PR #38-#40)")
+		t.Error("openstack should not be in the catalog")
 	}
 	_, ok = PlatformToolsFor("")
 	if ok {
@@ -65,7 +70,7 @@ func TestPlatformToolsFor_UnknownPlatform(t *testing.T) {
 
 func TestSupportedPlatforms_StableOrder(t *testing.T) {
 	got := SupportedPlatforms()
-	want := []string{"aws", "azure", "gcp", "vsphere"}
+	want := []string{"aws", "azure", "gcp", "k8s", "vsphere"}
 	if len(got) != len(want) {
 		t.Fatalf("SupportedPlatforms() len = %d, want %d", len(got), len(want))
 	}

@@ -59,6 +59,11 @@ var platformCatalog = map[string]PlatformToolTier{
 		DryRun:   "vsphere_run_guest_program",
 		Live:     "vsphere_run_guest_program_live",
 	},
+	"k8s": {
+		ReadOnly: "query_pods",
+		DryRun:   "k8s_apply",
+		Live:     "k8s_apply_live",
+	},
 }
 
 // PlatformToolsFor returns the tool-tier names for a given platform.
