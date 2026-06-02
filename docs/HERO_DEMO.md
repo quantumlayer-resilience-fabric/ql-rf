@@ -2,7 +2,9 @@
 
 **Audience:** anyone delivering a 90-second QuantumSRE live demo or recording.
 **Purpose:** make the demo repeatable, beat by beat, against the deterministic E2E seed.
-**Last updated:** PR #17 (`ai/006-hero-demo-polish`).
+**Last updated:** PR #23 (`ai/012-hero-demo-connector-arc`) — adds the
+PR #19–#22 connector arc bonus beats and refreshes pre-flight expected
+counts for the new SSM-live two-approver seed plan.
 
 This document is the *spec* for the demo. It does NOT take screenshots — those are a recording-day task. If a beat below doesn't match what's on screen, the seed is dirty or the product drifted; fix the seed/product, not the doc.
 
@@ -51,12 +53,16 @@ curl -s -H "Authorization: Bearer dev-token" \
 
 ```json
 {
-  "pending": 1,
+  "pending": 2,
   "today":   6,
   "spend":   182,
   "agents":  {"total": 12, "working": 1, "idle": 11, "blocked": 0}
 }
 ```
+
+> `pending: 2` is the post-PR-#22 expected. The CVE plan is the primary hero
+> beat; the second pending is the "awaiting second approval" SSM-live plan
+> that drives the bonus connector arc (see the [Connector arc bonus](#connector-arc-bonus--30s-add-on-to-the-hero-beats) below).
 
 If `pending > 1`, your DB has demo debris from prior runs — apply the [reset SQL](#one-shot-reset-sql) and re-seed.
 
@@ -180,12 +186,49 @@ Each beat: timing · screen position · action · narration.
 
 ---
 
+## Connector arc bonus — 30s add-on to the hero beats
+
+Use this only if the room asks "but does it actually do real cloud stuff?" or you've got time to spare. The 90-second hero demo above is complete on its own.
+
+This bonus arc runs entirely from the **Real tools** card in the right rail and the **second pending decision**, with no extra setup beyond the standard pre-flight.
+
+### Bonus BEAT A — Read-only real cloud · ~10s · Right rail (Real tools)
+
+Click **Invoke** on `query_aws_instances`.
+
+Say: *"This is a real AWS call — `EC2.DescribeInstances`. The orchestrator runs with `RF_CONNECTORS_AWS_FALLBACK_TO_MOCK=true` in dev, so we're hitting the deterministic mock client. In production, the same path takes real credentials. Audit row goes into the same `ai_tool_invocations` table as the simulator output, distinguishable by JSONB markers."*
+
+Within a second, the activity stream gains a `query_aws_instances` row with `risk: read_only` and **no** `_simulated` marker.
+
+### Bonus BEAT B — Dry-run state-change · ~10s · Right rail (Real tools)
+
+Click **Dry-run** on `ssm_send_patch_command`.
+
+Say: *"State-change tools can't be invoked from the read-only endpoint — see, they have a Dry-run button instead. This builds an `AWS-RunPatchBaseline` command plan but never imports the SSM SDK, never calls `SendCommand`. A Go structural-safety test enforces this at every push: there is exactly one file in the tools package that imports the SSM SDK, and it's `live_ssm_client.go` from the live-mode PR."*
+
+Activity stream picks up `ssm_send_patch_command` with `risk: state_change_prod`. The audit row's `parameters @> '{"dry_run": true}'` distinguishes it from any live invocation.
+
+### Bonus BEAT C — Two-approver awaiting state · ~10s · Right rail (Pending decisions, plan #2)
+
+Point at the **second pending card** — the one with the amber "Awaiting second approval" badge.
+
+Say: *"This is a state-change-prod plan. The first approver has already clicked Approve; the card no longer offers an Approve button. Instead it shows who first-approved, that two approvers are required, and a Co-approve button. The OPA policy enforces this in code: `state_change_prod` requires both `approved_by` and a distinct `second_approver`. In production with the live SSM tool registered (`RF_CONNECTORS_AWS_ALLOW_LIVE_PATCH=true`), clicking Co-approve would fire a real `ssm:SendCommand`."*
+
+Do NOT click Co-approve during a demo — it will succeed in dev (because the live tool isn't registered, no real call fires), but the visual feedback isn't worth the cognitive overhead in 30 seconds. Leave the card in its awaiting state.
+
+### Bonus close — the arc, one sentence
+
+*"Read-only real call → state-change dry-run → state-change live with two-approver gate. Same `ai_tool_invocations` table, distinguishable by JSONB markers. Production deployments opt into each layer via env vars; CI runs with all live opt-ins off."*
+
+---
+
 ## What this demonstrates
 
 - **Governed cross-domain remediation.** Drift, CVE, certificates, DR — the same approval loop, the same evidence trail, regardless of domain.
-- **No rip-and-replace.** The connectors path lands next; the simulator is its architectural twin. Same data model, same UI, same audit ledger.
-- **Deterministic evidence.** Every transition has a microsecond timestamp and a `_simulated: true` marker. Real runs will lose that marker; everything else stays identical.
-- **Read-only by default.** Even the simulator only ever uses `plan_only` risk-level tool invocations. State-change tools need real connectors AND explicit two-approver workflows — out of scope for the simulator path.
+- **Connector arc proves the pattern.** PRs #19–#22 ship a working read-only → dry-run → live state-change loop with structural SDK isolation and a two-approver workflow. The architectural twin (simulator) and the live twin coexist; the same UI surface drives both.
+- **Four-way audit distinction.** Synthetic (B.3 `_simulated:true`), real read-only (PR #19), state-change dry-run (PR #20 `dry_run:true`), live state-change (PR #21 `dry_run:false` + `risk='state_change_prod'`). One SQL view classifies the entire ledger.
+- **Deterministic evidence.** Every transition has a microsecond timestamp and a JSONB marker. The marker is the only difference between the simulator and the live path.
+- **Read-only by default.** Live state-change tools are unregistered unless explicitly opted in. CI is locked off; production deployments flip env vars per platform.
 
 ---
 
@@ -195,11 +238,12 @@ These are **deliberately** out of the hero flow. If a viewer asks, say: "next ph
 
 | Surface | Why it's out |
 |---------|--------------|
-| Real cloud SDK calls | No connectors live yet. The simulator IS the connector path's twin. |
 | Live LLM | Demo runs on stub. Azure Anthropic works but is opt-in via `RF_LLM_PROVIDER=azure_anthropic` + an API key in `.env`. |
+| Clicking Co-approve in the bonus arc | The plan goes to `approved` state and the executor fires the simulated tool path (because the live SSM tool isn't registered without `RF_CONNECTORS_AWS_ALLOW_LIVE_PATCH=true`). The visual outcome is anticlimactic; better to describe the gate than to trigger it. |
+| Real `ssm:SendCommand` against live AWS | The PR #21 code path works, but requires production credentials + a per-instance whitelist + the env opt-in. Out of scope for a 90s + 30s demo. Show the dry-run instead. |
 | Approve buttons across orgs | Multi-tenant isolation works (verified by unit tests) but not part of the 90s flow. |
 | Modify button on pending cards | Disabled — needs a plan-payload editor. Deferred to a later PR. |
-| `compliance_evidence` integration | The audit_log is the ledger today. Tying simulated runs into the compliance page is a follow-up PR. |
+| `compliance_evidence` integration | The audit_log is the ledger today. Wiring dry-run + live audit rows into `compliance_evidence` is the next PR. |
 | Autonomy mode editing | Read-only display only. Writing autonomy modes is Phase C. |
 | Multi-turn conversation refinement | The 60-minute window appends to the same thread, but the dock doesn't visualise multi-turn refinement specially yet. |
 
@@ -211,8 +255,9 @@ If you hit any of these during a demo, the seed is dirty or the stack is off. Re
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Pending count > 1 on landing | DB has debris from prior dry-runs (the seeder alone won't clean this) | Run the [reset SQL](#one-shot-reset-sql), then re-run the seeder |
-| Pending count = 0 on landing | Seeded pending was approved/rejected by an earlier demo | Run the [reset SQL](#one-shot-reset-sql) (it restores `awaiting_approval`), then re-seed |
+| Pending count > 2 on landing | DB has debris from prior dry-runs (the seeder alone won't clean this) | Run the [reset SQL](#one-shot-reset-sql), then re-run the seeder |
+| Pending count < 2 on landing | One of the seeded pending plans was approved/rejected/co-approved | Run the [reset SQL](#one-shot-reset-sql) (it restores both `awaiting_approval` plans), then re-seed |
+| Bonus arc: second pending card has no "Awaiting second approval" badge | The `approved_by` field on plan #5 got cleared | Re-run the seeder; if the badge is still missing, check `psql … SELECT id, approved_by FROM ai_plans WHERE id='e2000000-0000-0000-0000-000000000005'` — it should be `e0000000-0000-0000-0000-0000000000aa` |
 | Dock thread shows "Analyze drift…" instead of "Patch CVE-2024-3094…" | You're on a pre-PR-#17 seed | Pull latest, run the reset SQL + seeder |
 | `tool_invocations_today` shows 0 | The seed was last run >24h ago AND nothing new ran today | Re-run `go run ./scripts/seed-e2e-data/` — it refreshes timestamps via UPDATE on conflict |
 | `llm_spend_today_cents` shows 0 | Same as above | Same fix |
@@ -234,7 +279,8 @@ WHERE id != ALL(ARRAY[
   'e1000000-0000-0000-0000-000000000001',
   'e1000000-0000-0000-0000-000000000002',
   'e1000000-0000-0000-0000-000000000003',
-  'e1000000-0000-0000-0000-000000000004'
+  'e1000000-0000-0000-0000-000000000004',
+  'e1000000-0000-0000-0000-000000000005'  -- PR #22: SSM live two-approver fixture
 ]::uuid[]);
 
 DELETE FROM ai_conversation_messages
@@ -267,10 +313,24 @@ WHERE id != ALL(ARRAY[
   'e4000000-0000-0000-0000-000000000006'
 ]::uuid[]);
 
--- Restore the seeded pending decision if it was approved or rejected.
+-- Restore the original seeded pending decision (CVE plan, hero beat) to
+-- awaiting_approval with both approver columns cleared.
 UPDATE ai_plans
-SET state = 'awaiting_approval', approved_by = NULL, approved_at = NULL
+SET state = 'awaiting_approval', approved_by = NULL, approved_at = NULL,
+    second_approver = NULL, second_approved_at = NULL
 WHERE id = 'e2000000-0000-0000-0000-000000000001';
+
+-- PR #22: restore the SSM-live two-approver fixture to
+-- awaiting_approval with the first approver pre-set (the value the seed
+-- writes). second_approver MUST be NULL so the UI renders the
+-- "Awaiting second approval" badge for the bonus arc.
+UPDATE ai_plans
+SET state = 'awaiting_approval',
+    approved_by = 'e0000000-0000-0000-0000-0000000000aa',
+    approved_at = NOW(),
+    second_approver = NULL,
+    second_approved_at = NULL
+WHERE id = 'e2000000-0000-0000-0000-000000000005';
 ```
 
 **Then re-run the seeder** to refresh timestamps and the conversation breadcrumbs:
@@ -291,10 +351,16 @@ Tear this off, tape it to the second monitor:
 - [ ] **0:05** Point at dock thread — CVE conversation.
 - [ ] **0:15** Point at pending decision — same intent, quality 87, OPA pass.
 - [ ] **0:25** Point at activity stream — three read-only invocations.
-- [ ] **0:30** Click **Approve**.
+- [ ] **0:30** Click **Approve** on the **CVE-2024-3094 card** (the one without the amber "Awaiting second approval" badge).
 - [ ] **0:35** Watch the new run card animate queued → executing → completed.
 - [ ] **0:50** Click the completed run card. Read the 6-entry timeline.
 - [ ] **1:15** Submit risky prompt; click **Reject**; point at the system message.
 - [ ] **1:25** Pan back to fleet status. Close.
+
+**Bonus arc (optional, 30s):**
+
+- [ ] **+0:00** Right rail → Real tools → click **Invoke** on `query_aws_instances`. Activity stream gains a `read_only` row.
+- [ ] **+0:10** Right rail → click **Dry-run** on `ssm_send_patch_command`. Activity stream gains a `state_change_prod` row with no SendCommand fired.
+- [ ] **+0:20** Right rail → point at the second pending card (amber badge). Read: "Awaiting second approval, 1st: e0000000…, Co-approve required." Do NOT click.
 
 If any beat takes more than 10 seconds, you're over-explaining — let the UI carry it.
