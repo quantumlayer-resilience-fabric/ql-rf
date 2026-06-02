@@ -415,6 +415,10 @@ export interface ComplianceEvidence {
   collectedBy: string;
   isCurrent: boolean;
   reviewStatus: "pending" | "approved" | "rejected";
+  // PR #42 / OPS-EVIDENCE-001: FK to the ai_tool_invocations audit row
+  // that produced this evidence row (when emitted by the orchestrator's
+  // PR #24 emitter). Nil for manually-uploaded evidence.
+  aiToolInvocationId?: string;
 }
 
 export interface ComplianceExemption {

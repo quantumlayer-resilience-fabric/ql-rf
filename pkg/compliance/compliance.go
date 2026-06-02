@@ -102,6 +102,13 @@ type Evidence struct {
 	ReviewNotes      string       `json:"review_notes,omitempty" db:"review_notes"`
 	CreatedAt        time.Time    `json:"created_at" db:"created_at"`
 	UpdatedAt        time.Time    `json:"updated_at" db:"updated_at"`
+
+	// AIToolInvocationID is the FK to the audit row in ai_tool_invocations
+	// that produced this evidence row. Set by the orchestrator's evidence
+	// emitter (PR #24); nil for manually-uploaded evidence. Auditors follow
+	// this link to recover the exact tool call (params, result, risk level,
+	// timestamp) that generated the attestation.
+	AIToolInvocationID *uuid.UUID `json:"ai_tool_invocation_id,omitempty" db:"ai_tool_invocation_id"`
 }
 
 // AssessmentStatus represents the status of a compliance assessment.
@@ -515,7 +522,7 @@ func (s *Service) ListEvidence(ctx context.Context, orgID, controlID uuid.UUID) 
 		       storage_type, storage_path, content_hash, file_size_bytes, mime_type,
 		       collected_at, collected_by, collection_method, valid_from, valid_until,
 		       is_current, reviewed_by, reviewed_at, review_status, review_notes,
-		       created_at, updated_at
+		       created_at, updated_at, ai_tool_invocation_id
 		FROM compliance_evidence
 		WHERE org_id = $1 AND control_id = $2
 		ORDER BY collected_at DESC
@@ -533,7 +540,7 @@ func (s *Service) ListEvidence(ctx context.Context, orgID, controlID uuid.UUID) 
 			&e.StorageType, &e.StoragePath, &e.ContentHash, &e.FileSizeBytes, &e.MimeType,
 			&e.CollectedAt, &e.CollectedBy, &e.CollectionMethod, &e.ValidFrom, &e.ValidUntil,
 			&e.IsCurrent, &e.ReviewedBy, &e.ReviewedAt, &e.ReviewStatus, &e.ReviewNotes,
-			&e.CreatedAt, &e.UpdatedAt,
+			&e.CreatedAt, &e.UpdatedAt, &e.AIToolInvocationID,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan evidence: %w", err)
 		}
