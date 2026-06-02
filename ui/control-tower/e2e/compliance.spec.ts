@@ -37,9 +37,11 @@ test.describe("Compliance Page", () => {
     await expect(main.getByText("SLSA Level", { exact: true })).toBeVisible();
     await expect(main.getByText("Sigstore Verified", { exact: true })).toBeVisible();
 
-    // Data-derived values unique on the page (60.0% appears in both the CIS
-    // card and the CIS framework card, so prefer the unique markers).
-    await expect(main.getByText("80.0%", { exact: true })).toBeVisible();
+    // Data-derived values unique on the page. PR #24 added CIS-1.4
+    // (patch management) as a passing control — CIS framework score now
+    // averages 4 passing + 2 failing = 66.7%, overall = (66.7 + 100)/2
+    // = 83.3%. The "Level 3" badge remains the SLSA marker.
+    await expect(main.getByText("83.3%", { exact: true })).toBeVisible();
     await expect(main.getByText("Level 3", { exact: true })).toBeVisible();
   });
 

@@ -560,11 +560,14 @@ func seedCompliance(ctx context.Context, tx pgx.Tx) error {
 		// PR #24 / CONN-004: new patch-management control. This is the
 		// control the SSM tools map to via tool_compliance_mappings, so
 		// dry-run and live invocations of ssm_send_patch_command produce
-		// compliance_evidence rows under this control. skipResult=true
-		// because the dashboard's overall/CIS scores are pinned by the
-		// seeded test expectations (Overall 80.0%, CIS 60.0%); adding an
-		// active result here would shift them.
-		{"eeeeeeee-1000-0000-0000-000000000007", cisFrameworkID, "CIS-1.4", "Ensure systems are patched against known vulnerabilities", "high", "Apply patches via approved orchestration tooling (e.g., AWS SSM, Azure Update Manager).", "passing", 0, 100, true},
+		// compliance_evidence rows under this control. Status=passing
+		// with score=100; this shifts CIS from 60.0% to 66.7% and overall
+		// from 80.0% to 83.3% (Playwright expectations updated to match).
+		// Skipping the result row entirely would make the control show
+		// up as "failing" (the failing-controls SQL counts cr.status IS
+		// NULL as failing), which would break the "2 Compliance Gaps
+		// Detected" test.
+		{"eeeeeeee-1000-0000-0000-000000000007", cisFrameworkID, "CIS-1.4", "Ensure systems are patched against known vulnerabilities", "high", "Apply patches via approved orchestration tooling (e.g., AWS SSM, Azure Update Manager).", "passing", 0, 100, false},
 	}
 	for i := range controls {
 		c := &controls[i]
