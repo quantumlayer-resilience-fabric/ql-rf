@@ -765,7 +765,14 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 		approvedByOverride                   string // PR #22: pre-set first approver for the two-approver fixture
 	}{
 		{"e2000000-0000-0000-0000-000000000001", task1, "patch_plan", "awaiting_approval",
-			`{"summary":"Patch CVE-2024-3094","blast_radius":{"assets":4,"environment":"production"},"phases":["canary","monitor","full_rollout"],"rollback":"available"}`,
+			// PR #43 / OPS-DEMO-001: phases now carry per-platform
+			// recommended_tools from the patch-agent catalog (PR #36).
+			// Stays in dry-run tier — the production environment maps to
+			// dry-run tools, not live, per the agent's tool-selection rules.
+			// `recommended_tools` is metadata; collectToolNames only walks
+			// `tool`/`tool_name` keys, so this does NOT trigger the
+			// two-approver flow on its own.
+			`{"summary":"Patch CVE-2024-3094","blast_radius":{"assets":4,"environment":"production"},"phases":[{"name":"canary","type":"canary","asset_percentage":25,"recommended_tools":{"aws":"ssm_send_patch_command","azure":"azure_run_command","k8s":"k8s_apply"}},{"name":"monitor","type":"validation","asset_percentage":0,"recommended_tools":{}},{"name":"full_rollout","type":"wave","asset_percentage":75,"recommended_tools":{"aws":"ssm_send_patch_command","azure":"azure_run_command","k8s":"k8s_apply"}}],"rollback":"available","recommended_tools_summary":"Multi-cloud rollout. Agent (PR #36) recommends dry-run tools for production — live execution requires the two-approver workflow on a separate state_change_prod plan."}`,
 			87, true, `[]`, false, "", ""},
 		{"e2000000-0000-0000-0000-000000000002", task2, "drift_plan", "approved",
 			`{"summary":"Bring azure production assets back to golden image","blast_radius":{"assets":3,"environment":"production"},"phases":["canary","monitor","full_rollout"]}`,
@@ -781,7 +788,12 @@ func seedMissionControl(ctx context.Context, tx pgx.Tx) error {
 			// Payload references ssm_send_patch_command — state_change_prod
 			// in the tool registry. fleet_status's planPayloadNeedsTwoApprovers
 			// walks "tool"/"tool_name" keys and finds this one.
-			`{"summary":"Live-patch fleet via SSM","blast_radius":{"assets":2,"environment":"production"},"phases":[{"tool":"ssm_send_patch_command","operation":"Install"}],"rollback":"available"}`,
+			//
+			// PR #43 / OPS-DEMO-001: `recommended_tools` added per the
+			// PR #36 patch-agent catalog convention. The dry-run tool is
+			// what the planner names; the operator separately invokes the
+			// `_live` variant after the two-approver workflow.
+			`{"summary":"Live-patch fleet via SSM","blast_radius":{"assets":2,"environment":"production"},"phases":[{"tool":"ssm_send_patch_command","operation":"Install","recommended_tools":{"aws":"ssm_send_patch_command"}}],"rollback":"available"}`,
 			88, true, `[]`, false, "", firstApproverID},
 	}
 	for i := range plans {
