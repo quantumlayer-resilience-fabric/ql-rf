@@ -761,8 +761,34 @@ rather than import-path forbidding. PR #31 will introduce
 The seeded compliance mapping links both `gcp_os_config_patch` (dry-run)
 and `gcp_os_config_patch_live` (PR #31 placeholder) to CIS-1.4.
 
-**PR #31** will introduce the live variant with the same four-gate
-pattern PR #21 (SSM) and PR #28 (Azure) used.
+## GCP OS Config patch live (PR #31 / CONN-011)
+
+The first **live** GCP cloud-mutating tool. `gcp_os_config_patch_live`
+fires `osconfig.Client.ExecutePatchJob` against whitelisted zone+filter
+pairs after the two-approver workflow from PR #21 completes. Four
+independent gates control reachability, matching the SSM (PR #21) and
+Azure (PR #28) live patterns:
+
+| Gate | Where | Trigger |
+|------|-------|---------|
+| Env opt-in | `cmd/orchestrator/main.go:registerGCPLivePatchTools` | `RF_CONNECTORS_GCP_ALLOW_LIVE_PATCH=true`. Default off. |
+| Mock-conflict refusal | same | Boot exits 1 if `FALLBACK_TO_MOCK=true` is also set. |
+| Per-target whitelist | same + `live_gcp_patch_client.go` | `RF_CONNECTORS_GCP_LIVE_PATCH_WHITELIST_INSTANCE_FILTERS=us-central1-a:labels.env=prod,...` — non-empty required at boot. Tool re-validates before SDK call. |
+| Two-approver workflow | `handlers/co_approve.go` + `policy/tool_authorization.rego` (PR #21) | First approver via `/approve`; second via `/co-approve`. OPA also enforces. |
+
+**Structural isolation:** `live_gcp_patch_client.go` is the ONLY file in
+the tools package that calls `osconfig.NewClient`. The negative half
+(no other file may call) is enforced by
+`TestNoGCPPatchStateChangeConstructorInToolsPackage`; the positive half
+(this file MUST call) is enforced by
+`TestLiveGCPPatchClient_IsTheOnlyFileReferencingSDKConstructor`. Both
+run on every push.
+
+**The connector arc is complete after this PR**: AWS (#19/#20/#21),
+Azure (#26/#27/#28), GCP (#29/#30/#31). Three clouds × three risk
+tiers × the four-gate live pattern = 9 cloud tools all sharing one
+audit-by-grep discipline. vSphere or other cloud generalizations follow
+the same mechanical template.
 
 ## State-change dry-run (PR #20 / CONN-002)
 

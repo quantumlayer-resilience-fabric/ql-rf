@@ -150,6 +150,12 @@ func run() error {
 	// structural Go test (no_gcp_patch_sdk_import_test.go).
 	registerGCPPatchDryRunTools(cfg, toolRegistry, log)
 
+	// PR #31 / CONN-011: register the LIVE GCP OS Config patch tool
+	// when explicitly opted in via RF_CONNECTORS_GCP_ALLOW_LIVE_PATCH=true.
+	// Refuses to register (and may exit boot loudly) if the configuration
+	// is incoherent. Mirrors registerSSMLiveTools + registerAzureLiveRunCommandTools.
+	registerGCPLivePatchTools(ctx, cfg, toolRegistry, log)
+
 	// Initialize agent registry
 	agentRegistry := agents.NewRegistry(llmClient, toolRegistry, validator, log)
 	log.Info("initialized agent registry", "agents", agentRegistry.ListAgents())
@@ -714,6 +720,71 @@ func registerGCPPatchDryRunTools(
 		log.Info("gcp patch tools: real client initialized (dry-run only in PR #30)")
 	}
 	reg.RegisterGCPPatchDryRunTools(gcpClient)
+}
+
+// registerGCPLivePatchTools is the PR #31 / CONN-011 boot hook for the
+// LIVE GCP OS Config state-change cloud surface. Mirrors PR #21's
+// registerSSMLiveTools and PR #28's registerAzureLiveRunCommandTools
+// exactly. Four gates, evaluated in order:
+//
+//  1. AllowLivePatch off (default): silent no-op.
+//  2. AllowLivePatch on + FallbackToMock on: REFUSE TO START.
+//  3. AllowLivePatch on + whitelist empty: REFUSE TO START.
+//  4. All gates pass: emit a loud WARN and register the live tool with
+//     either the real SDK client (default) or a deterministic mock.
+func registerGCPLivePatchTools(
+	ctx context.Context,
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	gcpCfg := cfg.Connectors.GCP
+	if !gcpCfg.AllowLivePatch {
+		return
+	}
+
+	if gcpCfg.FallbackToMock {
+		log.Error("REFUSING TO START: RF_CONNECTORS_GCP_ALLOW_LIVE_PATCH=true and RF_CONNECTORS_GCP_FALLBACK_TO_MOCK=true are incoherent. Pick one.",
+			"hint", "Production live mode requires real GCP credentials, not the mock client.",
+		)
+		os.Exit(1)
+	}
+
+	whitelist := tools.LoadGCPLiveWhitelistFromEnv()
+	if len(whitelist) == 0 {
+		whitelist = gcpCfg.LivePatchWhitelistInstanceFilters
+	}
+	if len(whitelist) == 0 {
+		log.Error("REFUSING TO START: RF_CONNECTORS_GCP_ALLOW_LIVE_PATCH=true but no zone:filter pairs on the whitelist.",
+			"hint", "Set RF_CONNECTORS_GCP_LIVE_PATCH_WHITELIST_INSTANCE_FILTERS=us-central1-a:labels.env=prod or connectors.gcp.live_patch_whitelist_instance_filters in config.",
+		)
+		os.Exit(1)
+	}
+
+	log.Warn("LIVE GCP PATCH MODE ENABLED — real cloud mutations possible after two-approver workflow",
+		"client_mode", gcpCfg.LivePatchClientMode,
+		"whitelist_count", len(whitelist),
+		"whitelist", whitelist,
+		"project_id", gcpCfg.ProjectID,
+	)
+
+	var liveClient tools.LiveGCPPatchClient
+	if gcpCfg.LivePatchClientMode == "mock" {
+		log.Warn("gcp live patch tools: MOCK CLIENT ACTIVE — SendPatchJob returns mock job names without calling GCP. DO NOT USE IN PRODUCTION.")
+		liveClient = tools.NewMockLiveGCPPatchClient(whitelist)
+	} else {
+		realLive, err := tools.NewLiveGCPPatchClient(ctx, gcpCfg, whitelist, log)
+		if err != nil {
+			log.Error("REFUSING TO START: cannot construct live GCP patch client",
+				"error", err.Error(),
+				"hint", "Check GCP credentials and project ID.",
+			)
+			os.Exit(1)
+		}
+		liveClient = realLive
+	}
+
+	reg.RegisterGCPLivePatchTools(tools.NewRealGCPPatchClient(log), liveClient)
 }
 
 // registerSSMLiveTools is the PR #21 / CONN-003 boot hook for the LIVE
