@@ -144,6 +144,12 @@ func run() error {
 	// gates. Mirrors registerSSMLiveTools exactly.
 	registerAzureLiveRunCommandTools(ctx, cfg, toolRegistry, log)
 
+	// PR #30 / CONN-010: register the GCP OS Config patch dry-run tool.
+	// Both real and mock clients here make ZERO network calls — the
+	// state-change GCP SDK constructor is excluded from this file by a
+	// structural Go test (no_gcp_patch_sdk_import_test.go).
+	registerGCPPatchDryRunTools(cfg, toolRegistry, log)
+
 	// Initialize agent registry
 	agentRegistry := agents.NewRegistry(llmClient, toolRegistry, validator, log)
 	log.Info("initialized agent registry", "agents", agentRegistry.ListAgents())
@@ -686,6 +692,28 @@ func registerAzureRunCommandDryRunTools(
 		log.Info("azure run-command tools: real client initialized (dry-run only in PR #27)")
 	}
 	reg.RegisterAzureRunCommandDryRunTools(azClient)
+}
+
+// registerGCPPatchDryRunTools is the PR #30 / CONN-010 boot hook for
+// the GCP OS Config dry-run surface. Mirrors registerAzureRunCommandDryRunTools.
+// Both real and mock clients make zero network calls — the state-change
+// constructor is excluded from this package by name-based static check.
+func registerGCPPatchDryRunTools(
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	var gcpClient tools.GCPPatchClient
+	if cfg.Connectors.GCP.FallbackToMock {
+		log.Warn("gcp patch tools: MOCK CLIENT ACTIVE — patch plans use a fixed mock project. DO NOT USE IN PRODUCTION.",
+			"reason", "RF_CONNECTORS_GCP_FALLBACK_TO_MOCK=true",
+		)
+		gcpClient = tools.NewMockGCPPatchClient()
+	} else {
+		gcpClient = tools.NewRealGCPPatchClient(log)
+		log.Info("gcp patch tools: real client initialized (dry-run only in PR #30)")
+	}
+	reg.RegisterGCPPatchDryRunTools(gcpClient)
 }
 
 // registerSSMLiveTools is the PR #21 / CONN-003 boot hook for the LIVE
