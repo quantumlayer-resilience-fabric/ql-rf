@@ -544,18 +544,27 @@ func seedCompliance(ctx context.Context, tx pgx.Tx) error {
 		id, frameworkID, controlID, title, severity, recommendation, resultStatus string
 		affectedAssets                                                            int
 		score                                                                     float64
+		// skipResult excludes the control from the compliance_results
+		// scoring fixture. The control still exists in the registry (so
+		// mappings can reference it) but doesn't move the overall score.
+		// Used for controls introduced as evidence-emission targets that
+		// don't have an active scan result on the demo dashboard.
+		skipResult bool
 	}{
-		{"eeeeeeee-1000-0000-0000-000000000001", cisFrameworkID, "CIS-1.1", "Ensure SSH root login is disabled", "high", "Set PermitRootLogin no in /etc/ssh/sshd_config.", "failing", 3, 0},
-		{"eeeeeeee-1000-0000-0000-000000000002", cisFrameworkID, "CIS-1.2", "Ensure password expiration is configured", "medium", "Set PASS_MAX_DAYS to 90 in /etc/login.defs.", "failing", 2, 0},
-		{"eeeeeeee-1000-0000-0000-000000000003", cisFrameworkID, "CIS-2.1", "Ensure auditd is enabled and running", "medium", "Enable the auditd service.", "passing", 0, 100},
-		{"eeeeeeee-1000-0000-0000-000000000004", cisFrameworkID, "CIS-2.2", "Ensure firewalld is active", "medium", "systemctl enable --now firewalld.", "passing", 0, 100},
-		{"eeeeeeee-1000-0000-0000-000000000005", cisFrameworkID, "CIS-3.1", "Ensure system is up to date", "low", "Run package updates.", "passing", 0, 100},
-		{"eeeeeeee-1000-0000-0000-000000000006", slsaFrameworkID, "SLSA-L3", "Source and build platform meet SLSA Level 3", "high", "Use a hardened build platform.", "passing", 0, 100},
+		{"eeeeeeee-1000-0000-0000-000000000001", cisFrameworkID, "CIS-1.1", "Ensure SSH root login is disabled", "high", "Set PermitRootLogin no in /etc/ssh/sshd_config.", "failing", 3, 0, false},
+		{"eeeeeeee-1000-0000-0000-000000000002", cisFrameworkID, "CIS-1.2", "Ensure password expiration is configured", "medium", "Set PASS_MAX_DAYS to 90 in /etc/login.defs.", "failing", 2, 0, false},
+		{"eeeeeeee-1000-0000-0000-000000000003", cisFrameworkID, "CIS-2.1", "Ensure auditd is enabled and running", "medium", "Enable the auditd service.", "passing", 0, 100, false},
+		{"eeeeeeee-1000-0000-0000-000000000004", cisFrameworkID, "CIS-2.2", "Ensure firewalld is active", "medium", "systemctl enable --now firewalld.", "passing", 0, 100, false},
+		{"eeeeeeee-1000-0000-0000-000000000005", cisFrameworkID, "CIS-3.1", "Ensure system is up to date", "low", "Run package updates.", "passing", 0, 100, false},
+		{"eeeeeeee-1000-0000-0000-000000000006", slsaFrameworkID, "SLSA-L3", "Source and build platform meet SLSA Level 3", "high", "Use a hardened build platform.", "passing", 0, 100, false},
 		// PR #24 / CONN-004: new patch-management control. This is the
 		// control the SSM tools map to via tool_compliance_mappings, so
 		// dry-run and live invocations of ssm_send_patch_command produce
-		// compliance_evidence rows under this control.
-		{"eeeeeeee-1000-0000-0000-000000000007", cisFrameworkID, "CIS-1.4", "Ensure systems are patched against known vulnerabilities", "high", "Apply patches via approved orchestration tooling (e.g., AWS SSM, Azure Update Manager).", "passing", 0, 100},
+		// compliance_evidence rows under this control. skipResult=true
+		// because the dashboard's overall/CIS scores are pinned by the
+		// seeded test expectations (Overall 80.0%, CIS 60.0%); adding an
+		// active result here would shift them.
+		{"eeeeeeee-1000-0000-0000-000000000007", cisFrameworkID, "CIS-1.4", "Ensure systems are patched against known vulnerabilities", "high", "Apply patches via approved orchestration tooling (e.g., AWS SSM, Azure Update Manager).", "passing", 0, 100, true},
 	}
 	for i := range controls {
 		c := &controls[i]
@@ -566,6 +575,9 @@ func seedCompliance(ctx context.Context, tx pgx.Tx) error {
 			c.id, c.frameworkID, c.controlID, c.title, c.severity, c.recommendation,
 		); err != nil {
 			return fmt.Errorf("insert control %s: %w", c.controlID, err)
+		}
+		if c.skipResult {
+			continue
 		}
 		resultID := "eeeeeeee-2000-0000-0000-0000000000" + c.id[len(c.id)-2:]
 		if _, err := tx.Exec(ctx, `
