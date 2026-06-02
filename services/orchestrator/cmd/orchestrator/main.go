@@ -172,6 +172,12 @@ func run() error {
 	// structural Go test (no_vsphere_guest_ops_sdk_import_test.go).
 	registerVSphereGuestOpsDryRunTools(cfg, toolRegistry, log)
 
+	// PR #39 / CONN-016: K8s server-side-apply dry-run tool.
+	// The dry-run client builds apply plans without calling the K8s
+	// state-change SDK (enforced by a structural Go test,
+	// no_k8s_apply_sdk_state_change_test.go).
+	registerK8sApplyDryRunTools(cfg, toolRegistry, log)
+
 	// PR #35 / CONN-014: register the LIVE vSphere guest-ops tool when
 	// explicitly opted in. Mirrors the SSM/Azure/GCP live boot hooks.
 	registerVSphereLiveGuestOpsTools(ctx, cfg, toolRegistry, log)
@@ -837,6 +843,27 @@ func registerVSphereGuestOpsDryRunTools(
 		log.Info("vsphere guest-ops tools: real client initialized (dry-run only in PR #34)")
 	}
 	reg.RegisterVSphereGuestOpsDryRunTools(vsClient)
+}
+
+// registerK8sApplyDryRunTools is the PR #39 / CONN-016 boot hook. Mirrors
+// registerVSphereGuestOpsDryRunTools — the dry-run client doesn't need
+// credentials and is always safe to register.
+func registerK8sApplyDryRunTools(
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	var k8sClient tools.K8sApplyClient
+	if cfg.Connectors.K8s.FallbackToMock {
+		log.Warn("k8s apply tools: MOCK CLIENT ACTIVE — plans use a fixed mock object. DO NOT USE IN PRODUCTION.",
+			"reason", "RF_CONNECTORS_K8S_FALLBACK_TO_MOCK=true",
+		)
+		k8sClient = tools.NewMockK8sApplyClient()
+	} else {
+		k8sClient = tools.NewRealK8sApplyClient(log)
+		log.Info("k8s apply tools: real client initialized (dry-run only in PR #39)")
+	}
+	reg.RegisterK8sApplyDryRunTools(k8sClient)
 }
 
 // registerVSphereLiveGuestOpsTools is the PR #35 / CONN-014 boot hook
