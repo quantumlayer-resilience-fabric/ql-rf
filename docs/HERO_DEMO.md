@@ -2,11 +2,11 @@
 
 **Audience:** anyone delivering a 90-second QuantumSRE live demo or recording.
 **Purpose:** make the demo repeatable, beat by beat, against the deterministic E2E seed.
-**Last updated:** PR #37 (`ai/026-hero-demo-multicloud-matrix`) — expands the
-connector arc bonus to the full AWS + Azure + GCP + vSphere matrix
-(PRs #19–#35) and folds in the PR #36 patch-agent platform-awareness.
+**Last updated:** PR #41 (`ai/030-hero-demo-k8s-cleanup`) — the connector
+arc is now complete across all 5 clouds (AWS + Azure + GCP + vSphere +
+K8s, PRs #19–#40). 5 platforms × 3 risk tiers = 15 cloud tools.
 The 90-second hero beats are unchanged; the 30-second bonus arc now
-optionally walks all four clouds.
+optionally walks all five clouds.
 
 This document is the *spec* for the demo. It does NOT take screenshots — those are a recording-day task. If a beat below doesn't match what's on screen, the seed is dirty or the product drifted; fix the seed/product, not the doc.
 
@@ -198,7 +198,7 @@ This bonus arc runs entirely from the **Real tools** card in the right rail and 
 
 Click **Invoke** on `query_aws_instances`.
 
-Say: *"This is a real AWS call — `EC2.DescribeInstances`. The orchestrator runs with `RF_CONNECTORS_AWS_FALLBACK_TO_MOCK=true` in dev, so we're hitting the deterministic mock client. In production, the same path takes real credentials. Audit row goes into the same `ai_tool_invocations` table as the simulator output, distinguishable by JSONB markers. Same surface for Azure (`query_azure_vms`), GCP (`query_gcp_instances`), and vSphere (`query_vsphere_vms`) — point at those rows in the Real tools card to show the four clouds side-by-side."*
+Say: *"This is a real AWS call — `EC2.DescribeInstances`. The orchestrator runs with `RF_CONNECTORS_AWS_FALLBACK_TO_MOCK=true` in dev, so we're hitting the deterministic mock client. In production, the same path takes real credentials. Audit row goes into the same `ai_tool_invocations` table as the simulator output, distinguishable by JSONB markers. Same surface for Azure (`query_azure_vms`), GCP (`query_gcp_instances`), vSphere (`query_vsphere_vms`), and Kubernetes (`query_pods`) — point at those rows in the Real tools card to show the five clouds side-by-side."*
 
 Within a second, the activity stream gains a `query_aws_instances` row with `risk: read_only` and **no** `_simulated` marker.
 
@@ -206,7 +206,7 @@ Within a second, the activity stream gains a `query_aws_instances` row with `ris
 
 Click **Dry-run** on `ssm_send_patch_command`.
 
-Say: *"State-change tools can't be invoked from the read-only endpoint — see, they have a Dry-run button instead. This builds an `AWS-RunPatchBaseline` command plan but never calls `ssm:SendCommand`. The same exists for Azure (`azure_run_command`), GCP (`gcp_os_config_patch`), and vSphere (`vsphere_run_guest_program`). A Go structural-safety test enforces, per cloud, that the live state-change SDK call is reachable from exactly one file — `live_ssm_client.go`, `live_azure_runcommand_client.go`, `live_gcp_patch_client.go`, `live_vsphere_guest_ops_client.go`. Auditors can grep for the SDK call and see exactly one match per cloud."*
+Say: *"State-change tools can't be invoked from the read-only endpoint — see, they have a Dry-run button instead. This builds an `AWS-RunPatchBaseline` command plan but never calls `ssm:SendCommand`. The same exists for Azure (`azure_run_command`), GCP (`gcp_os_config_patch`), vSphere (`vsphere_run_guest_program`), and Kubernetes (`k8s_apply`). A Go structural-safety test enforces, per cloud, that the live state-change SDK call is reachable from exactly one file — `live_ssm_client.go`, `live_azure_runcommand_client.go`, `live_gcp_patch_client.go`, `live_vsphere_guest_ops_client.go`, `live_k8s_apply_client.go`. Auditors can grep for the SDK call and see exactly one match per cloud."*
 
 Activity stream picks up `ssm_send_patch_command` with `risk: state_change_prod`. The audit row's `parameters @> '{"dry_run": true}'` distinguishes it from any live invocation.
 
@@ -214,13 +214,13 @@ Activity stream picks up `ssm_send_patch_command` with `risk: state_change_prod`
 
 Point at the **second pending card** — the one with the amber "Awaiting second approval" badge.
 
-Say: *"This is a state-change-prod plan. The first approver has already clicked Approve; the card no longer offers an Approve button. Instead it shows who first-approved, that two approvers are required, and a Co-approve button. The OPA policy enforces this in code: `state_change_prod` requires both `approved_by` and a distinct `second_approver`. In production with the live tool registered (`RF_CONNECTORS_AWS_ALLOW_LIVE_PATCH=true`, or the Azure / GCP / vSphere equivalent — e.g. `RF_CONNECTORS_VSPHERE_ALLOW_LIVE_GUEST_OPS=true`), clicking Co-approve would fire a real cloud mutation."*
+Say: *"This is a state-change-prod plan. The first approver has already clicked Approve; the card no longer offers an Approve button. Instead it shows who first-approved, that two approvers are required, and a Co-approve button. The OPA policy enforces this in code: `state_change_prod` requires both `approved_by` and a distinct `second_approver`. In production with the live tool registered (`RF_CONNECTORS_AWS_ALLOW_LIVE_PATCH=true`, or the Azure / GCP / vSphere / K8s equivalent — e.g. `RF_CONNECTORS_K8S_ALLOW_LIVE_APPLY=true`), clicking Co-approve would fire a real cloud mutation."*
 
 Do NOT click Co-approve during a demo — it will succeed in dev (because the live tools aren't registered, no real call fires), but the visual feedback isn't worth the cognitive overhead in 30 seconds. Leave the card in its awaiting state.
 
 ### Bonus close — the matrix, one sentence
 
-*"Four clouds × three risk tiers. Read-only real call → state-change dry-run → state-change live with two-approver gate. Twelve cloud tools, one audit-by-grep discipline, same `ai_tool_invocations` table for everything. Production deployments opt into each cloud's live mode independently via env vars; CI keeps every live opt-in off."*
+*"Five clouds × three risk tiers. Read-only real call → state-change dry-run → state-change live with two-approver gate. Fifteen cloud tools, one audit-by-grep discipline, same `ai_tool_invocations` table for everything. Production deployments opt into each cloud's live mode independently via env vars; CI keeps every live opt-in off."*
 
 ### The full connector matrix (for the slide deck)
 
@@ -230,8 +230,9 @@ Do NOT click Co-approve during a demo — it will succeed in dev (because the li
 | Azure | `query_azure_vms` (PR #26) | `azure_run_command` (PR #27) | `azure_run_command_live` (PR #28) |
 | GCP | `query_gcp_instances` (PR #29) | `gcp_os_config_patch` (PR #30) | `gcp_os_config_patch_live` (PR #31) |
 | vSphere | `query_vsphere_vms` (PR #33) | `vsphere_run_guest_program` (PR #34) | `vsphere_run_guest_program_live` (PR #35) |
+| Kubernetes | `query_pods` (PR #38) | `k8s_apply` (PR #39) | `k8s_apply_live` (PR #40) |
 
-All twelve tools share:
+All fifteen tools share:
 - `ai_tool_invocations` audit table
 - The `state_change_prod` two-approver workflow (PR #21's OPA + co-approve handler) — works for every cloud
 - The four-gate live boot pattern (env opt-in + mock-conflict refusal + per-target whitelist + 2-approver)
@@ -243,9 +244,9 @@ All twelve tools share:
 ## What this demonstrates
 
 - **Governed cross-domain remediation.** Drift, CVE, certificates, DR — the same approval loop, the same evidence trail, regardless of domain.
-- **Multi-cloud connector arc.** PRs #19–#35 ship a complete matrix: 4 clouds (AWS / Azure / GCP / vSphere) × 3 risk tiers (read-only / dry-run / live + 2-approver) = 12 cloud tools. Same UI, same audit table, same OPA policy, same compliance evidence emission.
+- **Multi-cloud connector arc.** PRs #19–#40 ship a complete matrix: 5 clouds (AWS / Azure / GCP / vSphere / Kubernetes) × 3 risk tiers (read-only / dry-run / live + 2-approver) = 15 cloud tools. Same UI, same audit table, same OPA policy, same compliance evidence emission.
 - **Platform-aware patch agent.** PR #36 wires the patch agent into a single platform → tool-tier catalog (`patch_platform_catalog.go`). When the agent generates a rollout plan, each phase carries a `recommended_tools` map naming the right per-cloud tool tier — dry-run for production, live for non-production. The agent itself never invokes a state-change tool; it only names them. Live execution remains gated by the two-approver workflow.
-- **Four-way audit distinction.** Synthetic (B.3 `_simulated:true`), real read-only (PR #19/#26/#29/#33), state-change dry-run (PR #20/#27/#30/#34 `dry_run:true`), live state-change (PR #21/#28/#31/#35 `dry_run:false` + `risk='state_change_prod'`). One SQL view classifies the entire ledger across all clouds.
+- **Four-way audit distinction.** Synthetic (B.3 `_simulated:true`), real read-only (PR #19/#26/#29/#33/#38), state-change dry-run (PR #20/#27/#30/#34/#39 `dry_run:true`), live state-change (PR #21/#28/#31/#35/#40 `dry_run:false` + `risk='state_change_prod'`). One SQL view classifies the entire ledger across all clouds.
 - **Compliance attestations are automatic.** PR #24's `tool_compliance_mappings` ties every real invocation to a compliance control; the demo dashboard's CIS-1.4 evidence panel populates from real and dry-run tool fires alike.
 - **Deterministic evidence.** Every transition has a microsecond timestamp and a JSONB marker. The marker is the only difference between the simulator and the live path.
 - **Read-only by default.** Live state-change tools are unregistered unless explicitly opted in (per cloud). CI is locked off; production deployments flip env vars per platform.
@@ -261,10 +262,9 @@ These are **deliberately** out of the hero flow. If a viewer asks, say: "next ph
 |---------|--------------|
 | Live LLM | Demo runs on stub. Azure Anthropic works but is opt-in via `RF_LLM_PROVIDER=azure_anthropic` + an API key in `.env`. |
 | Clicking Co-approve in the bonus arc | The plan goes to `approved` state and the executor fires the simulated tool path (because the live SSM tool isn't registered without `RF_CONNECTORS_AWS_ALLOW_LIVE_PATCH=true`). The visual outcome is anticlimactic; better to describe the gate than to trigger it. |
-| Real live cloud calls (any cloud) | The PR #21 / #28 / #31 / #35 code paths work, but require production credentials + per-target whitelist + the env opt-in. Out of scope for a 90s + 30s demo. Show the dry-run instead. |
+| Real live cloud calls (any cloud) | The PR #21 / #28 / #31 / #35 / #40 code paths work, but require production credentials + per-target whitelist + the env opt-in. Out of scope for a 90s + 30s demo. Show the dry-run instead. |
 | Approve buttons across orgs | Multi-tenant isolation works (verified by unit tests) but not part of the 90s flow. |
 | Modify button on pending cards | Disabled — needs a plan-payload editor. Deferred to a later PR. |
-| Kubernetes connectors | Pattern proven on AWS + Azure + GCP + vSphere. K8s is the next mechanical replication (PRs #38-#40 queued); the orchestrator doesn't have a K8s tool registered today. |
 | Autonomy mode editing | Read-only display only. Writing autonomy modes is Phase C. |
 | Multi-turn conversation refinement | The 60-minute window appends to the same thread, but the dock doesn't visualise multi-turn refinement specially yet. |
 
@@ -380,8 +380,8 @@ Tear this off, tape it to the second monitor:
 
 **Bonus arc (optional, 30s, multi-cloud):**
 
-- [ ] **+0:00** Right rail → Real tools → click **Invoke** on `query_aws_instances`. Activity stream gains a `read_only` row. Point at the `query_azure_vms` + `query_gcp_instances` + `query_vsphere_vms` rows to call out the four-cloud parity.
-- [ ] **+0:10** Right rail → click **Dry-run** on `ssm_send_patch_command`. Activity stream gains a `state_change_prod` row with no SendCommand fired. Point at the Azure (`azure_run_command`), GCP (`gcp_os_config_patch`), and vSphere (`vsphere_run_guest_program`) rows — same Dry-run button.
+- [ ] **+0:00** Right rail → Real tools → click **Invoke** on `query_aws_instances`. Activity stream gains a `read_only` row. Point at the `query_azure_vms` + `query_gcp_instances` + `query_vsphere_vms` + `query_pods` rows to call out the five-cloud parity.
+- [ ] **+0:10** Right rail → click **Dry-run** on `ssm_send_patch_command`. Activity stream gains a `state_change_prod` row with no SendCommand fired. Point at the Azure (`azure_run_command`), GCP (`gcp_os_config_patch`), vSphere (`vsphere_run_guest_program`), and Kubernetes (`k8s_apply`) rows — same Dry-run button.
 - [ ] **+0:20** Right rail → point at the second pending card (amber badge). Read: "Awaiting second approval, 1st: e0000000…, Co-approve required." Do NOT click.
 
 If any beat takes more than 10 seconds, you're over-explaining — let the UI carry it.
