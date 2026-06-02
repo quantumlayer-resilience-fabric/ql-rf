@@ -61,9 +61,62 @@ func (h *Handler) loadPendingApprovals(ctx context.Context, orgID string) []Pend
 		d.QualityScore = quality
 		d.CreatedAt = createdAt.UTC().Format(time.RFC3339)
 		d.RequiresTwoApprovers = h.planPayloadNeedsTwoApprovers(planPayload)
+		d.RecommendedTools = extractRecommendedTools(planPayload)
 		out = append(out, d)
 	}
 	return out
+}
+
+// extractRecommendedTools walks the plan payload's phases and returns the
+// first non-empty per-platform tool recommendation it finds. The patch
+// agent's defaultPatchPlan (PR #36) emits the SAME recommended_tools map
+// on every state-change phase (canary + waves), so any non-empty phase
+// is representative.
+//
+// Phase shape (from the patch-agent catalog convention):
+//
+//	{
+//	  "phases": [
+//	    {"name":"canary","recommended_tools":{"aws":"ssm_send_patch_command", ...}},
+//	    {"name":"monitor","recommended_tools":{}},
+//	    ...
+//	  ]
+//	}
+//
+// Returns nil when no phase carries recommendations — e.g. for non-patch
+// plans that predate the PR #36 catalog convention.
+func extractRecommendedTools(payload []byte) map[string]string {
+	if len(payload) == 0 {
+		return nil
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(payload, &doc); err != nil {
+		return nil
+	}
+	phases, ok := doc["phases"].([]any)
+	if !ok {
+		return nil
+	}
+	for _, p := range phases {
+		phase, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		rt, ok := phase["recommended_tools"].(map[string]any)
+		if !ok || len(rt) == 0 {
+			continue
+		}
+		out := make(map[string]string, len(rt))
+		for k, v := range rt {
+			if s, ok := v.(string); ok && s != "" {
+				out[k] = s
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return nil
 }
 
 // planPayloadNeedsTwoApprovers walks the plan's JSONB payload and returns
@@ -166,6 +219,14 @@ type PendingDecision struct {
 	ApprovedBy           string `json:"approved_by,omitempty"`
 	SecondApprover       string `json:"second_approver,omitempty"`
 	RequiresTwoApprovers bool   `json:"requires_two_approvers"`
+
+	// PR #44 / OPS-DEMO-001: platform → tool recommendation extracted from
+	// the patch-agent's per-phase `recommended_tools` (PR #36 catalog).
+	// Surfaced as a flat map on the card so the UI can show "AWS →
+	// ssm_send_patch_command, K8s → k8s_apply" without re-parsing the
+	// plan payload. Nil when the plan has no recommendations (e.g. for
+	// non-patch plans that predate PR #36).
+	RecommendedTools map[string]string `json:"recommended_tools,omitempty"`
 }
 
 // ToolInvocation is one row of the activity stream — a recent tool call.

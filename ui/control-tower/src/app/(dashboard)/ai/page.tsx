@@ -72,6 +72,12 @@ interface PendingDecision {
   approved_by?: string;
   second_approver?: string;
   requires_two_approvers?: boolean;
+  // PR #44 / OPS-DEMO-001: per-platform tool recommendation surfaced from
+  // the patch-agent's recommended_tools (PR #36 catalog). Backend
+  // extracts the first non-empty phase's map; UI renders one row per
+  // platform under the pending card body. Nil/undefined for non-patch
+  // plans that predate PR #36.
+  recommended_tools?: Record<string, string>;
 }
 
 interface ToolInvocation {
@@ -614,6 +620,28 @@ function PendingDecisionsRail({ status }: { status?: FleetStatus }) {
                         </>
                       )}
                     </div>
+                    {d.recommended_tools && Object.keys(d.recommended_tools).length > 0 && (
+                      <div
+                        className="mb-2 rounded border border-border/50 bg-muted/30 px-2 py-1 text-[11px]"
+                        data-testid={`pending-recommended-tools-${d.plan_id}`}
+                      >
+                        <div className="mb-1 uppercase tracking-wider text-muted-foreground">
+                          Agent recommends
+                        </div>
+                        <div className="space-y-0.5">
+                          {Object.entries(d.recommended_tools)
+                            .sort(([a], [b]) => a.localeCompare(b))
+                            .map(([platform, tool]) => (
+                              <div key={platform} className="flex justify-between gap-2 font-mono">
+                                <span className="text-muted-foreground">{platform}</span>
+                                <span className="text-right text-foreground" title={tool}>
+                                  {tool}
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-1">
                       {awaitingSecond ? (
                         <Button
