@@ -115,7 +115,7 @@ func run() error {
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=7 mappings=2 sboms=1 sbom_packages=6 ai_tasks=5 ai_plans=5 ai_runs=2 ai_tool_invocations=6 llm_usage=4 ai_conversations=2 ai_conversation_messages=4\n", orgID)
+	fmt.Printf("seeded E2E fixture: org=%s user=dev-user project=1 envs=3 sites=3 assets=10 images=4 vulnerabilities=24 drift_reports=3 alerts=4 cve_alerts=5 certificates=5 compliance_frameworks=2 controls=7 mappings=4 sboms=1 sbom_packages=6 ai_tasks=5 ai_plans=5 ai_runs=2 ai_tool_invocations=6 llm_usage=4 ai_conversations=2 ai_conversation_messages=4\n", orgID)
 	return nil
 }
 
@@ -608,6 +608,10 @@ func seedCompliance(ctx context.Context, tx pgx.Tx) error {
 			"PR #20 dry-run tool. Records an attestation that a patch plan was constructed (proof of intent + approval flow)."},
 		{"ssm_send_patch_command_live", cisPatchControlID,
 			"PR #21 live tool. Records an attestation that ssm:SendCommand fired against whitelisted instances after two-approver workflow."},
+		{"azure_run_command", cisPatchControlID,
+			"PR #27 dry-run tool. Records an attestation that an Azure VM Run Command plan was constructed (proof of intent + approval flow)."},
+		{"azure_run_command_live", cisPatchControlID,
+			"PR #28 live tool (planned). Records an attestation that armcompute.VirtualMachineRunCommandsClient.BeginCreateOrUpdate fired against whitelisted VMs after two-approver workflow."},
 	}
 	for _, m := range mappings {
 		if _, err := tx.Exec(ctx, `
