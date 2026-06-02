@@ -112,6 +112,11 @@ func run() error {
 	// absent and fallback_to_mock=true.
 	registerAzureCloudTools(ctx, cfg, toolRegistry, log)
 
+	// PR #29 / CONN-009: same pattern for GCP. Real client validated
+	// via a cheap aggregated-list page; falls back to mock when
+	// credentials are absent and fallback_to_mock=true.
+	registerGCPCloudTools(ctx, cfg, toolRegistry, log)
+
 	// PR #20 / CONN-002: register the state-change SSM patch tool in
 	// dry-run mode. Neither the real nor mock SSM client makes any network
 	// call (the SDK isn't even imported in this PR's code), so this is
@@ -571,6 +576,51 @@ func registerAzureCloudTools(
 		"fallback_reason", realErr.Error(),
 	)
 	reg.RegisterAzureCloudTools(tools.NewMockAzureClient())
+}
+
+// registerGCPCloudTools is the PR #29 / CONN-009 boot hook for the GCP
+// read-only tool surface. Mirrors registerAWSCloudTools and
+// registerAzureCloudTools exactly:
+//
+//   - Real client succeeds → tool registered, info log.
+//   - Real client fails, fallback_to_mock=true → mock registered, loud WARN.
+//   - Real client fails, fallback_to_mock=false → nothing registered, info log.
+//
+// PR #30/#31 will add state-change GCP tools through their own boot
+// hooks (registerGCPOSConfigPatchDryRunTools / *Live), preserving the
+// same SDK-isolation pattern.
+func registerGCPCloudTools(
+	ctx context.Context,
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	gcpCfg := cfg.Connectors.GCP
+
+	bootCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	realClient, realErr := tools.NewRealGCPClient(bootCtx, gcpCfg, log)
+	if realErr == nil {
+		log.Info("gcp tools: real client initialized",
+			"project_id", gcpCfg.ProjectID,
+		)
+		reg.RegisterGCPCloudTools(realClient)
+		return
+	}
+
+	if !gcpCfg.FallbackToMock {
+		log.Info("gcp tools: real client unavailable and fallback_to_mock=false, not registering gcp tools",
+			"hint", "set RF_CONNECTORS_GCP_FALLBACK_TO_MOCK=true for dev/CI",
+			"error", realErr.Error(),
+		)
+		return
+	}
+
+	log.Warn("gcp tools: MOCK CLIENT ACTIVE — instances returned are FAKE. DO NOT USE IN PRODUCTION.",
+		"fallback_reason", realErr.Error(),
+	)
+	reg.RegisterGCPCloudTools(tools.NewMockGCPClient())
 }
 
 // registerSSMStateChangeTools is the PR #20 / CONN-002 boot hook for the

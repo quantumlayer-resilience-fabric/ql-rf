@@ -173,6 +173,14 @@ type AzureConfig struct {
 type GCPConfig struct {
 	ProjectID       string `mapstructure:"project_id"`
 	CredentialsFile string `mapstructure:"credentials_file"`
+
+	// FallbackToMock controls whether the orchestrator's real-tool path
+	// (PR #29 / CONN-009) falls back to a deterministic mock client when
+	// real GCP credentials are absent or invalid. true in dev/CI so the
+	// query_gcp_instances tool stays registered and demoable without a
+	// GCP project; MUST be false in production so a misconfiguration is
+	// surfaced loudly at boot instead of silently using fake data.
+	FallbackToMock bool `mapstructure:"fallback_to_mock"`
 }
 
 // VSphereConfig holds vSphere connector configuration.
@@ -492,6 +500,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("connectors.azure.live_run_command_whitelist_vms", []string{})
 	v.SetDefault("connectors.azure.live_run_command_client_mode", "real")
 
+	// PR #29 / CONN-009 GCP connector defaults. Same fallback_to_mock
+	// pattern: false in production, dev/CI sets true via env.
+	v.SetDefault("connectors.gcp.fallback_to_mock", false)
+
 	// K8s connector defaults
 	v.SetDefault("connectors.k8s.kubeconfig", "")
 	v.SetDefault("connectors.k8s.context", "")
@@ -615,6 +627,10 @@ func bindEnvVars(v *viper.Viper) error {
 		"connectors.azure.allow_live_run_command",
 		"connectors.azure.live_run_command_whitelist_vms",
 		"connectors.azure.live_run_command_client_mode",
+		// PR #29 / CONN-009 — GCP connector env bindings.
+		"connectors.gcp.project_id",
+		"connectors.gcp.credentials_file",
+		"connectors.gcp.fallback_to_mock",
 		"drift.host",
 		"drift.port",
 		"drift.calculation_interval",
