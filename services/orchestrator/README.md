@@ -858,6 +858,29 @@ and positive structural tests enforce this.
 (#33/#34/#35). Four platforms × three risk tiers × the four-gate live
 pattern = 12 cloud tools all sharing one audit-by-grep discipline.
 
+## Patch agent platform-awareness (PR #36 / OPS-AGENT-001)
+
+Before PR #36 the `patch_agent` only knew about "SSM" by name and had
+no way to recommend the right tool per asset platform. The 12 cloud
+tools from PRs #19-#35 were inert from the agent's perspective.
+
+PR #36 introduces a **single platform → tool-tier catalog**
+(`patch_platform_catalog.go`) and threads it through the agent's
+prompt and fallback plan. For each platform present in the rollout,
+the agent now names the appropriate read-only / dry-run / live tool
+in the generated plan's `recommended_tools` field.
+
+**Production safety:** the catalog uses dry-run tools in production
+(`environment=production` / `prod`) and live tools elsewhere. The
+two-approver workflow remains the gate for actual live execution —
+the patch agent is a *planner*, not an executor. `agent.Execute` does
+NOT invoke any state-change tool; the 12 tools are NAMED in plans,
+not invoked from the agent.
+
+**Single source of truth:** when the K8s arc lands (PRs #38-#40), add
+one row to `platformCatalog` and the agent's prompt + fallback plan
+both pick up the new tools automatically.
+
 ## State-change dry-run (PR #20 / CONN-002)
 
 The orchestrator's tool registry now includes the first state-change cloud

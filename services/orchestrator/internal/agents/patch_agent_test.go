@@ -22,8 +22,8 @@ func TestPatchAgent_PlanGeneration(t *testing.T) {
 			expectMethod:  llmjson.ParseMethodDirect,
 		},
 		{
-			name: "patch plan wrapped in markdown",
-			response: "Here's the patch rollout plan:\n\n```json\n" + PatchPlanFixture() + "\n```\n",
+			name:          "patch plan wrapped in markdown",
+			response:      "Here's the patch rollout plan:\n\n```json\n" + PatchPlanFixture() + "\n```\n",
 			expectSuccess: true,
 			expectMethod:  llmjson.ParseMethodExtracted,
 		},
@@ -115,7 +115,7 @@ func TestPatchAgent_DefaultPlanGeneration(t *testing.T) {
 				},
 			}
 
-			plan := agent.defaultPatchPlan(tt.assetCount, tt.riskLevel, tt.canarySize, tt.waveSize)
+			plan := agent.defaultPatchPlan(tt.assetCount, tt.riskLevel, tt.canarySize, tt.waveSize, map[string]int{}, "staging")
 
 			// Verify plan structure
 			if plan["summary"] == nil {
