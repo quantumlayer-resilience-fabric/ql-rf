@@ -107,6 +107,11 @@ func run() error {
 	// serves fake data.
 	registerAWSCloudTools(ctx, cfg, toolRegistry, log)
 
+	// PR #26 / CONN-006: same pattern for Azure. Real client validated
+	// via a cheap list-VMs page; falls back to mock when credentials are
+	// absent and fallback_to_mock=true.
+	registerAzureCloudTools(ctx, cfg, toolRegistry, log)
+
 	// PR #20 / CONN-002: register the state-change SSM patch tool in
 	// dry-run mode. Neither the real nor mock SSM client makes any network
 	// call (the SDK isn't even imported in this PR's code), so this is
@@ -505,6 +510,53 @@ func registerAWSCloudTools(
 		"fallback_reason", realErr.Error(),
 	)
 	reg.RegisterCloudTools(tools.NewMockAWSClient())
+}
+
+// registerAzureCloudTools is the PR #26 / CONN-006 boot hook for the
+// Azure read-only tool surface. Mirrors registerAWSCloudTools exactly:
+//
+//   - Real client succeeds → tool registered, info log.
+//   - Real client fails, fallback_to_mock=true → mock registered, loud WARN.
+//   - Real client fails, fallback_to_mock=false → nothing registered, info log.
+//
+// The real client validates credentials at construction by listing one
+// page of VMs (the cheapest Resource Manager call that proves auth +
+// reachability). PR #27/#28 add state-change Azure tools through their
+// own boot hooks (registerAzureRunCommandTools / *Live), preserving the
+// same SDK-isolation pattern used for SSM in PR #20/#21.
+func registerAzureCloudTools(
+	ctx context.Context,
+	cfg *config.Config,
+	reg *tools.Registry,
+	log *logger.Logger,
+) {
+	azCfg := cfg.Connectors.Azure
+
+	bootCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	realClient, realErr := tools.NewRealAzureClient(bootCtx, azCfg, log)
+	if realErr == nil {
+		log.Info("azure tools: real client initialized",
+			"subscription_id", azCfg.SubscriptionID,
+			"tenant_id", azCfg.TenantID,
+		)
+		reg.RegisterAzureCloudTools(realClient)
+		return
+	}
+
+	if !azCfg.FallbackToMock {
+		log.Info("azure tools: real client unavailable and fallback_to_mock=false, not registering azure tools",
+			"hint", "set RF_CONNECTORS_AZURE_FALLBACK_TO_MOCK=true for dev/CI",
+			"error", realErr.Error(),
+		)
+		return
+	}
+
+	log.Warn("azure tools: MOCK CLIENT ACTIVE — VMs returned are FAKE. DO NOT USE IN PRODUCTION.",
+		"fallback_reason", realErr.Error(),
+	)
+	reg.RegisterAzureCloudTools(tools.NewMockAzureClient())
 }
 
 // registerSSMStateChangeTools is the PR #20 / CONN-002 boot hook for the

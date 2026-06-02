@@ -616,6 +616,45 @@ loud WARN at boot is the safety net; a misconfigured production deployment
 would silently serve fake instance lists. CI sets it explicitly to true to
 keep the demo working without real AWS credentials.
 
+## Real Azure tools (PR #26 / CONN-006)
+
+Same registration discipline, different cloud. `query_azure_vms` calls
+`armcompute.VirtualMachinesClient.NewListAllPager` (read-only) and lands
+in `ai_tool_invocations` with `risk_level='read_only'`. Returns a redacted
+projection — no extensions, no NIC IDs, no disk URIs — so an audit-log
+leak is low-risk.
+
+Credentials come from the existing `connectors.azure.*` config (TenantID
++ ClientID + ClientSecret + SubscriptionID). The same service-principal
+shape the connectors service uses for asset discovery. Set via env:
+
+```
+RF_CONNECTORS_AZURE_TENANT_ID=...
+RF_CONNECTORS_AZURE_CLIENT_ID=...
+RF_CONNECTORS_AZURE_CLIENT_SECRET=...
+RF_CONNECTORS_AZURE_SUBSCRIPTION_ID=...
+RF_CONNECTORS_AZURE_FALLBACK_TO_MOCK=true  # dev/CI only
+```
+
+Boot validates the credential by advancing the VMs pager one page — a
+cheap Resource Manager call that surfaces auth misconfiguration loudly
+rather than waiting for first real invocation. If validation fails:
+
+- `fallback_to_mock=true` → mock client active, loud WARN, fixed pair of
+  `mock-vm-prod-01` + `mock-vm-stage-02` returned with a `mock_origin`
+  tag so audit-log SQL can filter.
+- `fallback_to_mock=false` → tool not registered; the orchestrator boots
+  normally and `GET /api/v1/ai/tools` simply doesn't list `query_azure_vms`.
+
+**Never use `RF_CONNECTORS_AZURE_FALLBACK_TO_MOCK=true` in production.**
+Same safety story as AWS. CI sets it true so the read-only demo arc
+works without a real Azure subscription.
+
+**PR #27/#28** will add the Azure state-change tools (`azure_run_command`
+dry-run + `azure_run_command_live` with two-approver) following the
+same arc PR #20 + #21 used for AWS SSM. The SDK-isolation discipline
+(one file owns the Run Command SDK import) carries over verbatim.
+
 ## State-change dry-run (PR #20 / CONN-002)
 
 The orchestrator's tool registry now includes the first state-change cloud
