@@ -145,6 +145,28 @@ type AzureConfig struct {
 	// subscription; MUST be false in production so a misconfiguration is
 	// surfaced loudly at boot instead of silently using fake data.
 	FallbackToMock bool `mapstructure:"fallback_to_mock"`
+
+	// AllowLiveRunCommand is the PR #28 / CONN-008 env opt-in — the first
+	// live Azure cloud-mutating tool (azure_run_command_live). MUST be
+	// false in dev/CI; true ONLY in production deployments that want the
+	// live Azure Run Command path. If true and FallbackToMock is also
+	// true, the orchestrator REFUSES to start (incoherent combination,
+	// same gate the SSM live path uses).
+	AllowLiveRunCommand bool `mapstructure:"allow_live_run_command"`
+
+	// LiveRunCommandWhitelistVMs is the per-VM allowlist for live Azure
+	// Run Command invocations. Parsed from comma-separated env at boot.
+	// Format: "rg/vm-name" pairs (rg is the resource group). The tool
+	// rejects any pair not on this list. Empty + AllowLiveRunCommand=true
+	// also fails boot.
+	LiveRunCommandWhitelistVMs []string `mapstructure:"live_run_command_whitelist_vms"`
+
+	// LiveRunCommandClientMode picks between the real Azure SDK ("real",
+	// default) and the deterministic mock ("mock"). "mock" is for local
+	// smoke and integration tests where we want to exercise the full
+	// live-mode boot path without firing real Azure calls. Production
+	// MUST be "real".
+	LiveRunCommandClientMode string `mapstructure:"live_run_command_client_mode"`
 }
 
 // GCPConfig holds GCP connector configuration.
@@ -463,6 +485,12 @@ func setDefaults(v *viper.Viper) {
 	// loudly; dev/CI sets true via env to keep the query_azure_vms tool
 	// demoable without a real subscription.
 	v.SetDefault("connectors.azure.fallback_to_mock", false)
+	// PR #28 / CONN-008 Azure live-mode defaults. Off everywhere by
+	// default; opt in per-deployment via env. "real" is the prod path;
+	// "mock" exercises the boot path without firing the SDK.
+	v.SetDefault("connectors.azure.allow_live_run_command", false)
+	v.SetDefault("connectors.azure.live_run_command_whitelist_vms", []string{})
+	v.SetDefault("connectors.azure.live_run_command_client_mode", "real")
 
 	// K8s connector defaults
 	v.SetDefault("connectors.k8s.kubeconfig", "")
@@ -583,6 +611,10 @@ func bindEnvVars(v *viper.Viper) error {
 		"connectors.azure.client_secret",
 		"connectors.azure.subscription_id",
 		"connectors.azure.fallback_to_mock",
+		// PR #28 / CONN-008 — live Azure Run Command env bindings.
+		"connectors.azure.allow_live_run_command",
+		"connectors.azure.live_run_command_whitelist_vms",
+		"connectors.azure.live_run_command_client_mode",
 		"drift.host",
 		"drift.port",
 		"drift.calculation_interval",
