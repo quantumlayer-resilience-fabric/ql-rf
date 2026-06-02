@@ -1,3 +1,5 @@
+//nolint:dupl // structural duplication with gcp_tools.go is deliberate — see note there.
+
 // PR #26 / CONN-006 — Azure tools (read-only).
 //
 // First real Azure cloud-touching tool in the orchestrator. Registered
@@ -19,6 +21,8 @@ import (
 // QueryAzureVMsTool lists virtual machines in the configured Azure
 // subscription via a configured AzureClient (real or mock). Risk =
 // read_only. Idempotent. Never modifies cloud state.
+//
+//nolint:dupl // structural duplication with gcp_tools.go is deliberate — see note there.
 type QueryAzureVMsTool struct {
 	client AzureClient
 }

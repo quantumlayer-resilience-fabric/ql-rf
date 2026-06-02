@@ -725,6 +725,31 @@ credentials.
 generalizes to GCP OS Config and vSphere guest-ops — each is a new
 client file + tool + four gates.
 
+## Real GCP tools (PR #29 / CONN-009)
+
+Same registration discipline, third cloud. `query_gcp_instances` calls
+`compute.InstancesClient.AggregatedList` (read-only) and lands in
+`ai_tool_invocations` with `risk_level='read_only'`. Returns a redacted
+projection — no service accounts, no metadata items, no NIC IDs — so an
+audit-log leak is low-risk.
+
+Credentials come from GCP's application-default credential chain, with
+an optional credentials-file override:
+
+```
+RF_CONNECTORS_GCP_PROJECT_ID=...
+RF_CONNECTORS_GCP_CREDENTIALS_FILE=/path/to/sa.json  # optional; defaults to ADC
+RF_CONNECTORS_GCP_FALLBACK_TO_MOCK=true              # dev/CI only
+```
+
+Boot validates the credential by advancing the aggregated-list iterator
+one page. Falls back to mock client (loud WARN) when fallback enabled,
+otherwise the tool simply doesn't register.
+
+PR #30/#31 will add GCP state-change tools (`gcp_os_config_patch`
+dry-run + `gcp_os_config_patch_live` with two-approver) following the
+same arc PR #27/#28 used for Azure.
+
 ## State-change dry-run (PR #20 / CONN-002)
 
 The orchestrator's tool registry now includes the first state-change cloud
