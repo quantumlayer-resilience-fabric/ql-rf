@@ -28,8 +28,11 @@ export function OrgGuardProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Wait for auth to be loaded and user signed in
-    if (!isLoaded || !isSignedIn) {
+    // Wait for auth to be loaded and user signed in.
+    // When DEV_AUTH_BYPASS=true, skip the signed-in check and rely on the
+    // backend's dev-mode user resolution (dev-user → first org).
+    const devAuthBypass = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
+    if (!devAuthBypass && (!isLoaded || !isSignedIn)) {
       return;
     }
 

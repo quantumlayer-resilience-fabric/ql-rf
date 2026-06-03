@@ -11,12 +11,11 @@ import { type ReactNode } from "react";
 export function ConditionalClerkProvider({ children }: { children: ReactNode }) {
   const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
-  // Dev bypass - set NEXT_PUBLIC_DEV_AUTH_BYPASS=true to skip Clerk entirely
-  const devAuthBypass = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
-
-  // Check if we have a valid Clerk key (not a placeholder) and dev bypass is not enabled
+  // Check if we have a valid Clerk key (not a placeholder).
+  // We wrap with ClerkProvider whenever a valid key is present so client-side
+  // useAuth() hooks don't throw — DEV_AUTH_BYPASS only affects the middleware
+  // (server-side route protection), not the provider tree.
   const hasValidKey =
-    !devAuthBypass &&
     publishableKey &&
     publishableKey.startsWith("pk_") &&
     !publishableKey.includes("xxxxx");
