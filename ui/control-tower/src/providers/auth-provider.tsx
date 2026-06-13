@@ -30,6 +30,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Create stable token getter using useCallback
   const stableTokenGetter = useCallback(async () => {
+    // DEV_AUTH_BYPASS: skip Clerk entirely and return a sentinel string.
+    // The backend's auth middleware accepts any Bearer token in dev mode
+    // (RF_DEV_MODE=true on the API + orchestrator services).
+    if (process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true") {
+      return "dev-token";
+    }
+
     // Wait for Clerk to be loaded (with timeout)
     let attempts = 0;
     while (!isLoadedRef.current && attempts < 50) {

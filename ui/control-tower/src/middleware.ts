@@ -7,7 +7,6 @@ const devAuthBypass = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
 
 // Check if Clerk is configured with a valid key
 const hasClerkKey =
-  !devAuthBypass &&
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_") &&
   !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.includes("xxxxx");
@@ -24,15 +23,19 @@ const isPublicRoute = createRouteMatcher([
   "/api/webhooks(.*)",
 ]);
 
-// Use Clerk middleware if configured, otherwise allow all routes
+// Use Clerk middleware if configured, otherwise allow all routes.
+// When DEV_AUTH_BYPASS=true, Clerk middleware is still loaded (so client-side
+// useAuth hooks work without throwing) but auth.protect() is skipped — every
+// route is treated as public.
 export default hasClerkKey
   ? clerkMiddleware(async (auth, request) => {
+      if (devAuthBypass) return NextResponse.next();
       if (!isPublicRoute(request)) {
         await auth.protect();
       }
     })
   : function devMiddleware(_request: NextRequest) {
-      // In development without Clerk or with DEV_AUTH_BYPASS, allow all requests
+      // In development without Clerk, allow all requests
       return NextResponse.next();
     };
 
